@@ -21,12 +21,29 @@ export const TopNav: React.FC<TopNavProps> = ({
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
         {/* Brand identity */}
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center shadow-[0_0_24px_rgba(16,185,129,0.35)]">
-            <Wind className="w-5 h-5 text-black" aria-hidden="true" />
+          <div className="w-10 h-10 rounded-2xl bg-slate-900/90 border border-emerald-500/40 p-1 flex items-center justify-center shadow-[0_0_24px_rgba(16,185,129,0.35)] shrink-0">
+            <svg viewBox="0 0 128 128" className="w-full h-full" fill="none" aria-hidden="true">
+              <path 
+                d="M34 94 C 42 85, 55 70, 64 64 C 73 58, 86 43, 94 34 C 98 30, 101 32, 99 37 C 93 54, 70 80, 54 94 C 45 102, 30 99, 34 94 Z" 
+                fill="url(#nav-emerald)" 
+              />
+              <path d="M64 55 C 68 42, 78 32, 90 30 C 97 29, 96 36, 91 41 C 82 50, 72 56, 64 55 Z" fill="#38bdf8" />
+              <path d="M38 98 C 31 99, 32 92, 37 87 C 46 78, 56 72, 64 73 C 60 86, 50 96, 38 98 Z" fill="#38bdf8" />
+              <circle cx="64" cy="64" r="5" fill="#ffffff" />
+              <defs>
+                <linearGradient id="nav-emerald" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#34d399" />
+                  <stop offset="100%" stopColor="#059669" />
+                </linearGradient>
+              </defs>
+            </svg>
           </div>
           <div>
             <div className="flex items-center gap-2">
               <span className="text-xl font-black tracking-tight text-white">Avir</span>
+              <span className="text-xs font-bold text-emerald-400 font-sans tracking-wide px-1.5 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/20" title="Hebrew: אֲוִיר (Air, Atmosphere & Pure Breath)">
+                אֲוִיר
+              </span>
               <span className="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-mono">
                 Challenge 6
               </span>

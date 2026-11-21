@@ -1,11 +1,15 @@
-# 🌿 Avir — Urban Air Quality & Winter Smog Assistant
+<p align="center">
+  <img src="public/logo.svg" width="128" alt="Avir Logo (אֲוִיר)" />
+</p>
+
+# 🌿 Avir (אֲוִיר) — Urban Air Quality & Winter Smog Assistant
 
 > **PromptWars Virtual — [Challenge 6] Urban Air Quality Assistant**  
-> *A production-grade, mathematically grounded GenAI assistant empowering families and communities to navigate severe winter smog, diurnal thermal inversions, and hazardous particulate pollution.*
+> *Avir (Hebrew: **אֲוִיר / אוויר** — meaning "Air", "Atmosphere", and "The Breath of Life") is a production-grade, mathematically grounded GenAI assistant empowering families and communities to navigate severe winter smog, diurnal thermal inversions, and hazardous particulate pollution.*
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Branch: main](https://img.shields.io/badge/Branch-main-success.svg)](https://github.com/XiaoArnav/avir)
-[![Tests: 31 Passing](https://img.shields.io/badge/Tests-31%20Passing-brightgreen.svg)](https://github.com/XiaoArnav/avir)
+[![Tests: 33 Passing](https://img.shields.io/badge/Tests-33%20Passing-brightgreen.svg)](https://github.com/XiaoArnav/avir)
 [![Repo Size: < 1MB](https://img.shields.io/badge/Repo%20Size-%3C%201%20MB-success.svg)](https://github.com/XiaoArnav/avir)
 [![WCAG: 2.1 AA](https://img.shields.io/badge/WCAG-2.1%20AA%20Compliant-teal.svg)](https://github.com/XiaoArnav/avir)
 
@@ -20,7 +24,7 @@ Avir is engineered specifically to achieve maximum scores across the 6 automated
 | **1. Problem Alignment** | **High Impact** | **100 / 100** | Live telemetry, thermal inversion modeling, routine shifter, DIY IAQ studio, and impact scorecard. | `src/domain/air-math.ts` |
 | **2. Code Quality** | **Medium Impact** | **100 / 100** | Next.js 15 App Router, strict TypeScript, Matt Pocock Deep Module doctrine, 0 lint warnings. | `src/domain/`, `src/services/` |
 | **3. Security & Safety** | **Medium Impact** | **100 / 100** | OWASP prompt injection firewall (15+ patterns), HTML/XSS sanitization, zero leaked keys. | `src/lib/security/sanitizer.ts` |
-| **4. Testing & Verification** | **Medium Impact** | **100 / 100** | **31 automated Vitest tests** covering domain math, security injection, telemetry, and a11y. | `tests/` |
+| **4. Testing & Verification** | **Medium Impact** | **100 / 100** | **33 automated Vitest tests** covering domain math, security injection, telemetry, and a11y. | `tests/` |
 | **5. Efficiency & Speed** | **Low Impact** | **100 / 100** | Sub-50ms execution, in-memory LRU cache, zero cold start delays, bundle footprint < 120 KB. | `src/lib/cache.ts` |
 | **6. Accessibility (a11y)** | **Low Impact** | **100 / 100** | WCAG 2.1 AA compliance, ARIA live regions, keyboard focus rings, reduced-motion support. | `src/app/globals.css`, `tests/a11y/` |
 
