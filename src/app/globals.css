@@ -3,11 +3,11 @@
 @tailwind utilities;
 
 :root {
-  --background: #070a11;
-  --foreground: #f8fafc;
-  --card: rgba(15, 23, 42, 0.65);
+  --background: #000000;
+  --foreground: #ffffff;
+  --card: rgba(14, 14, 17, 0.9);
   --card-border: rgba(255, 255, 255, 0.08);
-  --primary: #10b981;
+  --primary: #ffffff;
 }
 
 html {
@@ -26,30 +26,30 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Cupertino Glassmorphism Utility Tokens */
+/* World-Class Duo Swiss Monochrome Glass Panels */
 .glass-panel {
-  background: rgba(15, 23, 42, 0.6);
+  background: rgba(12, 12, 15, 0.88);
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.36);
+  box-shadow: 0 12px 36px 0 rgba(0, 0, 0, 0.6);
 }
 
 .glass-panel-subtle {
-  background: rgba(15, 23, 42, 0.4);
+  background: rgba(18, 18, 22, 0.65);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .glass-card-interactive {
-  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .glass-card-interactive:hover {
   transform: translateY(-2px);
-  border-color: rgba(255, 255, 255, 0.16);
-  box-shadow: 0 12px 40px -8px rgba(0, 0, 0, 0.5);
+  border-color: rgba(255, 255, 255, 0.18);
+  box-shadow: 0 16px 40px -8px rgba(0, 0, 0, 0.7);
 }
 
 .glass-card-interactive:active {

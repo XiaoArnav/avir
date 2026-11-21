@@ -30,6 +30,12 @@ export interface AtmosphericMetrics {
   pm10: number;       // ug/m3
   co?: number;        // ug/m3
   no2?: number;       // ug/m3
+  so2?: number;       // ug/m3
+  o3?: number;        // ug/m3
+  temperature?: number; // °C
+  humidity?: number;    // %
+  windSpeed?: number;   // km/h
+  windDirection?: number; // degrees
   boundaryLayerHeight: number; // meters
   isThermalInversionActive: boolean;
 }

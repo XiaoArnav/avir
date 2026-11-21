@@ -65,7 +65,7 @@ export async function searchCities(query: string): Promise<GeocodedLocation[]> {
 
 /**
  * Fetches live atmospheric telemetry for specific geographic coordinates.
- * Connects to Open-Meteo Air Quality API with zero API keys required.
+ * Connects to Open-Meteo Air Quality and Weather APIs with zero API keys required.
  */
 export async function fetchLiveAtmosphericMetrics(
   latitude: number,
@@ -76,14 +76,34 @@ export async function fetchLiveAtmosphericMetrics(
   if (cached) return cached;
 
   try {
-    const res = await fetch(
-      `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${latitude}&longitude=${longitude}&current=us_aqi,pm2_5,pm10,carbon_monoxide,nitrogen_dioxide&hourly=pm2_5,boundary_layer_height&timezone=auto`
+    const airQualityPromise = fetch(
+      `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${latitude}&longitude=${longitude}&current=us_aqi,pm2_5,pm10,carbon_monoxide,nitrogen_dioxide,sulphur_dioxide,ozone&hourly=pm2_5,boundary_layer_height&timezone=auto`
     );
 
-    if (!res.ok) throw new Error(`Air Quality API HTTP ${res.status}`);
+    const weatherPromise = fetch(
+      `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m&timezone=auto`
+    );
 
-    const data = await res.json();
+    const [aqResult, weatherResult] = await Promise.allSettled([airQualityPromise, weatherPromise]);
+
+    let data: any = {};
+    if (aqResult.status === 'fulfilled' && aqResult.value.ok) {
+      data = await aqResult.value.json();
+    } else {
+      throw new Error('Air Quality API unavailable');
+    }
+
+    let weatherData: any = {};
+    if (weatherResult.status === 'fulfilled' && weatherResult.value.ok) {
+      try {
+        weatherData = await weatherResult.value.json();
+      } catch {
+        // Weather data optional
+      }
+    }
+
     const current = data.current || {};
+    const weatherCurrent = weatherData.current || {};
     const currentHour = new Date().getHours();
 
     // Extract current or latest boundary layer height from hourly forecast
@@ -104,6 +124,12 @@ export async function fetchLiveAtmosphericMetrics(
       pm10,
       co: current.carbon_monoxide,
       no2: current.nitrogen_dioxide,
+      so2: current.sulphur_dioxide,
+      o3: current.ozone,
+      temperature: typeof weatherCurrent.temperature_2m === 'number' ? Math.round(weatherCurrent.temperature_2m * 10) / 10 : undefined,
+      humidity: typeof weatherCurrent.relative_humidity_2m === 'number' ? Math.round(weatherCurrent.relative_humidity_2m) : undefined,
+      windSpeed: typeof weatherCurrent.wind_speed_10m === 'number' ? Math.round(weatherCurrent.wind_speed_10m * 10) / 10 : undefined,
+      windDirection: typeof weatherCurrent.wind_direction_10m === 'number' ? Math.round(weatherCurrent.wind_direction_10m) : undefined,
       boundaryLayerHeight: Math.round(blh),
       isThermalInversionActive: isThermalInversion(blh, currentHour),
     };
@@ -123,6 +149,9 @@ export async function fetchLiveAtmosphericMetrics(
       usAqi: calculateAQIFromPM25(fallbackPM25),
       pm25: fallbackPM25,
       pm10: 210.0,
+      temperature: 19.5,
+      humidity: 76,
+      windSpeed: 3.2,
       boundaryLayerHeight: fallbackBlh,
       isThermalInversionActive: isThermalInversion(fallbackBlh, fallbackHour),
     };

@@ -89,6 +89,22 @@ export default function Home() {
     };
   }, [selectedCity]);
 
+  // Handle manual live telemetry refresh
+  const refreshTelemetry = async () => {
+    setIsTelemetryLoading(true);
+    try {
+      const data = await fetchLiveAtmosphericMetrics(
+        selectedCity.latitude,
+        selectedCity.longitude
+      );
+      setMetrics(data);
+    } catch (err) {
+      console.error('Failed to reload telemetry:', err);
+    } finally {
+      setIsTelemetryLoading(false);
+    }
+  };
+
   // Handle manual plan regeneration
   const handleGeneratePlan = async () => {
     if (!metrics) return;
@@ -115,7 +131,7 @@ export default function Home() {
   const aqiCategory = metrics ? getAQICategory(metrics.usAqi) : 'Hazardous';
 
   return (
-    <div className="flex-1 flex flex-col min-h-screen bg-[#070a11] text-slate-100">
+    <div className="flex-1 flex flex-col min-h-screen bg-black text-white selection:bg-white selection:text-black">
       <TopNav
         onOpenSettings={() => setIsSettingsOpen(true)}
         onOpenExplainer={() => setIsExplainerOpen(true)}
@@ -131,17 +147,19 @@ export default function Home() {
           isLoading={isTelemetryLoading}
         />
 
-        {/* Atmosphere Telemetry Hero */}
+        {/* Atmosphere Telemetry Hero - IQAir / AQI.in World-Class Duo Standard */}
         {metrics && (
           <AtmosphereHero
             city={selectedCity.name}
             metrics={metrics}
             category={aqiCategory}
             onOpenExplainer={() => setIsExplainerOpen(true)}
+            onRefresh={refreshTelemetry}
+            isLoading={isTelemetryLoading}
           />
         )}
 
-        {/* Apple-Style Segmented Navigation View Controller */}
+        {/* High-Contrast Segmented Navigation View Controller */}
         <SegmentedTabs activeTab={activeTab} onChangeTab={setActiveTab} />
 
         {/* Tab 1: Overview, Location Search, Profile & Scorecard */}
@@ -188,40 +206,40 @@ export default function Home() {
         {/* Tab 4: Community & RWA Circular Hub */}
         {activeTab === 'rwa' && (
           <div className="space-y-6 animate-in fade-in duration-300">
-            <div className="rounded-3xl glass-panel p-6 sm:p-8 space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-white/[0.08]">
+            <div className="rounded-2xl glass-panel p-6 sm:p-8 space-y-4 border border-zinc-800 bg-[#0c0c0e]/95">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-zinc-800">
                 <div>
                   <h2 className="text-xl font-bold text-white tracking-tight">
-                    Community Action & Society Circular Hub
+                    Community Action &amp; Society Circular Hub
                   </h2>
-                  <p className="text-xs text-slate-400 mt-1">
+                  <p className="text-xs text-zinc-400 mt-1">
                     Mobilize your residential apartment society, school council, or neighborhood RWA to enforce CAQM anti-smog protocols.
                   </p>
                 </div>
                 <button
                   onClick={() => setIsRwaModalOpen(true)}
-                  className="px-5 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold transition-all shadow-md self-start sm:self-auto active:scale-95"
+                  className="px-4 py-2 rounded-xl bg-white hover:bg-zinc-200 text-black text-xs font-bold transition-all shadow-md self-start sm:self-auto active:scale-95"
                 >
                   Open Official Notice Generator &rarr;
                 </button>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
-                <div className="p-4 rounded-2xl bg-slate-900/60 border border-white/[0.06] space-y-1.5">
-                  <div className="font-bold text-white">1. School & Play Hours</div>
-                  <p className="text-slate-400">
+                <div className="p-4 rounded-xl bg-zinc-900/60 border border-zinc-800 space-y-1.5">
+                  <div className="font-bold text-white">1. School &amp; Play Hours</div>
+                  <p className="text-zinc-400">
                     Never conduct physical sports before 10:00 AM during winter inversions. Shift outdoor recess to 1:30 PM.
                   </p>
                 </div>
-                <div className="p-4 rounded-2xl bg-slate-900/60 border border-white/[0.06] space-y-1.5">
+                <div className="p-4 rounded-xl bg-zinc-900/60 border border-zinc-800 space-y-1.5">
                   <div className="font-bold text-white">2. Guard Post Protection</div>
-                  <p className="text-slate-400">
+                  <p className="text-zinc-400">
                     Distribute reusable N95 respirators to night-duty estate guards and sanitation teams directly exposed to cold ground air.
                   </p>
                 </div>
-                <div className="p-4 rounded-2xl bg-slate-900/60 border border-white/[0.06] space-y-1.5">
+                <div className="p-4 rounded-xl bg-zinc-900/60 border border-zinc-800 space-y-1.5">
                   <div className="font-bold text-white">3. Society Common Area Filtration</div>
-                  <p className="text-slate-400">
+                  <p className="text-zinc-400">
                     Place low-cost Corsi-Rosenthal boxes in society clubhouses and reading rooms to maintain safe community clean-air zones.
                   </p>
                 </div>
@@ -232,33 +250,33 @@ export default function Home() {
       </main>
 
       {/* Semantic Footer */}
-      <footer className="border-t border-white/[0.08] bg-[#05080e] py-10 text-center text-xs text-slate-500">
+      <footer className="border-t border-zinc-800/80 bg-black py-10 text-center text-xs text-zinc-500">
         <div className="max-w-7xl mx-auto px-4 space-y-3">
-          <div className="flex items-center justify-center gap-2 text-slate-200 font-semibold tracking-wide">
+          <div className="flex items-center justify-center gap-2 text-zinc-200 font-semibold tracking-wide">
             <span className="text-white font-extrabold text-sm">Avir</span>
-            <span className="text-emerald-400 font-sans text-xs px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20">אֲוִיר</span>
-            <span className="text-slate-600">—</span>
-            <span className="text-slate-400">Urban Atmospheric Defense &amp; Exposure Intelligence</span>
+            <span className="text-zinc-300 font-sans text-xs px-1.5 py-0.5 rounded bg-zinc-800 border border-zinc-700/60">אֲוִיר</span>
+            <span className="text-zinc-600">—</span>
+            <span className="text-zinc-400">Urban Atmospheric Defense &amp; Exposure Intelligence</span>
           </div>
 
-          <p className="text-[11px] text-slate-400 flex flex-wrap items-center justify-center gap-x-2 gap-y-1">
-            <span>Built by <strong className="text-slate-200">XiaoArnav</strong></span>
-            <span className="text-slate-600">•</span>
+          <p className="text-[11px] text-zinc-400 flex flex-wrap items-center justify-center gap-x-2 gap-y-1">
+            <span>Built by <strong className="text-white">XiaoArnav</strong></span>
+            <span className="text-zinc-600">•</span>
             <span>PromptWars Virtual (Challenge 6: Urban Air Quality Assistant)</span>
-            <span className="text-slate-600">•</span>
+            <span className="text-zinc-600">•</span>
             <span>Copernicus &amp; NOAA Atmospheric Telemetry</span>
-            <span className="text-slate-600">•</span>
+            <span className="text-zinc-600">•</span>
             <a 
               href="https://github.com/XiaoArnav/avir" 
               target="_blank" 
               rel="noopener noreferrer" 
-              className="text-emerald-400 hover:text-emerald-300 hover:underline"
+              className="text-white underline hover:text-zinc-300"
             >
               Open Source on GitHub
             </a>
           </p>
 
-          <p className="text-[11px] text-slate-600 max-w-2xl mx-auto leading-relaxed">
+          <p className="text-[11px] text-zinc-500 max-w-2xl mx-auto leading-relaxed">
             Mathematical calculations based on CPCB/EPA AQI breakpoints, Berkeley Earth particulate toxicology (22 µg/m³ ≈ 1 cig/day), and Corsi-Rosenthal Box fluid dynamics. Designed for community risk mitigation and routine shifting; not intended as a substitute for emergency clinical care during acute respiratory distress.
           </p>
         </div>

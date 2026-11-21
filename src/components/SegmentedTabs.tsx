@@ -51,7 +51,7 @@ export const SegmentedTabs: React.FC<SegmentedTabsProps> = ({ activeTab, onChang
     >
       <div 
         role="tablist"
-        className="w-full max-w-3xl p-1.5 rounded-2xl glass-panel-subtle bg-slate-950/80 border border-white/[0.08] flex items-center gap-1 overflow-x-auto no-scrollbar shadow-lg"
+        className="w-full max-w-3xl p-1 rounded-xl bg-zinc-950 border border-zinc-800 flex items-center gap-1 overflow-x-auto no-scrollbar shadow-lg"
       >
         {tabs.map((tab) => {
           const isActive = activeTab === tab.id;
@@ -61,22 +61,22 @@ export const SegmentedTabs: React.FC<SegmentedTabsProps> = ({ activeTab, onChang
               role="tab"
               aria-selected={isActive}
               onClick={() => onChangeTab(tab.id)}
-              className={`flex-1 min-w-[130px] sm:min-w-0 py-2.5 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-all duration-200 select-none touch-target ${
+              className={`flex-1 min-w-[130px] sm:min-w-0 py-2 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition-all duration-200 select-none touch-target ${
                 isActive
-                  ? 'bg-gradient-to-r from-emerald-500/20 to-teal-500/20 border border-emerald-500/40 text-emerald-300 shadow-[0_2px_12px_rgba(16,185,129,0.25)]'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60 border border-transparent'
+                  ? 'bg-white text-black shadow-sm'
+                  : 'text-zinc-400 hover:text-white hover:bg-zinc-900/60 border border-transparent'
               }`}
             >
-              <span className={isActive ? 'text-emerald-400' : 'text-slate-500'}>
+              <span className={isActive ? 'text-black' : 'text-zinc-500'}>
                 {tab.icon}
               </span>
               <span className="truncate">{tab.label}</span>
               {tab.badge && (
                 <span
-                  className={`text-[10px] px-1.5 py-0.5 rounded-md font-mono hidden sm:inline-block ${
+                  className={`text-[10px] px-1.5 py-0.5 rounded font-mono hidden sm:inline-block ${
                     isActive
-                      ? 'bg-emerald-500/30 text-emerald-200'
-                      : 'bg-slate-800 text-slate-400'
+                      ? 'bg-black/10 text-black font-bold'
+                      : 'bg-zinc-800 text-zinc-400'
                   }`}
                 >
                   {tab.badge}
