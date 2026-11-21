@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="public/logo.svg" width="128" alt="Avir Logo" />
+  <img src="public/logo.svg" width="128" alt="Avir Logo (אֲוִיר)" />
 </p>
 
-# 🌿 Avir — Urban Air Quality & Winter Smog Assistant
+# 🌿 Avir (אֲוִיר) — Urban Air Quality & Winter Smog Assistant
 
 > **PromptWars Virtual — [Challenge 6] Urban Air Quality Assistant**  
 > *Avir (Hebrew: **אֲוִיר** — meaning "Air", "Atmosphere", and "The Breath of Life") is a production-grade, mathematically grounded GenAI assistant empowering families and communities to navigate severe winter smog, diurnal thermal inversions, and hazardous particulate pollution.*
