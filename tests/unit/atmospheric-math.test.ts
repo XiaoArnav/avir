@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
   calculateAQIFromPM25,
   getAQICategory,
+  getGrapStage,
+  calculateCigaretteEquivalence,
   isThermalInversion,
   calculateInhaledPM25,
   calculateBerkeleyCigarettes,
@@ -29,6 +31,20 @@ describe('Atmospheric Math & Exposure Toxicology Engine', () => {
       expect(getAQICategory(175)).toBe('Unhealthy');
       expect(getAQICategory(240)).toBe('VeryUnhealthy');
       expect(getAQICategory(380)).toBe('Hazardous');
+    });
+
+    it('correctly maps AQI to CAQM GRAP Emergency stages and advisories', () => {
+      expect(getGrapStage(460).stage).toBe('Stage IV');
+      expect(getGrapStage(420).stage).toBe('Stage III');
+      expect(getGrapStage(350).stage).toBe('Stage II');
+      expect(getGrapStage(240).stage).toBe('Stage I');
+      expect(getGrapStage(110).stage).toBe('Normal');
+    });
+
+    it('calculates Berkeley Earth cigarette equivalence with single-decimal precision', () => {
+      expect(calculateCigaretteEquivalence(220)).toBe(10.0);
+      expect(calculateCigaretteEquivalence(44)).toBe(2.0);
+      expect(calculateCigaretteEquivalence(0)).toBe(0);
     });
   });
 

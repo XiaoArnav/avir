@@ -54,6 +54,72 @@ export function getAQICategory(aqi: number): AQICategory {
 }
 
 /**
+ * Calculates daily cigarette equivalence from PM2.5 (ug/m3) using Berkeley Earth toxicology:
+ * ~22 ug/m3 PM2.5 inhaled over 24 hours is toxicologically equivalent to 1 cigarette.
+ */
+export function calculateCigaretteEquivalence(pm25: number): number {
+  if (pm25 <= 0) return 0;
+  return Math.round((pm25 / 22.0) * 10) / 10;
+}
+
+export interface GrapStageInfo {
+  stage: 'Stage I' | 'Stage II' | 'Stage III' | 'Stage IV' | 'Normal';
+  label: string;
+  color: string;
+  badgeBg: string;
+  advisory: string;
+}
+
+/**
+ * Maps Indian AQI to CAQM Graded Response Action Plan (GRAP) emergency stages.
+ */
+export function getGrapStage(aqi: number): GrapStageInfo {
+  if (aqi > 450) {
+    return {
+      stage: 'Stage IV',
+      label: 'Stage IV (Severe+ / Emergency)',
+      color: 'text-rose-400',
+      badgeBg: 'bg-rose-500/20 border-rose-500/50 text-rose-300',
+      advisory: 'Ban on commercial truck entry, 50% office WFH, hybrid/closed physical schools.',
+    };
+  }
+  if (aqi >= 401) {
+    return {
+      stage: 'Stage III',
+      label: 'Stage III (Severe Smog)',
+      color: 'text-purple-400',
+      badgeBg: 'bg-purple-500/20 border-purple-500/50 text-purple-300',
+      advisory: 'Ban on non-essential construction, BS-III petrol & BS-IV diesel vehicle restrictions.',
+    };
+  }
+  if (aqi >= 301) {
+    return {
+      stage: 'Stage II',
+      label: 'Stage II (Very Poor)',
+      color: 'text-orange-400',
+      badgeBg: 'bg-orange-500/20 border-orange-500/50 text-orange-300',
+      advisory: 'Mechanical vacuum sweeping, diesel generator restrictions, increased parking fees.',
+    };
+  }
+  if (aqi >= 201) {
+    return {
+      stage: 'Stage I',
+      label: 'Stage I (Poor)',
+      color: 'text-yellow-400',
+      badgeBg: 'bg-yellow-500/20 border-yellow-500/50 text-yellow-300',
+      advisory: 'Anti-dust water sprinkling on road corridors, strict fines on open trash burning.',
+    };
+  }
+  return {
+    stage: 'Normal',
+    label: 'Normal Ambient Air',
+    color: 'text-emerald-400',
+    badgeBg: 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300',
+    advisory: 'Standard baseline monitoring; outdoor activities permissible for healthy individuals.',
+  };
+}
+
+/**
  * Evaluates whether a meteorological thermal inversion layer is trapping ground pollutants.
  * Inversion criteria: nocturnal/early-morning contraction of planetary boundary layer (< 200m).
  */
