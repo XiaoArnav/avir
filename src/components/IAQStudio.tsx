@@ -22,13 +22,13 @@ export const IAQStudio: React.FC<IAQStudioProps> = ({ spec: initialSpec }) => {
         <div>
           <div className="flex items-center gap-2 text-xs font-mono text-ink-muted dark:text-zinc-400 uppercase tracking-wider mb-1">
             <Sparkles className="w-3.5 h-3.5 text-sage-600 dark:text-zinc-300" />
-            <span>Frugal Engineering &amp; Clean Air Physics</span>
+            <span>Affordable Clean Home Air</span>
           </div>
           <h2 className="text-xl sm:text-2xl font-extrabold text-ink dark:text-white tracking-tight flex items-center gap-2">
-            <span>Clean Home Air: DIY Corsi-Rosenthal Cleaner</span>
+            <span>Build a ₹2,950 Air Cleaner (DIY Box Fan)</span>
           </h2>
           <p className="text-xs text-ink-muted dark:text-zinc-400 mt-1 max-w-2xl leading-relaxed">
-            Mates a standard 20-inch box fan with 4 or 5 MERV-13 filters to deliver commercial hospital-grade CADR at 15% of the commercial unit cost.
+            Tape 4 furnace filters to a regular 20-inch box fan. Delivers 490 CFM of clean air—matching an ₹18,000 branded purifier at a fraction of the cost.
           </p>
         </div>
 
@@ -42,7 +42,7 @@ export const IAQStudio: React.FC<IAQStudioProps> = ({ spec: initialSpec }) => {
                 : 'text-ink-muted hover:text-ink dark:text-zinc-400 dark:hover:text-white'
             }`}
           >
-            4-Filter Cube (490 CFM)
+            4-Filter Cube (490 CFM Power)
           </button>
           <button
             onClick={() => setFilterCount(5)}
@@ -52,7 +52,7 @@ export const IAQStudio: React.FC<IAQStudioProps> = ({ spec: initialSpec }) => {
                 : 'text-ink-muted hover:text-ink dark:text-zinc-400 dark:hover:text-white'
             }`}
           >
-            5-Filter Comparetto (580 CFM)
+            5-Filter Cube (580 CFM Extra Power)
           </button>
         </div>
       </div>
@@ -62,18 +62,18 @@ export const IAQStudio: React.FC<IAQStudioProps> = ({ spec: initialSpec }) => {
         {/* Metric 1: ACH */}
         <div className="rounded-xl p-5 bg-stone-50 dark:bg-zinc-900/60 border border-stone-200 dark:border-zinc-800/80">
           <div className="flex items-center justify-between text-ink-muted dark:text-zinc-400 text-xs mb-1.5">
-            <span className="font-semibold uppercase tracking-wider font-mono text-[11px]">Air Changes / Hour</span>
+            <span className="font-semibold uppercase tracking-wider font-mono text-[11px]">Room Air Washed</span>
             <Zap className="w-4 h-4 text-sage-600 dark:text-zinc-300" />
           </div>
           <div className="text-3xl sm:text-4xl font-extrabold text-ink dark:text-white font-mono tracking-tight tabular-nums">
-            {activeSpec.airChangesPerHour} <span className="text-sm font-sans font-normal text-ink-muted dark:text-zinc-400">ACH</span>
+            {activeSpec.airChangesPerHour} <span className="text-sm font-sans font-normal text-ink-muted dark:text-zinc-400">times/hr (ACH)</span>
           </div>
           <p className="text-xs text-sage-700 dark:text-zinc-300 mt-2 font-semibold flex items-center gap-1">
             <CheckCircle2 className="w-3.5 h-3.5 text-sage-600 dark:text-white" />
             <span>
               {activeSpec.airChangesPerHour >= 6
-                ? 'Hospital Airborne Infection Isolation Grade'
-                : 'Exceeds EPA 4 ACH Baseline Standard'}
+                ? 'Hospital Isolation Grade Clean Air'
+                : 'Exceeds Standard Clean Air Goal (4 ACH)'}
             </span>
           </p>
         </div>
@@ -81,28 +81,28 @@ export const IAQStudio: React.FC<IAQStudioProps> = ({ spec: initialSpec }) => {
         {/* Metric 2: Particle Half-Life Clearance */}
         <div className="rounded-xl p-5 bg-stone-50 dark:bg-zinc-900/60 border border-stone-200 dark:border-zinc-800/80">
           <div className="flex items-center justify-between text-ink-muted dark:text-zinc-400 text-xs mb-1.5">
-            <span className="font-semibold uppercase tracking-wider font-mono text-[11px]">Room Smog Half-Life</span>
+            <span className="font-semibold uppercase tracking-wider font-mono text-[11px]">Cuts Smog by Half</span>
             <Timer className="w-4 h-4 text-sage-600 dark:text-zinc-300" />
           </div>
           <div className="text-3xl sm:text-4xl font-extrabold text-ink dark:text-white font-mono tracking-tight tabular-nums">
             {activeSpec.clearingHalfLifeMinutes} <span className="text-sm font-sans font-normal text-ink-muted dark:text-zinc-400">mins</span>
           </div>
           <p className="text-xs text-stone-500 dark:text-zinc-500 mt-2">
-            Time required to purge 50% of airborne PM2.5 from a {activeSpec.roomVolumeM3} m³ space.
+            Time needed to clear 50% of airborne dust from your {activeSpec.roomVolumeM3} m³ room.
           </p>
         </div>
 
         {/* Metric 3: Cost Comparison */}
         <div className="rounded-xl p-5 bg-stone-50 dark:bg-zinc-900/60 border border-stone-200 dark:border-zinc-800/80">
           <div className="flex items-center justify-between text-ink-muted dark:text-zinc-400 text-xs mb-1.5">
-            <span className="font-semibold uppercase tracking-wider font-mono text-[11px]">Frugal Cost Advantage</span>
+            <span className="font-semibold uppercase tracking-wider font-mono text-[11px]">Estimated Total Cost</span>
             <DollarSign className="w-4 h-4 text-sage-600 dark:text-zinc-300" />
           </div>
           <div className="text-3xl sm:text-4xl font-extrabold text-ink dark:text-white font-mono tracking-tight tabular-nums">
-            ₹{activeSpec.estimatedCostINR} <span className="text-xs font-sans font-normal text-ink-muted dark:text-zinc-400">vs ₹18,000 HEPA</span>
+            ₹{activeSpec.estimatedCostINR} <span className="text-xs font-sans font-normal text-ink-muted dark:text-zinc-400">vs ₹18,000 Branded</span>
           </div>
           <p className="text-xs text-sage-700 dark:text-zinc-300 mt-2 font-semibold">
-            Delivers 83% financial savings with identical clean air throughput.
+            Delivers 83% financial savings with identical clean air output.
           </p>
         </div>
       </div>
@@ -111,7 +111,7 @@ export const IAQStudio: React.FC<IAQStudioProps> = ({ spec: initialSpec }) => {
       <div className="rounded-xl bg-stone-50 dark:bg-zinc-950 p-5 border border-stone-200 dark:border-zinc-800 space-y-3">
         <h3 className="text-xs font-bold uppercase tracking-wider font-mono text-ink dark:text-zinc-300 flex items-center gap-2">
           <Wrench className="w-4 h-4 text-sage-600 dark:text-zinc-400" />
-          <span>Local Sourcing &amp; Assembly Blueprint (Under 20 Minutes)</span>
+          <span>Materials Needed &amp; Easy 20-Minute Setup</span>
         </h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs text-ink dark:text-zinc-300">
           <div className="p-3 rounded-lg bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 shadow-xs">

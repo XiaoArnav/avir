@@ -53,10 +53,10 @@ export const MultiSourceInspectorModal: React.FC<MultiSourceInspectorModalProps>
             </div>
             <div>
               <h3 className="text-lg font-bold text-ink dark:text-white">
-                Multi-Source Consensus &amp; Uncertainty Range
+                Compare 5 Open Data Sources
               </h3>
               <p className="text-xs text-ink-muted dark:text-zinc-400">
-                Cross-validated atmospheric reanalysis across 5 open-source feeds for {cityName}
+                Air quality readings from 5 independent global and local feeds for {cityName}
               </p>
             </div>
           </div>
@@ -75,7 +75,7 @@ export const MultiSourceInspectorModal: React.FC<MultiSourceInspectorModalProps>
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div>
               <div className="text-[10px] font-mono uppercase font-bold text-ink-muted dark:text-zinc-400">
-                Ensemble Consensus Average
+                5-Source Average
               </div>
               <div className="flex items-baseline gap-2 mt-0.5">
                 <span className="text-3xl font-mono font-black text-ink dark:text-white">
@@ -93,7 +93,7 @@ export const MultiSourceInspectorModal: React.FC<MultiSourceInspectorModalProps>
             <div className="flex items-center gap-2">
               <span className="text-xs font-mono font-bold px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 flex items-center gap-1.5">
                 <ShieldCheck className="w-3.5 h-3.5" />
-                {confidenceScorePercent}% Model Agreement
+                {confidenceScorePercent}% Agreement
               </span>
               <span className="text-xs font-mono font-bold px-2 py-1 rounded-full bg-stone-200 dark:bg-zinc-700 text-ink dark:text-white">
                 {agreementLevel}
@@ -104,7 +104,7 @@ export const MultiSourceInspectorModal: React.FC<MultiSourceInspectorModalProps>
           {/* Uncertainty Range Bar */}
           <div className="pt-2 space-y-1.5">
             <div className="flex justify-between text-xs font-mono text-ink-muted dark:text-zinc-400">
-              <span>Uncertainty Range Spread:</span>
+              <span>Observed AQI Range:</span>
               <span className="font-bold text-ink dark:text-white">
                 {aqiMin} – {aqiMax} AQI (±{deviationSpread} spread)
               </span>
@@ -116,9 +116,9 @@ export const MultiSourceInspectorModal: React.FC<MultiSourceInspectorModalProps>
               />
             </div>
             <div className="flex justify-between text-[10px] font-mono text-ink-muted dark:text-zinc-400">
-              <span>Min Observed: {aqiMin} AQI ({pm25Min} µg)</span>
-              <span>Consensus Mean: {consensusAqi} AQI</span>
-              <span>Max Observed: {aqiMax} AQI ({pm25Max} µg)</span>
+              <span>Lowest: {aqiMin} AQI ({pm25Min} µg/m³)</span>
+              <span>Average: {consensusAqi} AQI</span>
+              <span>Highest: {aqiMax} AQI ({pm25Max} µg/m³)</span>
             </div>
           </div>
 
@@ -132,7 +132,7 @@ export const MultiSourceInspectorModal: React.FC<MultiSourceInspectorModalProps>
           <div className="flex items-center justify-between">
             <h4 className="text-xs font-mono font-bold uppercase text-ink-muted dark:text-zinc-400 flex items-center gap-1.5">
               <Database className="w-3.5 h-3.5 text-sage-600 dark:text-emerald-400" />
-              <span>Independent Reporting Atmospheric Feeds ({feeds.length})</span>
+              <span>Data Sources ({feeds.length})</span>
             </h4>
           </div>
 
@@ -169,7 +169,7 @@ export const MultiSourceInspectorModal: React.FC<MultiSourceInspectorModalProps>
                         {feed.pm25} µg/m³
                       </div>
                       <div className="text-[10px] font-mono text-ink-muted dark:text-zinc-400">
-                        {delta === 0 ? 'Exact Consensus' : `${deltaStr} from mean`}
+                        {delta === 0 ? 'Exact Match' : `${deltaStr} from average`}
                       </div>
                     </div>
 

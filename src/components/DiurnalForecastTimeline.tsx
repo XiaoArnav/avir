@@ -50,10 +50,10 @@ export const DiurnalForecastTimeline: React.FC<DiurnalForecastTimelineProps> = (
           </div>
           <div>
             <h3 className="text-base sm:text-lg font-bold text-ink dark:text-white">
-              24-Hour Diurnal &ldquo;Safe Hours&rdquo; Forecast
+              24-Hour Smog Forecast &amp; Safe Hours
             </h3>
             <p className="text-xs text-ink-muted dark:text-zinc-400">
-              Hour-by-hour boundary layer mixing ceiling &amp; safe solar ventilation windows for {cityName}
+              Best and worst hours for outdoor activities and opening windows in {cityName}
             </p>
           </div>
         </div>
@@ -62,11 +62,11 @@ export const DiurnalForecastTimeline: React.FC<DiurnalForecastTimelineProps> = (
         <div className="flex items-center gap-2 text-xs">
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 font-medium">
             <Sun className="w-3.5 h-3.5" />
-            Venting: {analysis.bestVentingWindow.startHour}:00 - {analysis.bestVentingWindow.endHour}:00
+            Best Air: {analysis.bestVentingWindow.startHour}:00 - {analysis.bestVentingWindow.endHour}:00
           </span>
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 font-medium">
             <AlertTriangle className="w-3.5 h-3.5" />
-            Inversion Lid: {analysis.worstInversionWindow.startHour}:00 - {analysis.worstInversionWindow.endHour}:00
+            Worst Smog: {analysis.worstInversionWindow.startHour}:00 - {analysis.worstInversionWindow.endHour}:00
           </span>
         </div>
       </div>
@@ -137,11 +137,11 @@ export const DiurnalForecastTimeline: React.FC<DiurnalForecastTimelineProps> = (
             )}
             {activePoint.isSafeVentingWindow ? (
               <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-500 font-bold flex items-center gap-1">
-                <ShieldCheck className="w-3 h-3" /> Safe Solar Window
+                <ShieldCheck className="w-3 h-3" /> Clean Air Window
               </span>
             ) : (
               <span className="text-[10px] px-2 py-0.5 rounded-full bg-rose-500/10 text-rose-500 font-bold flex items-center gap-1">
-                <AlertTriangle className="w-3 h-3" /> Thermal Inversion Risk
+                <AlertTriangle className="w-3 h-3" /> Heavy Smog Window
               </span>
             )}
           </div>
@@ -160,13 +160,13 @@ export const DiurnalForecastTimeline: React.FC<DiurnalForecastTimelineProps> = (
             </div>
           </div>
           <div>
-            <div className="text-[10px] text-ink-muted dark:text-zinc-400">PM2.5</div>
+            <div className="text-[10px] text-ink-muted dark:text-zinc-400">Fine Dust</div>
             <div className="font-bold text-ink dark:text-white text-base">
               {activePoint.pm25} <span className="text-[10px]">µg/m³</span>
             </div>
           </div>
           <div>
-            <div className="text-[10px] text-ink-muted dark:text-zinc-400">Ceiling</div>
+            <div className="text-[10px] text-ink-muted dark:text-zinc-400">Smoke Ceiling</div>
             <div className="font-bold text-ink dark:text-white text-base">
               {activePoint.boundaryLayerHeight} <span className="text-[10px]">m</span>
             </div>

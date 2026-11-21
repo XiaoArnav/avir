@@ -51,10 +51,10 @@ export const CityShootout: React.FC<CityShootoutProps> = ({
           </div>
           <div>
             <h3 className="text-base sm:text-lg font-bold text-ink dark:text-white">
-              City vs. City Smog Shootout
+              Compare Cities: Smog Shootout
             </h3>
             <p className="text-xs text-ink-muted dark:text-zinc-400">
-              Comparative atmospheric toxicity &amp; particulate inhalation gap vs global capitals
+              See how your city&apos;s air compares to major capitals around the world
             </p>
           </div>
         </div>
@@ -199,10 +199,10 @@ export const CityShootout: React.FC<CityShootoutProps> = ({
         <div className="space-y-1">
           <div className="flex items-center gap-2">
             <span className="font-bold text-sm text-ink dark:text-white">
-              Analytical Toxicity Verdict
+              Comparison Summary
             </span>
             <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-500 font-bold">
-              {comparison.toxicityMultiplier}× Multiplier
+              {comparison.toxicityMultiplier}× Difference
             </span>
           </div>
           <p className="text-xs text-ink-muted dark:text-zinc-400">
@@ -213,7 +213,7 @@ export const CityShootout: React.FC<CityShootoutProps> = ({
         <div className="flex items-center gap-3 shrink-0 p-2.5 rounded-lg bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-xs">
           <Cigarette className="w-4 h-4 text-rose-500 shrink-0" />
           <div>
-            <div className="text-[10px] text-ink-muted dark:text-zinc-400">Cigarette Gap</div>
+            <div className="text-[10px] text-ink-muted dark:text-zinc-400">Smoking Difference</div>
             <div className="font-mono font-bold text-ink dark:text-white">
               +{comparison.cigaretteDifferential} cigs/day
             </div>

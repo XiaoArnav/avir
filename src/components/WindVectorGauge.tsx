@@ -27,10 +27,10 @@ export const WindVectorGauge: React.FC<WindVectorGaugeProps> = ({
           </div>
           <div>
             <h3 className="text-base font-bold text-ink dark:text-white">
-              Wind Vector &amp; Smoke Influx Compass
+              Wind &amp; Smoke Direction Compass
             </h3>
             <p className="text-xs text-ink-muted dark:text-zinc-400">
-              Boundary layer horizontal transport &amp; regional dispersion vector
+              Shows whether wind is blowing smoke into or clearing air away from {cityName}
             </p>
           </div>
         </div>
@@ -78,19 +78,19 @@ export const WindVectorGauge: React.FC<WindVectorGaugeProps> = ({
         <div className="flex-1 space-y-2 text-xs">
           <div className="flex items-center gap-2">
             <span className="font-bold text-ink dark:text-white">
-              Meteorological Drift Diagnosis
+              Wind &amp; Smoke Impact
             </span>
             {intel.isSmokeCorridor ? (
               <span className="text-[10px] px-2 py-0.5 rounded-full bg-rose-500/10 text-rose-500 font-bold border border-rose-500/20 flex items-center gap-1">
-                <AlertTriangle className="w-3 h-3" /> Transboundary Smoke Corridor
+                <AlertTriangle className="w-3.5 h-3.5" /> Smoke Influx from Regional Fires
               </span>
             ) : intel.isStagnantTrap ? (
               <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-500 font-bold border border-amber-500/20 flex items-center gap-1">
-                <AlertTriangle className="w-3 h-3" /> Calm Stagnation Trap
+                <AlertTriangle className="w-3.5 h-3.5" /> Still Air (Smog Trapped)
               </span>
             ) : (
               <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-500 font-bold border border-emerald-500/20 flex items-center gap-1">
-                <ShieldCheck className="w-3 h-3" /> Active Horizontal Ventilation
+                <ShieldCheck className="w-3.5 h-3.5" /> Fresh Breeze (Clearing Air)
               </span>
             )}
           </div>
@@ -100,11 +100,11 @@ export const WindVectorGauge: React.FC<WindVectorGaugeProps> = ({
           </p>
 
           <div className="pt-1 flex flex-wrap items-center gap-3 text-[11px] font-mono text-ink-muted dark:text-zinc-400">
-            <span>Surface Velocity: <strong>{intel.speedKmh} km/h</strong></span>
+            <span>Wind Speed: <strong>{intel.speedKmh} km/h</strong></span>
             <span>&bull;</span>
-            <span>Wind Bearing: <strong>{intel.degrees}° ({intel.compassPoint})</strong></span>
+            <span>Direction: <strong>{intel.degrees}° ({intel.compassPoint})</strong></span>
             <span>&bull;</span>
-            <span>Sensor Station: <strong>NOAA &amp; Copernicus GFS</strong></span>
+            <span>Data: <strong>Satellite Weather Network</strong></span>
           </div>
         </div>
       </div>

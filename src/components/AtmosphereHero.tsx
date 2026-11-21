@@ -272,21 +272,21 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
             <button
               onClick={onOpenMultiSource}
               className="mt-3.5 inline-flex items-center flex-wrap gap-2 px-3 py-1.5 rounded-xl bg-white/90 dark:bg-zinc-900/90 border border-stone-200 dark:border-zinc-800 text-xs text-ink dark:text-zinc-200 hover:border-emerald-500/60 hover:bg-emerald-50/40 dark:hover:bg-emerald-950/20 transition-all shadow-sm group cursor-pointer text-left w-fit"
-              title="Inspect 5 Open-Source Telemetry Feeds, Average Consensus & Uncertainty Range"
-              aria-label="Inspect Multi-Source Open-Source AQI Consensus"
+              title="Compare 5 independent air quality data sources"
+              aria-label="Inspect 5 Open-Source AQI Feeds"
             >
               <span className="flex h-2 w-2 relative">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
               </span>
               <span className="font-semibold text-ink dark:text-white">
-                5-Source Avg: <strong className="font-mono text-emerald-600 dark:text-emerald-400 font-bold">{metrics.ensemble.consensusAqi} AQI</strong>
+                5-Source Average: <strong className="font-mono text-emerald-600 dark:text-emerald-400 font-bold">{metrics.ensemble.consensusAqi} AQI</strong>
               </span>
               <span className="font-mono text-ink-muted dark:text-zinc-400 text-[11px]">
                 (Range: {metrics.ensemble.aqiMin}–{metrics.ensemble.aqiMax})
               </span>
               <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 font-bold border border-emerald-500/20">
-                {metrics.ensemble.confidenceScorePercent}% Consensus
+                {metrics.ensemble.confidenceScorePercent}% Agreement
               </span>
               <span className="text-emerald-600 dark:text-emerald-400 font-bold text-xs group-hover:translate-x-0.5 transition-transform">
                 &rarr;
@@ -301,13 +301,13 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
             </div>
             <div className="text-xs">
               <div className="font-semibold text-ink dark:text-white flex items-center gap-1.5">
-                <span>Inhalation Exposure:</span>
+                <span>Breathing Burden:</span>
                 <span className="font-bold font-mono text-sm px-1.5 py-0.5 rounded bg-terracotta-50 dark:bg-zinc-800 text-terracotta-700 dark:text-white border border-terracotta-200 dark:border-zinc-700">
                   ≈ {cigarettes} cigs/day
                 </span>
               </div>
               <p className="text-[11px] text-ink-muted dark:text-zinc-400 leading-tight mt-1">
-                Berkeley Earth rule: 22 µg/m³ ambient PM2.5 = 1 smoked cigarette.
+                Health standard: 22 µg/m³ ambient fine dust = smoking 1 cigarette.
               </p>
             </div>
           </div>
@@ -328,51 +328,51 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
           {/* PM2.5 Fine Particulate */}
           <div className="rounded-xl p-4 bg-white/80 dark:bg-zinc-900/60 border border-stone-200 dark:border-zinc-800/80 hover:border-stone-300 dark:hover:border-zinc-700 transition-colors shadow-sm">
             <div className="flex items-center justify-between text-ink-muted dark:text-zinc-400 text-xs mb-1">
-              <span className="font-mono uppercase tracking-wider text-[11px]">Fine PM2.5</span>
+              <span className="font-mono uppercase tracking-wider text-[11px]">Fine Dust (PM2.5)</span>
               <CloudFog className="w-4 h-4 text-terracotta-500 dark:text-zinc-400" />
             </div>
             <div className="text-2xl sm:text-3xl font-extrabold text-ink dark:text-white font-mono tracking-tight tabular-nums">
               {metrics.pm25} <span className="text-xs font-sans font-normal text-ink-muted dark:text-zinc-400">µg/m³</span>
             </div>
-            <div className="text-[11px] text-ink-muted dark:text-zinc-500 mt-1">Deep Alveolar Penetration</div>
+            <div className="text-[11px] text-ink-muted dark:text-zinc-500 mt-1">Enters lungs &amp; bloodstream</div>
           </div>
 
           {/* PM10 Coarse Particulate */}
           <div className="rounded-xl p-4 bg-white/80 dark:bg-zinc-900/60 border border-stone-200 dark:border-zinc-800/80 hover:border-stone-300 dark:hover:border-zinc-700 transition-colors shadow-sm">
             <div className="flex items-center justify-between text-ink-muted dark:text-zinc-400 text-xs mb-1">
-              <span className="font-mono uppercase tracking-wider text-[11px]">Respirable PM10</span>
+              <span className="font-mono uppercase tracking-wider text-[11px]">Bigger Dust (PM10)</span>
               <CloudFog className="w-4 h-4 text-amber-500 dark:text-zinc-400" />
             </div>
             <div className="text-2xl sm:text-3xl font-extrabold text-ink dark:text-white font-mono tracking-tight tabular-nums">
               {metrics.pm10} <span className="text-xs font-sans font-normal text-ink-muted dark:text-zinc-400">µg/m³</span>
             </div>
-            <div className="text-[11px] text-ink-muted dark:text-zinc-500 mt-1">Coarse Inhalable Aerosol</div>
+            <div className="text-[11px] text-ink-muted dark:text-zinc-500 mt-1">Irritates eyes, nose &amp; throat</div>
           </div>
 
           {/* Thermal Mixing Ceiling / Boundary Layer */}
           <div className="rounded-xl p-4 bg-white/80 dark:bg-zinc-900/60 border border-stone-200 dark:border-zinc-800/80 hover:border-stone-300 dark:hover:border-zinc-700 transition-colors shadow-sm">
             <div className="flex items-center justify-between text-ink-muted dark:text-zinc-400 text-xs mb-1">
-              <span className="font-mono uppercase tracking-wider text-[11px]">Air Mixing Height</span>
+              <span className="font-mono uppercase tracking-wider text-[11px]">Smoke Ceiling</span>
               <Gauge className="w-4 h-4 text-sage-600 dark:text-zinc-400" />
             </div>
             <div className="text-2xl sm:text-3xl font-extrabold text-ink dark:text-white font-mono tracking-tight tabular-nums">
               {metrics.boundaryLayerHeight} <span className="text-xs font-sans font-normal text-ink-muted dark:text-zinc-400">m</span>
             </div>
             <div className="text-[11px] text-ink-muted dark:text-zinc-500 mt-1">
-              {metrics.isThermalInversionActive ? 'Contracted Lid (Inversion)' : 'Convective Expansion'}
+              {metrics.isThermalInversionActive ? 'Low ceiling (Trapping smog near ground)' : 'High ceiling (Blowing smog away)'}
             </div>
           </div>
 
           {/* Meteorological Ambient Conditions */}
           <div className="rounded-xl p-4 bg-white/80 dark:bg-zinc-900/60 border border-stone-200 dark:border-zinc-800/80 hover:border-stone-300 dark:hover:border-zinc-700 transition-colors shadow-sm">
             <div className="flex items-center justify-between text-ink-muted dark:text-zinc-400 text-xs mb-1">
-              <span className="font-mono uppercase tracking-wider text-[11px]">Ambient Weather</span>
+              <span className="font-mono uppercase tracking-wider text-[11px]">Live Weather</span>
               <Activity className="w-4 h-4 text-sage-600 dark:text-zinc-400" />
             </div>
             <div className="text-xl sm:text-2xl font-extrabold text-ink dark:text-white font-mono tracking-tight">
               {metrics.temperature !== undefined ? `${metrics.temperature}°C` : '18.4°C'}
               <span className="text-xs font-normal text-ink-muted dark:text-zinc-400 ml-2">
-                {metrics.humidity !== undefined ? `${metrics.humidity}% RH` : '74% RH'}
+                {metrics.humidity !== undefined ? `${metrics.humidity}% Humidity` : '74% Humidity'}
               </span>
             </div>
             <div className="text-[11px] text-ink-muted dark:text-zinc-500 mt-1">
@@ -388,7 +388,7 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
           <div className="flex items-center gap-2">
             <Sparkles className="w-4 h-4 text-sage-600 dark:text-emerald-400" />
             <h3 className="text-xs font-bold font-mono uppercase tracking-wider text-ink dark:text-white">
-              Action-First Health Guidance • Today's Decision Summary
+              Today's Quick Health Guide • What to do
             </h3>
           </div>
           <span className="text-[10px] font-mono text-ink-muted dark:text-zinc-400 hidden sm:inline">
@@ -405,10 +405,10 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
             </div>
             <p className="text-ink-muted dark:text-zinc-400 text-[11px] leading-relaxed">
               {metrics.usAqi > 200 
-                ? 'Severe particulate load. Daily inhalation equals smoking over 8-10 cigarettes.'
+                ? 'Severe toxic smog. Breathing today is like smoking 8-10 cigarettes.'
                 : metrics.usAqi > 100 
-                ? 'Elevated smog. Sensitive groups experience airway inflammation.'
-                : 'Acceptable air quality with minimal acute pulmonary risk.'}
+                ? 'Unhealthy air. Children, elderly, and sensitive lungs will cough.'
+                : 'Good air. Safe for normal outdoor activities.'}
             </p>
           </div>
 
@@ -420,9 +420,9 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
             </div>
             <p className="text-ink-muted dark:text-zinc-400 text-[11px] leading-relaxed">
               {metrics.usAqi > 200 
-                ? 'Suspend outdoor cardio workouts before 10 AM. Wear an N95 respirator if stepping out.'
+                ? 'Avoid outdoor workouts in the morning. Wear an N95 mask if you step out.'
                 : metrics.usAqi > 100 
-                ? 'Avoid heavy morning running. Walking with mask is safe.'
+                ? 'Avoid heavy morning runs. Walking with a mask is safe.'
                 : 'Safe for normal outdoor exercise and daily activities.'}
             </p>
           </div>
@@ -431,10 +431,10 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
           <div className="p-3 rounded-lg bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800/80 space-y-1">
             <div className="font-bold text-ink dark:text-white flex items-center gap-1.5">
               <CheckCircle2 className="w-3.5 h-3.5 text-sage-600 dark:text-emerald-400" />
-              <span>3. What should I change?</span>
+              <span>3. When should I air out rooms?</span>
             </div>
             <p className="text-ink-muted dark:text-zinc-400 text-[11px] leading-relaxed">
-              Shift outdoor activities to the 12:30–3:30 PM solar venting window; seal drafty windows and run home filtration.
+              Open windows only during the 12:30–3:30 PM afternoon clean air window; keep windows shut at night and morning.
             </p>
           </div>
         </div>
@@ -445,17 +445,17 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
           <div className="flex items-center gap-2">
             <span className="text-xs font-bold text-ink dark:text-white uppercase font-mono tracking-wider">
-              Atmospheric Boundary Layer Mixing Model (Illustrative Diurnal Cycle)
+              Hourly Clean Air Trend (24-Hour Day Cycle)
             </span>
           </div>
           <div className="flex items-center gap-3 text-[11px] font-mono text-ink-muted dark:text-zinc-400">
             <span className="flex items-center gap-1">
               <span className="w-2.5 h-2.5 rounded-sm bg-emerald-500/80" />
-              <span>Solar Venting Window (12:00–16:00)</span>
+              <span>Clean Air Window (12:00–16:00)</span>
             </span>
             <span className="flex items-center gap-1">
               <span className="w-2.5 h-2.5 rounded-sm bg-stone-300 dark:bg-zinc-800" />
-              <span>Nocturnal Inversion Trap</span>
+              <span>Peak Smog Hours (Stay Indoors)</span>
             </span>
           </div>
         </div>
@@ -489,9 +489,9 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
         </div>
 
         <div className="flex justify-between text-[10px] font-mono text-ink-muted dark:text-zinc-500 mt-1.5">
-          <span>00:00 (Night Trap)</span>
-          <span className="text-emerald-600 dark:text-emerald-400 font-bold">13:30 (Peak Solar Dilution)</span>
-          <span>23:00 (Inversion Reseals)</span>
+          <span>00:00 (Heavy Smog)</span>
+          <span className="text-emerald-600 dark:text-emerald-400 font-bold">13:30 (Best Air Window)</span>
+          <span>23:00 (Smog Settles)</span>
         </div>
       </div>
 
@@ -499,7 +499,7 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
       <div className="relative z-10 py-3 px-4 rounded-xl bg-white/70 dark:bg-zinc-950/80 border border-stone-200 dark:border-zinc-800/70 mb-5 flex flex-wrap items-center justify-between gap-3 text-xs font-mono shadow-sm">
         <div className="text-ink-muted dark:text-zinc-400 flex items-center gap-1.5 text-[11px]">
           <Gauge className="w-3.5 h-3.5 text-sage-600 dark:text-zinc-400" />
-          <span className="uppercase tracking-wider">Atmospheric Trace Gases:</span>
+          <span className="uppercase tracking-wider">Key Gas Pollutants:</span>
         </div>
         <div className="flex flex-wrap items-center gap-4 text-ink dark:text-zinc-300 text-[11px]">
           <span>CO: <strong className="font-mono text-ink dark:text-white">{metrics.co ? `${Math.round(metrics.co)}` : '4,228'}</strong> µg/m³</span>

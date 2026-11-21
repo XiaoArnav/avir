@@ -18,18 +18,18 @@ export const RoutineShifter: React.FC<RoutineShifterProps> = ({ routineShifts })
         <div>
           <div className="flex items-center gap-2 text-xs font-mono text-ink-muted dark:text-zinc-400 uppercase tracking-wider mb-1">
             <Sparkles className="w-3.5 h-3.5 text-sage-600 dark:text-zinc-300" />
-            <span>Circadian Atmospheric Inversion Optimizer</span>
+            <span>Smart Day Schedule</span>
           </div>
           <h2 className="text-xl sm:text-2xl font-extrabold text-ink dark:text-white tracking-tight flex items-center gap-2">
-            <span>Daily Routine Plan: Inversion-Safe Optimizer</span>
+            <span>Smart Daily Schedule: Avoid Peak Smog</span>
           </h2>
           <p className="text-xs text-ink-muted dark:text-zinc-400 mt-1 max-w-2xl leading-relaxed">
-            Shifts high-ventilation activities out of nocturnal thermal inversion ceilings into solar convective venting windows.
+            Move workouts, walks, and opening windows away from chilly morning/night smog peaks to cleaner afternoon hours.
           </p>
         </div>
 
         <span className="self-start sm:self-auto text-xs px-3 py-1.5 rounded-lg bg-stone-100 dark:bg-zinc-900 border border-stone-300 dark:border-zinc-700 text-ink dark:text-white font-mono font-bold shadow-xs">
-          Average Inhaled Dose Cut: ~64%
+          Breathe ~64% Less Smog Today
         </span>
       </div>
 
@@ -47,7 +47,7 @@ export const RoutineShifter: React.FC<RoutineShifterProps> = ({ routineShifts })
                 </span>
                 <h3 className="text-base font-bold text-ink dark:text-white tracking-tight mt-1">{shift.activityName}</h3>
                 <span className="text-xs text-ink-muted dark:text-zinc-400 font-mono inline-block">
-                  {shift.isOutdoor ? 'Outdoor High-Ventilation' : 'Indoor Air Exchange'}
+                  {shift.isOutdoor ? 'Outdoor Activity' : 'Indoor Activity'}
                 </span>
               </div>
 
@@ -59,7 +59,7 @@ export const RoutineShifter: React.FC<RoutineShifterProps> = ({ routineShifts })
                     <Moon className="w-4 h-4 text-terracotta-600 dark:text-zinc-400" />
                   </div>
                   <div>
-                    <div className="text-[10px] uppercase font-mono text-stone-500 dark:text-zinc-500">Baseline Inversion</div>
+                    <div className="text-[10px] uppercase font-mono text-stone-500 dark:text-zinc-500">Normal Time (Heavy Smog)</div>
                     <div className="text-xs font-bold text-ink dark:text-zinc-300 font-mono">{shift.timeWindow}</div>
                     <div className="text-[11px] text-terracotta-700 dark:text-zinc-500 font-mono">{shift.baselineExposureUg} µg inhaled</div>
                   </div>
@@ -76,13 +76,13 @@ export const RoutineShifter: React.FC<RoutineShifterProps> = ({ routineShifts })
                   </div>
                   <div>
                     <div className="text-[10px] uppercase font-mono text-sage-700 dark:text-zinc-300 font-semibold">
-                      Solar Venting Window
+                      Clean Air Window
                     </div>
                     <div className="text-xs font-bold text-ink dark:text-white font-mono">
                       {shift.optimizedTimeWindow}
                     </div>
                     <div className="text-[11px] text-sage-600 dark:text-zinc-400 font-mono font-semibold">
-                      {shift.optimizedExposureUg} µg ({shift.reductionPercentage}% avoided)
+                      {shift.optimizedExposureUg} µg ({shift.reductionPercentage}% less smog)
                     </div>
                   </div>
                 </div>

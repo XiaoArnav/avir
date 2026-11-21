@@ -35,10 +35,10 @@ export const CommuteCalculator: React.FC<CommuteCalculatorProps> = ({ ambientPm2
           </div>
           <div>
             <h3 className="text-base sm:text-lg font-bold text-ink dark:text-white">
-              Commute Exposure &amp; Transit Mode Calculator
+              Commute Smog Calculator
             </h3>
             <p className="text-xs text-ink-muted dark:text-zinc-400">
-              Calculate inhaled particulate mass across daily transit modes under {ambientPm25} µg/m³ ambient air
+              See how much smog you inhale across Metro, AC Car, Bus, or Bike in {ambientPm25} µg/m³ air
             </p>
           </div>
         </div>
@@ -83,7 +83,7 @@ export const CommuteCalculator: React.FC<CommuteCalculatorProps> = ({ ambientPm2
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {/* Total Inhaled Particulate */}
         <div className="p-4 rounded-xl bg-stone-50 dark:bg-zinc-800/60 border border-stone-200 dark:border-zinc-800">
-          <div className="text-xs text-ink-muted dark:text-zinc-400">Inhaled Toxic Mass</div>
+          <div className="text-xs text-ink-muted dark:text-zinc-400">Smog Inhaled on Trip</div>
           <div className="mt-1 flex items-baseline gap-1.5">
             <span className="text-2xl font-mono font-bold text-ink dark:text-white">
               {estimate.inhaledMicrograms}
@@ -91,29 +91,29 @@ export const CommuteCalculator: React.FC<CommuteCalculatorProps> = ({ ambientPm2
             <span className="text-xs font-mono text-ink-muted dark:text-zinc-400">µg PM2.5</span>
           </div>
           <p className="mt-1 text-[11px] text-ink-muted dark:text-zinc-400">
-            Based on {duration} min commute volume (~{Math.round(0.012 * duration * 100) / 100} m³)
+            Inhaled air volume over {duration} mins (~{Math.round(0.012 * duration * 100) / 100} m³)
           </p>
         </div>
 
         {/* Protection Efficiency */}
         <div className="p-4 rounded-xl bg-stone-50 dark:bg-zinc-800/60 border border-stone-200 dark:border-zinc-800">
-          <div className="text-xs text-ink-muted dark:text-zinc-400">Exposure Reduction</div>
+          <div className="text-xs text-ink-muted dark:text-zinc-400">Smog Blocked</div>
           <div className="mt-1 flex items-baseline gap-1.5">
             <span className="text-2xl font-mono font-bold text-emerald-500">
               -{estimate.reductionPercentage}%
             </span>
-            <span className="text-xs font-mono text-ink-muted dark:text-zinc-400">vs ambient</span>
+            <span className="text-xs font-mono text-ink-muted dark:text-zinc-400">vs outside air</span>
           </div>
           <p className="mt-1 text-[11px] text-ink-muted dark:text-zinc-400">
             {estimate.reductionPercentage >= 70
-              ? 'High-efficiency cabin barrier'
+              ? 'AC filter blocks most smoke'
               : 'Direct open air breathing risk'}
           </p>
         </div>
 
         {/* Cigarette Fraction Equivalent */}
         <div className="p-4 rounded-xl bg-stone-50 dark:bg-zinc-800/60 border border-stone-200 dark:border-zinc-800">
-          <div className="text-xs text-ink-muted dark:text-zinc-400">Cigarette Equivalence</div>
+          <div className="text-xs text-ink-muted dark:text-zinc-400">Smoking Burden</div>
           <div className="mt-1 flex items-center gap-2">
             <Cigarette className="w-5 h-5 text-rose-500 shrink-0" />
             <span className="text-2xl font-mono font-bold text-rose-500">
@@ -122,7 +122,7 @@ export const CommuteCalculator: React.FC<CommuteCalculatorProps> = ({ ambientPm2
             <span className="text-xs font-mono text-ink-muted dark:text-zinc-400">cigs</span>
           </div>
           <p className="mt-1 text-[11px] text-ink-muted dark:text-zinc-400">
-            Toxic lung equivalent absorbed during this trip
+            Cigarette smoke equivalent inhaled on this route
           </p>
         </div>
       </div>
@@ -132,7 +132,7 @@ export const CommuteCalculator: React.FC<CommuteCalculatorProps> = ({ ambientPm2
         <ShieldCheck className="w-5 h-5 text-blue-500 shrink-0 mt-0.5" />
         <div className="text-xs space-y-1">
           <div className="font-bold text-ink dark:text-white">
-            Commute Survival Protocol ({estimate.modeLabel})
+            Safe Commute Tip ({estimate.modeLabel})
           </div>
           <p className="text-ink-muted dark:text-zinc-300">
             {estimate.protocolRecommendation}

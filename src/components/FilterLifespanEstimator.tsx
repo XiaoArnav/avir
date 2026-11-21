@@ -39,10 +39,10 @@ export const FilterLifespanEstimator: React.FC<FilterLifespanEstimatorProps> = (
           </div>
           <div>
             <h3 className="text-base sm:text-lg font-bold text-ink dark:text-white">
-              Mask &amp; HEPA Filter Lifespan Estimator
+              Mask &amp; Filter Lifespan Checker
             </h3>
             <p className="text-xs text-ink-muted dark:text-zinc-400">
-              Electrostatic saturation &amp; pre-filter maintenance cycle under {ambientPm25} µg/m³ ambient smog
+              Find out when to replace your face mask and air purifier filter under {ambientPm25} µg/m³ air
             </p>
           </div>
         </div>
@@ -55,7 +55,7 @@ export const FilterLifespanEstimator: React.FC<FilterLifespanEstimatorProps> = (
             <div className="flex items-center gap-2">
               <Shield className="w-4 h-4 text-purple-500" />
               <span className="font-bold text-sm text-ink dark:text-white">
-                Respirator Mask Saturation
+                Face Mask Usable Life
               </span>
             </div>
             <span
@@ -137,7 +137,7 @@ export const FilterLifespanEstimator: React.FC<FilterLifespanEstimatorProps> = (
             <div className="flex items-center gap-2">
               <Wind className="w-4 h-4 text-emerald-500" />
               <span className="font-bold text-sm text-ink dark:text-white">
-                Home HEPA Filter Lifecycle
+                Air Purifier Filter Life
               </span>
             </div>
             <span className="text-xs font-mono font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-500">
@@ -148,7 +148,7 @@ export const FilterLifespanEstimator: React.FC<FilterLifespanEstimatorProps> = (
           {/* Purifier Daily Run Duration */}
           <div>
             <div className="flex justify-between text-xs text-ink-muted dark:text-zinc-400 mb-1.5">
-              <span>Purifier Operating Schedule:</span>
+              <span>Purifier Running Time:</span>
               <span className="font-mono font-bold text-ink dark:text-white">
                 {purifierRunningHours} hours/day
               </span>
@@ -168,7 +168,7 @@ export const FilterLifespanEstimator: React.FC<FilterLifespanEstimatorProps> = (
           <div className="grid grid-cols-2 gap-3">
             <div className="p-3 rounded-lg bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800">
               <div className="text-[10px] text-ink-muted dark:text-zinc-400 uppercase font-mono">
-                Pre-Filter Vacuum
+                Clean Pre-Filter
               </div>
               <div className="mt-1 text-lg font-mono font-bold text-amber-500">
                 Every {hepaEstimate.preFilterCleanDays} days

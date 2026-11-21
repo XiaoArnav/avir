@@ -116,10 +116,10 @@ export const TopNav: React.FC<TopNavProps> = ({
             <button
               onClick={onOpenMultiSource}
               className="hidden md:inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-white dark:bg-zinc-900/80 hover:bg-stone-200 dark:hover:bg-zinc-800 text-ink dark:text-zinc-300 transition-colors border border-stone-300 dark:border-zinc-800 shadow-sm"
-              aria-label="Open Multi-Source Atmospheric Consensus Inspector"
+              aria-label="Compare 5 Open-Source Air Quality Data Sources"
             >
               <Layers className="w-3.5 h-3.5 text-emerald-500" />
-              <span>5-Source Consensus</span>
+              <span>Compare 5 Sources</span>
             </button>
           )}
 
@@ -127,10 +127,10 @@ export const TopNav: React.FC<TopNavProps> = ({
           <button
             onClick={onOpenExplainer}
             className="hidden md:inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-white dark:bg-zinc-900/80 hover:bg-stone-200 dark:hover:bg-zinc-800 text-ink dark:text-zinc-300 transition-colors border border-stone-300 dark:border-zinc-800 shadow-sm"
-            aria-label="Open Atmospheric Science Explainer"
+            aria-label="Open Clean Air Science Guide"
           >
             <Atom className="w-3.5 h-3.5 text-sage-600 dark:text-zinc-400" />
-            <span>The Science</span>
+            <span>How It Works</span>
           </button>
 
           {/* School Safety Advisory Button */}

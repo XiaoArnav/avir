@@ -29,13 +29,13 @@ export const ImpactScorecard: React.FC<ImpactScorecardProps> = ({ plan }) => {
         <div>
           <div className="flex items-center gap-2 text-xs font-mono text-ink-muted dark:text-zinc-400 uppercase tracking-wider mb-1">
             <Sparkles className="w-3.5 h-3.5 text-sage-600 dark:text-zinc-300" />
-            <span>Environmental Toxicology &amp; Exposure Defense</span>
+            <span>Your Health Protection</span>
           </div>
           <h2 className="text-xl sm:text-2xl font-extrabold text-ink dark:text-white tracking-tight flex items-center gap-2">
-            <span>Estimated Exposure Reduction Scorecard</span>
+            <span>Pollution Cut From Your Routine</span>
           </h2>
           <p className="text-xs text-ink-muted dark:text-zinc-400 mt-1 max-w-2xl leading-relaxed">
-            Measures biological respiratory savings achieved by shifting routines to solar convective venting windows.
+            Shows how much less toxic dust enters your lungs when you follow this schedule.
           </p>
         </div>
 
@@ -48,42 +48,42 @@ export const ImpactScorecard: React.FC<ImpactScorecardProps> = ({ plan }) => {
         {/* Metric 1: Inhaled Mass Avoided */}
         <div className="rounded-xl p-5 bg-stone-50 dark:bg-zinc-900/60 border border-stone-200 dark:border-zinc-800/80 hover:border-stone-300 dark:hover:border-zinc-700 transition-colors">
           <div className="flex items-center justify-between text-ink-muted dark:text-zinc-400 text-xs mb-2 font-mono uppercase tracking-wider text-[11px]">
-            <span>Particulate Avoided</span>
+            <span>Toxic Dust Kept Out</span>
             <TrendingDown className="w-4 h-4 text-sage-600 dark:text-zinc-300" />
           </div>
           <div className="text-3xl font-extrabold text-ink dark:text-white font-mono tracking-tight tabular-nums">
             {impactMetrics.netAvoidedPM25Ug} <span className="text-xs font-sans font-normal text-ink-muted dark:text-zinc-400">µg / day</span>
           </div>
           <div className="text-xs text-stone-500 dark:text-zinc-500 mt-2">
-            Deep alveolar mass prevented from entering pulmonary capillaries.
+            Fine particles blocked from entering your lungs and blood today.
           </div>
         </div>
 
         {/* Metric 2: Monthly Cigarettes Avoided */}
         <div className="rounded-xl p-5 bg-stone-50 dark:bg-zinc-900/60 border border-stone-200 dark:border-zinc-800/80 hover:border-stone-300 dark:hover:border-zinc-700 transition-colors">
           <div className="flex items-center justify-between text-ink-muted dark:text-zinc-400 text-xs mb-2 font-mono uppercase tracking-wider text-[11px]">
-            <span>Berkeley Equivalence</span>
+            <span>Cigarettes Avoided</span>
             <Cigarette className="w-4 h-4 text-terracotta-600 dark:text-zinc-300" />
           </div>
           <div className="text-3xl font-extrabold text-ink dark:text-white font-mono tracking-tight tabular-nums">
             {impactMetrics.avoidedCigarettesMonthly} <span className="text-xs font-sans font-normal text-ink-muted dark:text-zinc-400">cigs / mo</span>
           </div>
           <div className="text-xs text-stone-500 dark:text-zinc-500 mt-2">
-            Cumulative lung tissue toxic burden averted over 30 days.
+            Smoke exposure saved over a month by following this plan.
           </div>
         </div>
 
         {/* Metric 3: Clinical Risk Normalization */}
         <div className="rounded-xl p-5 bg-stone-50 dark:bg-zinc-900/60 border border-stone-200 dark:border-zinc-800/80 hover:border-stone-300 dark:hover:border-zinc-700 transition-colors">
           <div className="flex items-center justify-between text-ink-muted dark:text-zinc-400 text-xs mb-2 font-mono uppercase tracking-wider text-[11px]">
-            <span>Inhaled Dose Reduction</span>
+            <span>Total Smog Reduction</span>
             <ShieldAlert className="w-4 h-4 text-amber-500 dark:text-zinc-300" />
           </div>
           <div className="text-3xl font-extrabold text-ink dark:text-white font-mono tracking-tight tabular-nums">
             {reductionPercentage}%
           </div>
           <div className="text-xs text-stone-500 dark:text-zinc-500 mt-2">
-            Effective reduction in peak-hour biological particulate exposure.
+            Less pollution inhaled compared to normal daily routine.
           </div>
         </div>
 
@@ -105,8 +105,8 @@ export const ImpactScorecard: React.FC<ImpactScorecardProps> = ({ plan }) => {
           </div>
           <div className="text-xs text-stone-500 dark:text-zinc-500 mt-2">
             {impactMetrics.respiratorySafetyScore >= 80
-              ? 'Multi-barrier shield active: Time Shifting + DIY IAQ + N95 Masking.'
-              : 'Partial exposure reduction: recommend adding indoor HEPA/CR filtration.'}
+              ? 'Multi-barrier defense: Safe timing + home cleaner + N95 mask.'
+              : 'Partial exposure reduction: recommend adding indoor box fan or HEPA purifier.'}
           </div>
         </div>
       </div>

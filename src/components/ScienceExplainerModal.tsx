@@ -32,10 +32,10 @@ export const ScienceExplainerModal: React.FC<ScienceExplainerModalProps> = ({
             </div>
             <div>
               <h2 id="science-modal-title" className="text-lg font-bold text-ink dark:text-white tracking-tight">
-                The Atmospheric Physics &amp; Toxicology Engine
+                How It Works: Clean Air Science Explained
               </h2>
               <p className="text-xs text-ink-muted dark:text-zinc-400">
-                Mathematical foundations of diurnal boundary layers, inhaled dose, and CADR clearance
+                Simple breakdown of smoke ceilings, breathing calculations, and DIY air cleaners
               </p>
             </div>
           </div>
@@ -53,7 +53,7 @@ export const ScienceExplainerModal: React.FC<ScienceExplainerModalProps> = ({
         <div className="p-4 rounded-xl bg-stone-50 dark:bg-zinc-900/60 border border-stone-200 dark:border-zinc-800 space-y-2">
           <div className="flex items-center gap-2 text-ink dark:text-white font-bold text-sm">
             <Wind className="w-4 h-4 text-sage-600 dark:text-zinc-300" />
-            <span>1. Diurnal Planetary Boundary Layer Dynamics (Thermal Inversion)</span>
+            <span>1. Why Smog Gets Trapped at Night (The Smoke Ceiling)</span>
           </div>
           <p className="text-xs text-ink-muted dark:text-zinc-300 leading-relaxed">
             During winter nights in northern India and urban basins, radiative ground cooling creates a temperature inversion where cold, dense air sits underneath a warmer lid. The mixing layer contracts to <strong>h(t) &lt; 150m</strong> (compared to &gt; 1,200m in the afternoon), physically trapping vehicular exhaust, biomass smoke, and dust within human breathing height.
@@ -67,7 +67,7 @@ export const ScienceExplainerModal: React.FC<ScienceExplainerModalProps> = ({
         <div className="p-4 rounded-xl bg-stone-50 dark:bg-zinc-900/60 border border-stone-200 dark:border-zinc-800 space-y-2">
           <div className="flex items-center gap-2 text-ink dark:text-white font-bold text-sm">
             <ShieldCheck className="w-4 h-4 text-sage-600 dark:text-zinc-300" />
-            <span>2. Human Inhalation Dose Equation</span>
+            <span>2. How Much Smog Enters Your Lungs (Inhaled Dose)</span>
           </div>
           <p className="text-xs text-ink-muted dark:text-zinc-300 leading-relaxed">
             Air toxicity is not merely the ambient number on an AQI app—it is the biological mass of particulate deposited in human pulmonary alveoli:
@@ -84,7 +84,7 @@ export const ScienceExplainerModal: React.FC<ScienceExplainerModalProps> = ({
         <div className="p-4 rounded-xl bg-stone-50 dark:bg-zinc-900/60 border border-stone-200 dark:border-zinc-800 space-y-2">
           <div className="flex items-center gap-2 text-ink dark:text-white font-bold text-sm">
             <Flame className="w-4 h-4 text-terracotta-600 dark:text-zinc-300" />
-            <span>3. Berkeley Earth Cigarette Equivalence Benchmark</span>
+            <span>3. Cigarette Equivalence (Berkeley Earth Formula)</span>
           </div>
           <p className="text-xs text-ink-muted dark:text-zinc-300 leading-relaxed">
             Dr. Richard Muller (UC Berkeley) and Berkeley Earth established that breathing ambient air with <strong>22 µg/m³ of PM2.5 over 24 hours</strong> transfers roughly the same particulate mass into the lungs as smoking <strong>one commercial cigarette</strong>:
@@ -98,7 +98,7 @@ export const ScienceExplainerModal: React.FC<ScienceExplainerModalProps> = ({
         <div className="p-4 rounded-xl bg-stone-50 dark:bg-zinc-900/60 border border-stone-200 dark:border-zinc-800 space-y-2">
           <div className="flex items-center gap-2 text-ink dark:text-white font-bold text-sm">
             <Atom className="w-4 h-4 text-sage-600 dark:text-zinc-300" />
-            <span>4. Corsi-Rosenthal Box Clean Air Delivery Rate (CADR)</span>
+            <span>4. Building a Cheap Air Cleaner (Corsi-Rosenthal Box)</span>
           </div>
           <p className="text-xs text-ink-muted dark:text-zinc-300 leading-relaxed">
             Invented by Dr. Richard Corsi and Jim Rosenthal, this low-cost DIY air cleaner mates a 20-inch box fan with 4 or 5 MERV-13 pleated HVAC filters. Particulate clearance follows first-order exponential decay:
