@@ -1,4 +1,4 @@
-import { AtmosphericMetrics } from '@/domain/types';
+import { AtmosphericMetrics, HourlyAtmosphericPoint } from '@/domain/types';
 import { isThermalInversion, calculateAQIFromPM25, calculateCpcbNaqi } from '@/domain/air-math';
 import { telemetryCache } from '@/lib/cache';
 
@@ -118,6 +118,34 @@ export async function fetchLiveAtmosphericMetrics(
     const usAqi = typeof current.us_aqi === 'number' ? current.us_aqi : calculateAQIFromPM25(pm25);
     const cpcb = calculateCpcbNaqi(pm25, pm10);
 
+    // Build 24-hour diurnal forecast from Open-Meteo hourly arrays
+    const hourlyForecast: HourlyAtmosphericPoint[] = [];
+    if (data.hourly && Array.isArray(data.hourly.time)) {
+      const times = data.hourly.time;
+      const pm25Arr = data.hourly.pm2_5 || [];
+      const blhArr = data.hourly.boundary_layer_height || [];
+      const limit = Math.min(24, times.length);
+
+      for (let i = 0; i < limit; i++) {
+        const timeStr = times[i];
+        const dateObj = new Date(timeStr);
+        const hour = isNaN(dateObj.getHours()) ? i : dateObj.getHours();
+        const ptPm25 = typeof pm25Arr[i] === 'number' ? Math.round(pm25Arr[i] * 10) / 10 : pm25;
+        const ptBlh = typeof blhArr[i] === 'number' ? Math.round(blhArr[i]) : blh;
+        const ptAqi = calculateAQIFromPM25(ptPm25);
+
+        hourlyForecast.push({
+          time: timeStr,
+          hour,
+          pm25: ptPm25,
+          usAqi: ptAqi,
+          boundaryLayerHeight: ptBlh,
+          isSafeVentingWindow: hour >= 12 && hour <= 16 && ptBlh >= 450,
+          isThermalInversionTrap: isThermalInversion(ptBlh, hour),
+        });
+      }
+    }
+
     const metrics: AtmosphericMetrics = {
       timestamp: current.time || new Date().toISOString(),
       usAqi,
@@ -137,6 +165,7 @@ export async function fetchLiveAtmosphericMetrics(
       windDirection: typeof weatherCurrent.wind_direction_10m === 'number' ? Math.round(weatherCurrent.wind_direction_10m) : undefined,
       boundaryLayerHeight: Math.round(blh),
       isThermalInversionActive: isThermalInversion(blh, currentHour),
+      hourlyForecast: hourlyForecast.length > 0 ? hourlyForecast : undefined,
     };
 
     // Cache telemetry for 10 minutes (atmospheric conditions update hourly)
@@ -149,6 +178,19 @@ export async function fetchLiveAtmosphericMetrics(
     const fallbackBlh = fallbackHour >= 12 && fallbackHour <= 16 ? 550 : 130;
     const fallbackPM25 = 165.0;
     const fallbackCpcb = calculateCpcbNaqi(fallbackPM25, 210.0);
+
+    const fallbackHourly: HourlyAtmosphericPoint[] = Array.from({ length: 24 }, (_, i) => {
+      const isDay = i >= 12 && i <= 16;
+      return {
+        time: `${i < 10 ? '0' : ''}${i}:00`,
+        hour: i,
+        pm25: isDay ? 85.0 : 185.0,
+        usAqi: isDay ? 166 : 235,
+        boundaryLayerHeight: isDay ? 650 : 140,
+        isSafeVentingWindow: isDay,
+        isThermalInversionTrap: !isDay,
+      };
+    });
 
     return {
       timestamp: new Date().toISOString(),
@@ -164,6 +206,7 @@ export async function fetchLiveAtmosphericMetrics(
       windSpeed: 3.2,
       boundaryLayerHeight: fallbackBlh,
       isThermalInversionActive: isThermalInversion(fallbackBlh, fallbackHour),
+      hourlyForecast: fallbackHourly,
     };
   }
 }

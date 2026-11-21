@@ -11,6 +11,13 @@ import { RoutineShifter } from '@/components/RoutineShifter';
 import { IAQStudio } from '@/components/IAQStudio';
 import { ImpactScorecard } from '@/components/ImpactScorecard';
 import { WorldDataExplorer } from '@/components/WorldDataExplorer';
+import { DiurnalForecastTimeline } from '@/components/DiurnalForecastTimeline';
+import { CityShootout } from '@/components/CityShootout';
+import { CommuteCalculator } from '@/components/CommuteCalculator';
+import { FilterLifespanEstimator } from '@/components/FilterLifespanEstimator';
+import { WindVectorGauge } from '@/components/WindVectorGauge';
+import { SchoolSafetyAdvisoryModal } from '@/components/SchoolSafetyAdvisoryModal';
+import { ShareBulletinModal } from '@/components/ShareBulletinModal';
 import { SettingsModal } from '@/components/SettingsModal';
 import { RwaBulletinModal } from '@/components/RwaBulletinModal';
 import { ScienceExplainerModal } from '@/components/ScienceExplainerModal';
@@ -52,6 +59,8 @@ export default function Home() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isRwaModalOpen, setIsRwaModalOpen] = useState(false);
   const [isExplainerOpen, setIsExplainerOpen] = useState(false);
+  const [isSchoolModalOpen, setIsSchoolModalOpen] = useState(false);
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [geminiApiKey, setGeminiApiKey] = useState('');
   const [isDarkMode, setIsDarkMode] = useState(true);
 
@@ -176,6 +185,8 @@ export default function Home() {
         onOpenExplainer={() => setIsExplainerOpen(true)}
         onOpenRwa={() => setIsRwaModalOpen(true)}
         onOpenWorldData={() => setActiveTab('world')}
+        onOpenSchoolAdvisory={() => setIsSchoolModalOpen(true)}
+        onOpenShare={() => setIsShareModalOpen(true)}
         hasCustomKey={Boolean(geminiApiKey)}
         isDarkMode={isDarkMode}
         onToggleTheme={() => setIsDarkMode(!isDarkMode)}
@@ -196,6 +207,8 @@ export default function Home() {
           category={aqiCategory}
           onOpenExplainer={() => setIsExplainerOpen(true)}
           onRefresh={refreshTelemetry}
+          onOpenShare={() => setIsShareModalOpen(true)}
+          onOpenSchoolAdvisory={() => setIsSchoolModalOpen(true)}
           isLoading={isTelemetryLoading}
           isDarkMode={isDarkMode}
         />
@@ -212,6 +225,33 @@ export default function Home() {
           <div className="space-y-8 animate-in fade-in duration-300">
             {plan && <ImpactScorecard plan={plan} />}
 
+            {/* 1. 24-Hour Diurnal Safe Hours Forecast Timeline */}
+            <DiurnalForecastTimeline
+              hourlyForecast={metrics?.hourlyForecast}
+              cityName={selectedCity.name}
+            />
+
+            {/* 2. Meteorological Wind Vector & Smoke Transport Gauge */}
+            <WindVectorGauge
+              windDirection={metrics?.windDirection}
+              windSpeed={metrics?.windSpeed}
+              cityName={selectedCity.name}
+            />
+
+            {/* 3. City vs City Smog Shootout */}
+            <CityShootout
+              currentCityName={selectedCity.name}
+              currentAqi={metrics?.usAqi || 210}
+              currentPm25={metrics?.pm25 || 160}
+            />
+
+            {/* 4 & 5. Commute Exposure & Mask/Filter Lifespan Calculators */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <CommuteCalculator ambientPm25={metrics?.pm25 || 160} />
+              <FilterLifespanEstimator ambientPm25={metrics?.pm25 || 160} />
+            </div>
+
+            {/* Location Search & Health Profile */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <CityPicker
                 currentCity={selectedCity.name}
@@ -351,6 +391,25 @@ export default function Home() {
       <ScienceExplainerModal
         isOpen={isExplainerOpen}
         onClose={() => setIsExplainerOpen(false)}
+      />
+
+      {/* 6. School & Child Outdoor Sports Advisory Modal */}
+      <SchoolSafetyAdvisoryModal
+        isOpen={isSchoolModalOpen}
+        onClose={() => setIsSchoolModalOpen(false)}
+        cityName={selectedCity.name}
+        usAqi={metrics?.usAqi || 200}
+        pm25={metrics?.pm25 || 150}
+      />
+
+      {/* 7. Instant WhatsApp & Telegram Smog Bulletin Modal */}
+      <ShareBulletinModal
+        isOpen={isShareModalOpen}
+        onClose={() => setIsShareModalOpen(false)}
+        cityName={selectedCity.name}
+        usAqi={metrics?.usAqi || 200}
+        pm25={metrics?.pm25 || 150}
+        cigarettes={metrics ? Math.round((metrics.pm25 / 22) * 10) / 10 : 7}
       />
     </div>
   );

@@ -23,6 +23,16 @@ export interface AQIBreakpoint {
   advisoryText: string;
 }
 
+export interface HourlyAtmosphericPoint {
+  time: string;
+  hour: number;
+  pm25: number;
+  usAqi: number;
+  boundaryLayerHeight: number;
+  isSafeVentingWindow: boolean;
+  isThermalInversionTrap: boolean;
+}
+
 export interface AtmosphericMetrics {
   timestamp: string;
   usAqi: number;
@@ -42,6 +52,7 @@ export interface AtmosphericMetrics {
   cpcbAqi?: number;
   cpcbCategory?: string;
   sourceAttribution?: string;
+  hourlyForecast?: HourlyAtmosphericPoint[];
 }
 
 export type ActivityIntensity = 'resting' | 'light_walk' | 'moderate_activity' | 'intense_exercise';

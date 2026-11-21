@@ -1,13 +1,15 @@
 'use client';
 
 import React from 'react';
-import { Wind, Settings, Atom, Megaphone, Sun, Moon, Globe } from 'lucide-react';
+import { Wind, Settings, Atom, Megaphone, Sun, Moon, Globe, GraduationCap, Share2 } from 'lucide-react';
 
 interface TopNavProps {
   onOpenSettings: () => void;
   onOpenExplainer: () => void;
   onOpenRwa: () => void;
   onOpenWorldData?: () => void;
+  onOpenSchoolAdvisory?: () => void;
+  onOpenShare?: () => void;
   hasCustomKey: boolean;
   isDarkMode?: boolean;
   onToggleTheme?: () => void;
@@ -18,6 +20,8 @@ export const TopNav: React.FC<TopNavProps> = ({
   onOpenExplainer,
   onOpenRwa,
   onOpenWorldData,
+  onOpenSchoolAdvisory,
+  onOpenShare,
   hasCustomKey,
   isDarkMode = true,
   onToggleTheme,
@@ -111,6 +115,30 @@ export const TopNav: React.FC<TopNavProps> = ({
             <Atom className="w-3.5 h-3.5 text-sage-600 dark:text-zinc-400" />
             <span>The Science</span>
           </button>
+
+          {/* School Safety Advisory Button */}
+          {onOpenSchoolAdvisory && (
+            <button
+              onClick={onOpenSchoolAdvisory}
+              className="hidden lg:inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-white dark:bg-zinc-900/80 hover:bg-stone-200 dark:hover:bg-zinc-800 text-ink dark:text-zinc-300 transition-colors border border-stone-300 dark:border-zinc-800 shadow-sm"
+              aria-label="Open School & Child Outdoor Sports Advisory"
+            >
+              <GraduationCap className="w-3.5 h-3.5 text-amber-500" />
+              <span>School Guide</span>
+            </button>
+          )}
+
+          {/* Share Daily Smog Bulletin Button */}
+          {onOpenShare && (
+            <button
+              onClick={onOpenShare}
+              className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white transition-colors shadow-sm"
+              aria-label="Share Daily Smog Bulletin on WhatsApp"
+            >
+              <Share2 className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Share</span>
+            </button>
+          )}
 
           {/* RWA Circular Generator Button */}
           <button

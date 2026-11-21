@@ -20,6 +20,8 @@ import {
   CheckCircle2,
   Sparkles,
   Info,
+  Share2,
+  GraduationCap,
 } from 'lucide-react';
 
 interface AtmosphereHeroProps {
@@ -28,6 +30,8 @@ interface AtmosphereHeroProps {
   category: AQICategory;
   onOpenExplainer?: () => void;
   onRefresh?: () => void;
+  onOpenShare?: () => void;
+  onOpenSchoolAdvisory?: () => void;
   isLoading?: boolean;
   isDarkMode?: boolean;
 }
@@ -38,6 +42,8 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
   category,
   onOpenExplainer,
   onRefresh,
+  onOpenShare,
+  onOpenSchoolAdvisory,
   isLoading,
   isDarkMode = true,
 }) => {
@@ -208,14 +214,36 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
               </button>
             )}
           </div>
-          {onOpenExplainer && (
-            <button
-              onClick={onOpenExplainer}
-              className="text-[11px] text-sage-600 dark:text-zinc-400 hover:underline flex items-center gap-1 transition-colors"
-            >
-              Learn the Science &rarr;
-            </button>
-          )}
+          <div className="flex items-center gap-2">
+            {onOpenShare && (
+              <button
+                onClick={onOpenShare}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-medium text-[11px] transition-colors shadow-sm"
+                title="Share Daily Smog Bulletin on WhatsApp"
+              >
+                <Share2 className="w-3 h-3" />
+                <span>Share Briefing</span>
+              </button>
+            )}
+            {onOpenSchoolAdvisory && (
+              <button
+                onClick={onOpenSchoolAdvisory}
+                className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-stone-100 dark:bg-zinc-800 hover:bg-stone-200 dark:hover:bg-zinc-700 text-ink dark:text-zinc-200 font-medium text-[11px] transition-colors border border-stone-200 dark:border-zinc-700"
+                title="Open School Sports Safety Guide"
+              >
+                <GraduationCap className="w-3 h-3 text-amber-500" />
+                <span>School Guide</span>
+              </button>
+            )}
+            {onOpenExplainer && (
+              <button
+                onClick={onOpenExplainer}
+                className="text-[11px] text-sage-600 dark:text-zinc-400 hover:underline flex items-center gap-1 transition-colors"
+              >
+                Learn the Science &rarr;
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
