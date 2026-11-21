@@ -269,7 +269,6 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-4 space-y-3">
           <div className="flex items-center justify-center gap-2 text-ink dark:text-zinc-200 font-semibold tracking-wide">
             <span className="text-ink dark:text-white font-extrabold text-sm">Avir</span>
-            <span className="text-sage-700 dark:text-zinc-300 font-sans text-xs px-1.5 py-0.5 rounded bg-sage-100 dark:bg-zinc-800 border border-sage-200 dark:border-zinc-700/60">אֲוִיר</span>
             <span className="text-stone-300 dark:text-zinc-600">—</span>
             <span className="text-ink-muted dark:text-zinc-400">Urban Atmospheric Defense &amp; Exposure Intelligence</span>
           </div>
