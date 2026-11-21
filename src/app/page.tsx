@@ -232,16 +232,34 @@ export default function Home() {
       </main>
 
       {/* Semantic Footer */}
-      <footer className="border-t border-white/[0.08] bg-[#05080e] py-8 text-center text-xs text-slate-500">
-        <div className="max-w-7xl mx-auto px-4 space-y-2">
-          <p className="text-slate-300 font-semibold tracking-wide">
-            Avir — Urban Air Quality & Winter Smog Assistant
+      <footer className="border-t border-white/[0.08] bg-[#05080e] py-10 text-center text-xs text-slate-500">
+        <div className="max-w-7xl mx-auto px-4 space-y-3">
+          <div className="flex items-center justify-center gap-2 text-slate-200 font-semibold tracking-wide">
+            <span className="text-white font-extrabold text-sm">Avir</span>
+            <span className="text-emerald-400 font-sans text-xs px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20">אֲוִיר</span>
+            <span className="text-slate-600">—</span>
+            <span className="text-slate-400">Urban Atmospheric Defense &amp; Exposure Intelligence</span>
+          </div>
+
+          <p className="text-[11px] text-slate-400 flex flex-wrap items-center justify-center gap-x-2 gap-y-1">
+            <span>Built by <strong className="text-slate-200">XiaoArnav</strong></span>
+            <span className="text-slate-600">•</span>
+            <span>PromptWars Virtual (Challenge 6: Urban Air Quality Assistant)</span>
+            <span className="text-slate-600">•</span>
+            <span>Copernicus &amp; NOAA Atmospheric Telemetry</span>
+            <span className="text-slate-600">•</span>
+            <a 
+              href="https://github.com/XiaoArnav/avir" 
+              target="_blank" 
+              rel="noopener noreferrer" 
+              className="text-emerald-400 hover:text-emerald-300 hover:underline"
+            >
+              Open Source on GitHub
+            </a>
           </p>
-          <p className="text-[11px] text-slate-400">
-            PromptWars Virtual (Challenge 6) • Author: XiaoArnav • Powered by Google Antigravity & Open-Meteo High-Resolution Mesh
-          </p>
-          <p className="text-[11px] text-slate-600 max-w-xl mx-auto">
-            Grounded in peer-reviewed environmental toxicology and boundary layer fluid dynamics. Not a clinical substitute for emergency medical care during acute respiratory distress.
+
+          <p className="text-[11px] text-slate-600 max-w-2xl mx-auto leading-relaxed">
+            Mathematical calculations based on CPCB/EPA AQI breakpoints, Berkeley Earth particulate toxicology (22 µg/m³ ≈ 1 cig/day), and Corsi-Rosenthal Box fluid dynamics. Designed for community risk mitigation and routine shifting; not intended as a substitute for emergency clinical care during acute respiratory distress.
           </p>
         </div>
       </footer>

@@ -62,9 +62,6 @@ export const TopNav: React.FC<TopNavProps> = ({
               <span className="text-xs font-bold text-emerald-400 font-sans tracking-wide px-1.5 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/20" title="Hebrew: אֲוִיר (Air, Atmosphere & Pure Breath)">
                 אֲוִיר
               </span>
-              <span className="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-mono">
-                Challenge 6
-              </span>
             </div>
             <p className="text-[11px] text-slate-400 hidden sm:block">
               Urban Air Quality & Winter Smog Assistant
