@@ -1,9 +1,9 @@
 'use client';
 
 import React from 'react';
-import { Activity, CalendarClock, Home, Users } from 'lucide-react';
+import { Activity, Globe, CalendarClock, Home, Users } from 'lucide-react';
 
-export type ActiveTabId = 'overview' | 'routine' | 'iaq' | 'rwa';
+export type ActiveTabId = 'overview' | 'world' | 'routine' | 'iaq' | 'rwa';
 
 interface TabItem {
   id: ActiveTabId;
@@ -28,6 +28,12 @@ export const SegmentedTabs: React.FC<SegmentedTabsProps> = ({
       id: 'overview',
       label: 'Air Quality',
       icon: <Activity className="w-4 h-4" />,
+    },
+    {
+      id: 'world',
+      label: 'World Data',
+      icon: <Globe className="w-4 h-4" />,
+      badge: 'Live',
     },
     {
       id: 'routine',

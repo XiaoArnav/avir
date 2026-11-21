@@ -1,12 +1,13 @@
 'use client';
 
 import React from 'react';
-import { Wind, Settings, Atom, Megaphone, Sun, Moon } from 'lucide-react';
+import { Wind, Settings, Atom, Megaphone, Sun, Moon, Globe } from 'lucide-react';
 
 interface TopNavProps {
   onOpenSettings: () => void;
   onOpenExplainer: () => void;
   onOpenRwa: () => void;
+  onOpenWorldData?: () => void;
   hasCustomKey: boolean;
   isDarkMode?: boolean;
   onToggleTheme?: () => void;
@@ -16,6 +17,7 @@ export const TopNav: React.FC<TopNavProps> = ({
   onOpenSettings,
   onOpenExplainer,
   onOpenRwa,
+  onOpenWorldData,
   hasCustomKey,
   isDarkMode = true,
   onToggleTheme,
@@ -85,6 +87,18 @@ export const TopNav: React.FC<TopNavProps> = ({
               ) : (
                 <Moon className="w-4 h-4 text-ink" />
               )}
+            </button>
+          )}
+
+          {/* World Data Rankings Shortcut Button */}
+          {onOpenWorldData && (
+            <button
+              onClick={onOpenWorldData}
+              className="hidden lg:inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-white dark:bg-zinc-900/80 hover:bg-stone-200 dark:hover:bg-zinc-800 text-ink dark:text-zinc-300 transition-colors border border-stone-300 dark:border-zinc-800 shadow-sm"
+              aria-label="Open World Air Quality Rankings"
+            >
+              <Globe className="w-3.5 h-3.5 text-sage-600 dark:text-emerald-400" />
+              <span>World AQI</span>
             </button>
           )}
 

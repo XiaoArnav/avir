@@ -10,6 +10,7 @@ import { FamilyProfileForm } from '@/components/FamilyProfileForm';
 import { RoutineShifter } from '@/components/RoutineShifter';
 import { IAQStudio } from '@/components/IAQStudio';
 import { ImpactScorecard } from '@/components/ImpactScorecard';
+import { WorldDataExplorer } from '@/components/WorldDataExplorer';
 import { SettingsModal } from '@/components/SettingsModal';
 import { RwaBulletinModal } from '@/components/RwaBulletinModal';
 import { ScienceExplainerModal } from '@/components/ScienceExplainerModal';
@@ -174,6 +175,7 @@ export default function Home() {
         onOpenSettings={() => setIsSettingsOpen(true)}
         onOpenExplainer={() => setIsExplainerOpen(true)}
         onOpenRwa={() => setIsRwaModalOpen(true)}
+        onOpenWorldData={() => setActiveTab('world')}
         hasCustomKey={Boolean(geminiApiKey)}
         isDarkMode={isDarkMode}
         onToggleTheme={() => setIsDarkMode(!isDarkMode)}
@@ -229,6 +231,17 @@ export default function Home() {
               />
             </div>
           </div>
+        )}
+
+        {/* Tab: World Data Explorer (Global IQAir style rankings & search) */}
+        {activeTab === 'world' && (
+          <WorldDataExplorer
+            onSelectCity={(loc) => {
+              handleCitySelect(loc);
+              setActiveTab('overview');
+            }}
+            activeCityName={selectedCity.name}
+          />
         )}
 
         {/* Tab 2: Dynamic Routine Shifter */}
