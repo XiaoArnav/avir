@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Wind, Settings, Atom, Megaphone, Sun, Moon, Globe, GraduationCap, Share2 } from 'lucide-react';
+import { Wind, Settings, Atom, Megaphone, Sun, Moon, Globe, GraduationCap, Share2, Layers } from 'lucide-react';
 
 interface TopNavProps {
   onOpenSettings: () => void;
@@ -10,6 +10,7 @@ interface TopNavProps {
   onOpenWorldData?: () => void;
   onOpenSchoolAdvisory?: () => void;
   onOpenShare?: () => void;
+  onOpenMultiSource?: () => void;
   hasCustomKey: boolean;
   isDarkMode?: boolean;
   onToggleTheme?: () => void;
@@ -22,6 +23,7 @@ export const TopNav: React.FC<TopNavProps> = ({
   onOpenWorldData,
   onOpenSchoolAdvisory,
   onOpenShare,
+  onOpenMultiSource,
   hasCustomKey,
   isDarkMode = true,
   onToggleTheme,
@@ -32,38 +34,41 @@ export const TopNav: React.FC<TopNavProps> = ({
         {/* Brand identity */}
         <div className="flex items-center gap-3">
           <div 
-            className="w-10 h-10 rounded-xl bg-white dark:bg-zinc-900 border border-stone-300 dark:border-zinc-800 p-1 flex items-center justify-center shrink-0 select-none transition-transform hover:scale-105 shadow-sm"
-            title="אֲוִיר (Avir) — Hebrew for Air & Atmosphere"
+            className="w-10 h-10 rounded-xl bg-white dark:bg-zinc-900 border border-stone-300 dark:border-zinc-800 p-2 flex items-center justify-center shrink-0 select-none transition-transform hover:scale-105 shadow-sm"
+            title="Avir — Urban Atmospheric Defense & Air Quality Assistant"
           >
-            {/* Embedded Monogram: Merged Hebrew אֲוִיר */}
-            <svg viewBox="0 0 128 128" className="w-full h-full" fill="none" aria-hidden="true">
+            {/* Pure Aerodynamic Airflow & Clean Atmosphere Monogram */}
+            <svg viewBox="0 0 40 40" className="w-full h-full" fill="none" aria-hidden="true">
               <defs>
-                <linearGradient id="nav-glyph" x1="0%" y1="0%" x2="100%" y2="100%">
+                <linearGradient id="nav-airflow" x1="0%" y1="0%" x2="100%" y2="100%">
                   <stop offset="0%" stopColor="#10b981" />
-                  <stop offset="50%" stopColor="#236B56" />
                   <stop offset="100%" stopColor="#059669" />
                 </linearGradient>
               </defs>
-              <g transform="translate(14, 14) scale(0.78)">
-                {/* Resh (ר) Arch */}
-                <path 
-                  d="M 20 40 C 20 28, 32 20, 52 20 L 92 20 C 108 20, 116 28, 116 44 L 116 92 C 116 100, 110 104, 102 104 C 94 104, 90 100, 90 92 L 90 46 C 90 38, 84 34, 76 34 L 46 34 C 34 34, 26 38, 20 40 Z" 
-                  fill="url(#nav-glyph)" 
-                />
-                {/* Vav (ו) Pillar */}
-                <path 
-                  d="M 60 26 C 60 20, 66 16, 72 16 C 78 16, 84 20, 84 26 L 84 96 C 84 102, 78 108, 70 108 C 62 108, 56 102, 56 96 Z" 
-                  fill={isDarkMode ? '#ffffff' : '#18201D'} 
-                />
-                {/* Yod (י) Spark */}
-                <circle cx="102" cy="38" r="6" fill="#10b981" />
-                {/* Alef (א) Dynamic Cross-flow */}
-                <path 
-                  d="M 24 104 C 16 110, 10 104, 14 96 L 68 28 C 72 22, 80 22, 84 28 L 96 46 C 100 52, 98 58, 92 62 L 38 104 Z" 
-                  fill="url(#nav-glyph)" 
-                  opacity="0.85" 
-                />
-              </g>
+              {/* Flow Stream 1 */}
+              <path 
+                d="M 6 12 C 14 12, 18 16, 26 16 C 31 16, 34 13, 34 10" 
+                stroke="url(#nav-airflow)" 
+                strokeWidth="3.2" 
+                strokeLinecap="round" 
+              />
+              {/* Central Apex Stream */}
+              <path 
+                d="M 6 20 C 12 20, 16 26, 24 26 C 30 26, 34 22, 34 18" 
+                stroke={isDarkMode ? '#ffffff' : '#18201D'} 
+                strokeWidth="3.2" 
+                strokeLinecap="round" 
+              />
+              {/* Base Horizon Stream */}
+              <path 
+                d="M 10 28 C 16 28, 20 32, 28 32 C 32 32, 34 30, 34 28" 
+                stroke="url(#nav-airflow)" 
+                strokeWidth="2.8" 
+                strokeLinecap="round" 
+                strokeOpacity="0.8" 
+              />
+              {/* Clean Air Particle Dot */}
+              <circle cx="34" cy="10" r="2" fill="#10b981" />
             </svg>
           </div>
           <div>
@@ -103,6 +108,18 @@ export const TopNav: React.FC<TopNavProps> = ({
             >
               <Globe className="w-3.5 h-3.5 text-sage-600 dark:text-emerald-400" />
               <span>World AQI</span>
+            </button>
+          )}
+
+          {/* Multi-Source Open-Source Consensus Button */}
+          {onOpenMultiSource && (
+            <button
+              onClick={onOpenMultiSource}
+              className="hidden md:inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-white dark:bg-zinc-900/80 hover:bg-stone-200 dark:hover:bg-zinc-800 text-ink dark:text-zinc-300 transition-colors border border-stone-300 dark:border-zinc-800 shadow-sm"
+              aria-label="Open Multi-Source Atmospheric Consensus Inspector"
+            >
+              <Layers className="w-3.5 h-3.5 text-emerald-500" />
+              <span>5-Source Consensus</span>
             </button>
           )}
 

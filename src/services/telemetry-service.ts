@@ -1,5 +1,6 @@
 import { AtmosphericMetrics, HourlyAtmosphericPoint } from '@/domain/types';
 import { isThermalInversion, calculateAQIFromPM25, calculateCpcbNaqi } from '@/domain/air-math';
+import { buildMultiSourceFeeds, calculateMultiSourceConsensus } from '@/domain/advanced-air-math';
 import { telemetryCache } from '@/lib/cache';
 
 export interface GeocodedLocation {
@@ -146,6 +147,15 @@ export async function fetchLiveAtmosphericMetrics(
       }
     }
 
+    const feeds = buildMultiSourceFeeds({
+      pm25,
+      usAqi,
+      cpcbAqi: cpcb.aqi,
+      boundaryLayerHeight: Math.round(blh),
+      isThermalInversion: isThermalInversion(blh, currentHour),
+    });
+    const ensemble = calculateMultiSourceConsensus(feeds);
+
     const metrics: AtmosphericMetrics = {
       timestamp: current.time || new Date().toISOString(),
       usAqi,
@@ -166,6 +176,7 @@ export async function fetchLiveAtmosphericMetrics(
       boundaryLayerHeight: Math.round(blh),
       isThermalInversionActive: isThermalInversion(blh, currentHour),
       hourlyForecast: hourlyForecast.length > 0 ? hourlyForecast : undefined,
+      ensemble,
     };
 
     // Cache telemetry for 10 minutes (atmospheric conditions update hourly)
@@ -178,6 +189,7 @@ export async function fetchLiveAtmosphericMetrics(
     const fallbackBlh = fallbackHour >= 12 && fallbackHour <= 16 ? 550 : 130;
     const fallbackPM25 = 165.0;
     const fallbackCpcb = calculateCpcbNaqi(fallbackPM25, 210.0);
+    const fallbackUsAqi = calculateAQIFromPM25(fallbackPM25);
 
     const fallbackHourly: HourlyAtmosphericPoint[] = Array.from({ length: 24 }, (_, i) => {
       const isDay = i >= 12 && i <= 16;
@@ -192,9 +204,18 @@ export async function fetchLiveAtmosphericMetrics(
       };
     });
 
+    const fallbackFeeds = buildMultiSourceFeeds({
+      pm25: fallbackPM25,
+      usAqi: fallbackUsAqi,
+      cpcbAqi: fallbackCpcb.aqi,
+      boundaryLayerHeight: fallbackBlh,
+      isThermalInversion: isThermalInversion(fallbackBlh, fallbackHour),
+    });
+    const fallbackEnsemble = calculateMultiSourceConsensus(fallbackFeeds);
+
     return {
       timestamp: new Date().toISOString(),
-      usAqi: calculateAQIFromPM25(fallbackPM25),
+      usAqi: fallbackUsAqi,
       cpcbAqi: fallbackCpcb.aqi,
       cpcbCategory: fallbackCpcb.category,
       isLive: false,
@@ -207,6 +228,7 @@ export async function fetchLiveAtmosphericMetrics(
       boundaryLayerHeight: fallbackBlh,
       isThermalInversionActive: isThermalInversion(fallbackBlh, fallbackHour),
       hourlyForecast: fallbackHourly,
+      ensemble: fallbackEnsemble,
     };
   }
 }

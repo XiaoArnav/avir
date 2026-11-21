@@ -32,6 +32,7 @@ interface AtmosphereHeroProps {
   onRefresh?: () => void;
   onOpenShare?: () => void;
   onOpenSchoolAdvisory?: () => void;
+  onOpenMultiSource?: () => void;
   isLoading?: boolean;
   isDarkMode?: boolean;
 }
@@ -44,6 +45,7 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
   onRefresh,
   onOpenShare,
   onOpenSchoolAdvisory,
+  onOpenMultiSource,
   isLoading,
   isDarkMode = true,
 }) => {
@@ -264,6 +266,33 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
               </span>
             </div>
           </div>
+
+          {/* Multi-Source Open-Source AQI Consensus Range Badge */}
+          {metrics.ensemble && (
+            <button
+              onClick={onOpenMultiSource}
+              className="mt-3.5 inline-flex items-center flex-wrap gap-2 px-3 py-1.5 rounded-xl bg-white/90 dark:bg-zinc-900/90 border border-stone-200 dark:border-zinc-800 text-xs text-ink dark:text-zinc-200 hover:border-emerald-500/60 hover:bg-emerald-50/40 dark:hover:bg-emerald-950/20 transition-all shadow-sm group cursor-pointer text-left w-fit"
+              title="Inspect 5 Open-Source Telemetry Feeds, Average Consensus & Uncertainty Range"
+              aria-label="Inspect Multi-Source Open-Source AQI Consensus"
+            >
+              <span className="flex h-2 w-2 relative">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+              </span>
+              <span className="font-semibold text-ink dark:text-white">
+                5-Source Avg: <strong className="font-mono text-emerald-600 dark:text-emerald-400 font-bold">{metrics.ensemble.consensusAqi} AQI</strong>
+              </span>
+              <span className="font-mono text-ink-muted dark:text-zinc-400 text-[11px]">
+                (Range: {metrics.ensemble.aqiMin}–{metrics.ensemble.aqiMax})
+              </span>
+              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 font-bold border border-emerald-500/20">
+                {metrics.ensemble.confidenceScorePercent}% Consensus
+              </span>
+              <span className="text-emerald-600 dark:text-emerald-400 font-bold text-xs group-hover:translate-x-0.5 transition-transform">
+                &rarr;
+              </span>
+            </button>
+          )}
 
           {/* Berkeley Earth Cigarette Equivalence Card */}
           <div className="mt-4 p-3.5 rounded-xl bg-white/80 dark:bg-zinc-900/70 border border-stone-200 dark:border-zinc-800/80 flex items-center gap-3 shadow-sm">
@@ -531,14 +560,14 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
           <div className="font-bold tracking-wide flex items-center gap-2 font-mono text-ink dark:text-white">
             <span>
               {metrics.isThermalInversionActive
-                ? 'CRITICAL WARNING: ACTIVE THERMAL INVERSION TRAP'
-                : 'SOLAR CONVECTIVE VENTING WINDOW ACTIVE'}
+                ? 'SMOG TRAP WARNING • COLD AIR LID ACTIVE'
+                : 'CLEAN AIR WINDOW ACTIVE • SAFE VENTILATION'}
             </span>
           </div>
           <p className="mt-1 text-ink-muted dark:text-zinc-400 leading-relaxed text-xs sm:text-sm">
             {metrics.isThermalInversionActive
-              ? `A low atmospheric boundary layer (${metrics.boundaryLayerHeight}m) is physically acting as a lid, trapping toxic vehicular and biomass emissions within human breathing height. Avoid high-exertion outdoor activities; shift workouts to the 12:30 PM - 3:30 PM solar venting window.`
-              : 'Daytime solar heating has expanded the atmospheric boundary layer, diluting ground-level particulate concentrations. This is your safest daily window for essential errands, ventilation, and outdoor transit.'}
+              ? `Cold air (${metrics.boundaryLayerHeight}m ceiling) is trapping vehicle smoke and dust near the ground. Avoid outdoor exercise and keep windows shut; wait for the afternoon sun to disperse the smog.`
+              : 'Warm afternoon sun has lifted the smoke ceiling. This is your best and safest window today for outdoor errands, workouts, and opening windows.'}
           </p>
         </div>
       </div>

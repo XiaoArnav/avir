@@ -21,6 +21,7 @@ import { ShareBulletinModal } from '@/components/ShareBulletinModal';
 import { SettingsModal } from '@/components/SettingsModal';
 import { RwaBulletinModal } from '@/components/RwaBulletinModal';
 import { ScienceExplainerModal } from '@/components/ScienceExplainerModal';
+import { MultiSourceInspectorModal } from '@/components/MultiSourceInspectorModal';
 import {
   AtmosphericMetrics,
   UserVulnerabilityProfile,
@@ -61,6 +62,7 @@ export default function Home() {
   const [isExplainerOpen, setIsExplainerOpen] = useState(false);
   const [isSchoolModalOpen, setIsSchoolModalOpen] = useState(false);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+  const [isMultiSourceModalOpen, setIsMultiSourceModalOpen] = useState(false);
   const [geminiApiKey, setGeminiApiKey] = useState('');
   const [isDarkMode, setIsDarkMode] = useState(true);
 
@@ -187,6 +189,7 @@ export default function Home() {
         onOpenWorldData={() => setActiveTab('world')}
         onOpenSchoolAdvisory={() => setIsSchoolModalOpen(true)}
         onOpenShare={() => setIsShareModalOpen(true)}
+        onOpenMultiSource={() => setIsMultiSourceModalOpen(true)}
         hasCustomKey={Boolean(geminiApiKey)}
         isDarkMode={isDarkMode}
         onToggleTheme={() => setIsDarkMode(!isDarkMode)}
@@ -209,6 +212,7 @@ export default function Home() {
           onRefresh={refreshTelemetry}
           onOpenShare={() => setIsShareModalOpen(true)}
           onOpenSchoolAdvisory={() => setIsSchoolModalOpen(true)}
+          onOpenMultiSource={() => setIsMultiSourceModalOpen(true)}
           isLoading={isTelemetryLoading}
           isDarkMode={isDarkMode}
         />
@@ -410,6 +414,14 @@ export default function Home() {
         usAqi={metrics?.usAqi || 200}
         pm25={metrics?.pm25 || 150}
         cigarettes={metrics ? Math.round((metrics.pm25 / 22) * 10) / 10 : 7}
+      />
+
+      {/* 8. Multi-Source Atmospheric Telemetry Consensus & Uncertainty Inspector */}
+      <MultiSourceInspectorModal
+        isOpen={isMultiSourceModalOpen}
+        onClose={() => setIsMultiSourceModalOpen(false)}
+        cityName={selectedCity.name}
+        ensemble={metrics?.ensemble}
       />
     </div>
   );
