@@ -1,4 +1,13 @@
-import { AtmosphericMetrics, HourlyAtmosphericPoint } from '@/domain/types';
+import {
+  AtmosphericMetrics,
+  HourlyAtmosphericPoint,
+  DataProvenance,
+  TelemetryFieldMetadata,
+  AtmosphericFieldMeasurements,
+  TelemetryLocationMetadata,
+  TelemetryCacheMetadata,
+  TelemetryStatus,
+} from '@/domain/types';
 import { isThermalInversion, calculateAQIFromPM25, calculateCpcbNaqi } from '@/domain/air-math';
 import { buildMultiSourceFeeds, calculateMultiSourceConsensus } from '@/domain/advanced-air-math';
 import { telemetryCache } from '@/lib/cache';
@@ -67,6 +76,148 @@ export async function searchCities(query: string, signal?: AbortSignal): Promise
 }
 
 /**
+ * Coordinate validator enforcing geographic bounds:
+ * Latitude must be within [-90, 90] and Longitude within [-180, 180].
+ */
+export function isValidCoordinate(latitude: number, longitude: number): boolean {
+  return (
+    typeof latitude === 'number' &&
+    typeof longitude === 'number' &&
+    Number.isFinite(latitude) &&
+    Number.isFinite(longitude) &&
+    latitude >= -90 &&
+    latitude <= 90 &&
+    longitude >= -180 &&
+    longitude <= 180
+  );
+}
+
+/**
+ * Validates a pollutant reading from external providers.
+ * Enforces zero-fabrication: null is retained as unavailable, negative numbers or non-finite
+ * numbers are rejected, and 0 is preserved as a valid physical concentration.
+ */
+export function validatePollutantValue(
+  val: unknown,
+  fieldName: string,
+  unit: string,
+  options?: {
+    min?: number;
+    max?: number;
+    provider?: string;
+    classification?: DataProvenance;
+  }
+): TelemetryFieldMetadata<number> {
+  const min = options?.min ?? 0;
+  const max = options?.max ?? 2000;
+  const provider = options?.provider ?? 'Open-Meteo Air Quality (ECMWF CAMS)';
+  const classification = options?.classification ?? 'modeled_forecast';
+
+  if (val === null || val === undefined) {
+    return {
+      value: null,
+      unit,
+      provider,
+      classification: 'unavailable',
+      status: 'unavailable',
+    };
+  }
+
+  if (typeof val !== 'number' || !Number.isFinite(val)) {
+    return {
+      value: null,
+      unit,
+      provider,
+      classification: 'unavailable',
+      status: 'rejected',
+      rejectionReason: `Non-finite or non-numeric value for ${fieldName}: ${String(val)}`,
+    };
+  }
+
+  if (val < min) {
+    return {
+      value: null,
+      unit,
+      provider,
+      classification: 'unavailable',
+      status: 'rejected',
+      rejectionReason: `Physically impossible negative concentration for ${fieldName}: ${val}`,
+    };
+  }
+
+  if (val > max) {
+    return {
+      value: null,
+      unit,
+      provider,
+      classification: 'unavailable',
+      status: 'rejected',
+      rejectionReason: `Value exceeds physical atmospheric upper bound (${max} ${unit}) for ${fieldName}: ${val}`,
+    };
+  }
+
+  return {
+    value: Math.round(val * 10) / 10,
+    unit,
+    provider,
+    classification,
+    status: 'valid',
+  };
+}
+
+/**
+ * Validates meteorological readings (temperature, humidity, wind, boundary layer height).
+ */
+export function validateWeatherValue(
+  val: unknown,
+  fieldName: string,
+  unit: string,
+  min: number,
+  max: number,
+  provider = 'Open-Meteo Weather (NOAA GFS)'
+): TelemetryFieldMetadata<number> {
+  if (val === null || val === undefined) {
+    return {
+      value: null,
+      unit,
+      provider,
+      classification: 'unavailable',
+      status: 'unavailable',
+    };
+  }
+
+  if (typeof val !== 'number' || !Number.isFinite(val)) {
+    return {
+      value: null,
+      unit,
+      provider,
+      classification: 'unavailable',
+      status: 'rejected',
+      rejectionReason: `Non-finite weather value for ${fieldName}: ${String(val)}`,
+    };
+  }
+
+  if (val < min || val > max) {
+    return {
+      value: null,
+      unit,
+      provider,
+      classification: 'unavailable',
+      status: 'rejected',
+      rejectionReason: `Weather value out of physical bounds [${min}, ${max}] for ${fieldName}: ${val}`,
+    };
+  }
+
+  return {
+    value: Math.round(val * 10) / 10,
+    unit,
+    provider,
+    classification: 'modeled_forecast',
+    status: 'valid',
+  };
+}
+
+/**
  * Bounded fetch with exponential backoff for resilient telemetry retrieval
  */
 async function fetchWithRetry(url: string, signal?: AbortSignal, maxRetries = 2, delayMs = 300): Promise<Response> {
@@ -78,13 +229,23 @@ async function fetchWithRetry(url: string, signal?: AbortSignal, maxRetries = 2,
       }
       const res = await fetch(url, { signal });
       if (res.ok) return res;
+
+      if (res.status === 429) {
+        const error = new Error('HTTP 429: Rate limit exceeded');
+        (error as any).status = 429;
+        throw error;
+      }
+
       if (res.status >= 500 && attempt < maxRetries) {
         await new Promise(r => setTimeout(r, delayMs * Math.pow(2, attempt)));
         continue;
       }
-      throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+      const error = new Error(`HTTP ${res.status}: ${res.statusText}`);
+      (error as any).status = res.status;
+      throw error;
     } catch (err: any) {
       if (err?.name === 'AbortError') throw err;
+      if (err?.status === 429) throw err;
       lastError = err;
       if (attempt < maxRetries) {
         await new Promise(r => setTimeout(r, delayMs * Math.pow(2, attempt)));
@@ -110,11 +271,61 @@ export async function fetchLiveAtmosphericMetrics(
   longitude: number,
   options?: FetchTelemetryOptions
 ): Promise<AtmosphericMetrics> {
+  // Runtime validation of coordinates
+  if (!isValidCoordinate(latitude, longitude)) {
+    const retrievedAt = new Date().toISOString();
+    return {
+      status: 'error',
+      provenance: 'unavailable',
+      timestamp: retrievedAt,
+      retrievedAt,
+      timezone: 'auto',
+      cityName: options?.cityName,
+      latitude,
+      longitude,
+      usAqi: null,
+      pm25: null,
+      pm10: null,
+      boundaryLayerHeight: null,
+      temperature: null,
+      humidity: null,
+      windSpeed: null,
+      windDirection: null,
+      isThermalInversionActive: false,
+      isLive: false,
+      isStale: false,
+      freshness: 'unavailable',
+      errorType: 'validation',
+      sourceAttribution: 'Open-Meteo High-Resolution Ensemble (ECMWF & NOAA GFS)',
+      errorMessage: `Invalid coordinates provided (latitude: ${latitude}, longitude: ${longitude}). Latitude must be between -90 and 90, and longitude between -180 and 180.`,
+      availability: {
+        aqi: false,
+        pm25: false,
+        pm10: false,
+        weather: false,
+        blh: false,
+        forecast: false,
+      },
+    };
+  }
+
   const cacheKey = `telemetry:${latitude.toFixed(2)},${longitude.toFixed(2)}`;
 
   if (!options?.forceRefresh) {
     const cached = telemetryCache.get(cacheKey) as AtmosphericMetrics | null;
-    if (cached) return cached;
+    if (cached) {
+      return {
+        ...cached,
+        freshness: 'fresh',
+        cacheMetadata: {
+          isCached: true,
+          isStale: false,
+          originalTimestamp: cached.timestamp,
+          cachedAt: cached.retrievedAt,
+          ttlMs: 1000 * 60 * 10,
+        },
+      };
+    }
   }
 
   const retrievedAt = new Date().toISOString();
@@ -128,19 +339,39 @@ export async function fetchLiveAtmosphericMetrics(
       fetchWithRetry(weatherUrl, options?.signal, 2, 250).catch(() => null),
     ]);
 
-    const data = await aqRes.json();
+    let data: any;
+    try {
+      data = await aqRes.json();
+    } catch {
+      const err = new Error('Malformed JSON received from Open-Meteo Air Quality API');
+      err.name = 'ValidationError';
+      throw err;
+    }
+
+    if (!data || typeof data !== 'object' || data.error) {
+      const reason = data?.reason || 'Invalid response structure from Open-Meteo Air Quality API';
+      const err = new Error(reason);
+      err.name = 'ValidationError';
+      throw err;
+    }
+
     let weatherData: any = {};
     if (weatherRes && weatherRes.ok) {
       try {
-        weatherData = await weatherRes.json();
+        const wJson = await weatherRes.json();
+        if (wJson && typeof wJson === 'object' && !wJson.error) {
+          weatherData = wJson;
+        }
       } catch {
         // Ambient weather data is supplementary
       }
     }
 
-    const current = data.current || {};
-    const weatherCurrent = weatherData.current || {};
-    const timezone = data.timezone || weatherData.timezone || 'auto';
+    const current = (data.current && typeof data.current === 'object') ? data.current : {};
+    const weatherCurrent = (weatherData.current && typeof weatherData.current === 'object') ? weatherData.current : {};
+    const timezone = typeof data.timezone === 'string' && data.timezone
+      ? data.timezone
+      : (typeof weatherData.timezone === 'string' && weatherData.timezone ? weatherData.timezone : 'auto');
 
     // Parse target location's wall-clock hour directly from location ISO timestamp to avoid browser timezone drift
     const currentTimeStr: string = current.time || weatherCurrent.time || '';
@@ -151,34 +382,121 @@ export async function fetchLiveAtmosphericMetrics(
     }
 
     // Boundary Layer Height (mixing depth from NOAA/ECMWF forecast model) - null if unavailable, NEVER invented
-    let blh: number | null = null;
     const blhSourceArr = (weatherData.hourly && Array.isArray(weatherData.hourly.boundary_layer_height))
       ? weatherData.hourly.boundary_layer_height
       : (data.hourly && Array.isArray(data.hourly.boundary_layer_height))
       ? data.hourly.boundary_layer_height
       : null;
 
-    if (blhSourceArr) {
-      if (blhSourceArr.length > currentHour && typeof blhSourceArr[currentHour] === 'number' && Number.isFinite(blhSourceArr[currentHour])) {
-        blh = Math.round(blhSourceArr[currentHour]);
-      } else if (blhSourceArr.length > 0 && typeof blhSourceArr[0] === 'number' && Number.isFinite(blhSourceArr[0])) {
-        blh = Math.round(blhSourceArr[0]);
+    let blhRaw: unknown = null;
+    if (blhSourceArr && Array.isArray(blhSourceArr)) {
+      if (blhSourceArr.length > currentHour) {
+        blhRaw = blhSourceArr[currentHour];
+      } else if (blhSourceArr.length > 0) {
+        blhRaw = blhSourceArr[0];
       }
     }
 
-    // Section 3: Strictly preserve field-level availability. Missing values are null, NEVER fabricated 0 or ratios.
-    const pm25Raw = current.pm2_5;
-    const pm10Raw = current.pm10;
-    const usAqiRaw = current.us_aqi;
+    const blhField = validateWeatherValue(
+      blhRaw,
+      'boundaryLayerHeight',
+      'm',
+      0,
+      10000,
+      'Open-Meteo Weather (NOAA GFS)'
+    );
+    const blh = blhField.value !== null ? Math.round(blhField.value) : null;
 
-    const hasValidPm25 = typeof pm25Raw === 'number' && Number.isFinite(pm25Raw) && pm25Raw >= 0;
-    const hasValidPm10 = typeof pm10Raw === 'number' && Number.isFinite(pm10Raw) && pm10Raw >= 0;
-    const hasValidUsAqi = typeof usAqiRaw === 'number' && Number.isFinite(usAqiRaw) && usAqiRaw >= 0;
+    // Field-level validations: 0 is clean air (valid), null is unavailable, negative/non-finite is rejected
+    const pm25Field = validatePollutantValue(current.pm2_5, 'pm25', 'µg/m³', {
+      min: 0,
+      max: 2000,
+      provider: 'Open-Meteo Air Quality (ECMWF CAMS)',
+      classification: 'modeled_forecast',
+    });
+    const pm25 = pm25Field.value;
 
-    const pm25 = hasValidPm25 ? Math.round(pm25Raw * 10) / 10 : null;
-    const pm10 = hasValidPm10 ? Math.round(pm10Raw * 10) / 10 : null; // Never multiply pm25 * 1.4!
-    const usAqi = hasValidUsAqi ? usAqiRaw : (pm25 !== null ? calculateAQIFromPM25(pm25) : null);
-    const cpcb = pm25 !== null ? calculateCpcbNaqi(pm25, pm10 ?? pm25) : null;
+    const pm10Field = validatePollutantValue(current.pm10, 'pm10', 'µg/m³', {
+      min: 0,
+      max: 3000,
+      provider: 'Open-Meteo Air Quality (ECMWF CAMS)',
+      classification: 'modeled_forecast',
+    });
+    const pm10 = pm10Field.value;
+
+    // US AQI: if provided, validate directly; otherwise derive cleanly from valid PM2.5 using EPA breakpoints
+    let usAqiField: TelemetryFieldMetadata<number>;
+    if (current.us_aqi !== undefined && current.us_aqi !== null) {
+      usAqiField = validatePollutantValue(current.us_aqi, 'usAqi', 'AQI', {
+        min: 0,
+        max: 1000,
+        provider: 'Open-Meteo Air Quality (ECMWF CAMS)',
+        classification: 'modeled_forecast',
+      });
+    } else if (pm25 !== null) {
+      const derivedAqi = calculateAQIFromPM25(pm25);
+      usAqiField = {
+        value: derivedAqi,
+        unit: 'AQI',
+        provider: 'Avir Derived (EPA Breakpoints)',
+        classification: 'derived_calculation',
+        status: 'valid',
+      };
+    } else {
+      usAqiField = {
+        value: null,
+        unit: 'AQI',
+        provider: 'Open-Meteo Air Quality (ECMWF CAMS)',
+        classification: 'unavailable',
+        status: 'unavailable',
+      };
+    }
+    const usAqi = usAqiField.value;
+
+    // Calculate CPCB NAQI honestly: pass pm10 directly without artificial fallback to pm25
+    const cpcb = pm25 !== null ? calculateCpcbNaqi(pm25, pm10) : null;
+
+    // Supplementary chemical pollutants
+    const coField = validatePollutantValue(current.carbon_monoxide, 'co', 'µg/m³', { min: 0, max: 100000 });
+    const no2Field = validatePollutantValue(current.nitrogen_dioxide, 'no2', 'µg/m³', { min: 0, max: 2000 });
+    const so2Field = validatePollutantValue(current.sulphur_dioxide, 'so2', 'µg/m³', { min: 0, max: 2000 });
+    const o3Field = validatePollutantValue(current.ozone, 'o3', 'µg/m³', { min: 0, max: 2000 });
+
+    // Weather metrics
+    const tempField = validateWeatherValue(weatherCurrent.temperature_2m, 'temperature', '°C', -90, 60);
+    const humidityField = validateWeatherValue(weatherCurrent.relative_humidity_2m, 'humidity', '%', 0, 100);
+    const windSpeedField = validateWeatherValue(weatherCurrent.wind_speed_10m, 'windSpeed', 'km/h', 0, 400);
+    const windDirectionField = validateWeatherValue(weatherCurrent.wind_direction_10m, 'windDirection', '°', 0, 360);
+
+    const temperature = tempField.value;
+    const humidity = humidityField.value !== null ? Math.round(humidityField.value) : null;
+    const windSpeed = windSpeedField.value;
+    const windDirection = windDirectionField.value !== null ? Math.round(windDirectionField.value) : null;
+
+    const fields: AtmosphericFieldMeasurements = {
+      pm25: pm25Field,
+      pm10: pm10Field,
+      usAqi: usAqiField,
+      boundaryLayerHeight: blhField,
+      co: coField,
+      no2: no2Field,
+      so2: so2Field,
+      o3: o3Field,
+      temperature: tempField,
+      humidity: humidityField,
+      windSpeed: windSpeedField,
+      windDirection: windDirectionField,
+    };
+
+    // Determine honest telemetry status
+    const hasCoreAq = pm25Field.status === 'valid' || usAqiField.status === 'valid';
+    const isComplete = hasCoreAq && pm10Field.status === 'valid' && blhField.status === 'valid' && tempField.status === 'valid';
+    let status: TelemetryStatus = 'unavailable';
+    if (isComplete) {
+      status = 'success';
+    } else if (hasCoreAq) {
+      status = 'partial';
+    }
 
     // Build 24-hour diurnal timeline from Open-Meteo hourly arrays
     const hourlyForecast: HourlyAtmosphericPoint[] = [];
@@ -200,10 +518,20 @@ export async function fetchLiveAtmosphericMetrics(
         const timeStr = times[i];
         const hourPart = timeStr.includes('T') ? timeStr.split('T')[1].slice(0, 2) : '0';
         const hour = parseInt(hourPart, 10);
-        const ptPm25 = typeof pm25Arr[i] === 'number' && Number.isFinite(pm25Arr[i]) ? Math.round(pm25Arr[i]! * 10) / 10 : null;
-        const ptBlh = typeof blhArr[i] === 'number' && Number.isFinite(blhArr[i]) ? Math.round(blhArr[i]!) : null;
+        const rawPtPm25 = pm25Arr[i];
+        const ptPm25 = typeof rawPtPm25 === 'number' && Number.isFinite(rawPtPm25) && rawPtPm25 >= 0
+          ? Math.round(rawPtPm25 * 10) / 10
+          : null;
+        const rawPtBlh = blhArr[i];
+        const ptBlh = typeof rawPtBlh === 'number' && Number.isFinite(rawPtBlh) && rawPtBlh >= 0
+          ? Math.round(rawPtBlh)
+          : null;
         const ptAqi = ptPm25 !== null ? calculateAQIFromPM25(ptPm25) : null;
         const isForecast = currentTimeStr ? timeStr > currentTimeStr : i > currentHour;
+
+        const rawTemp = tempArr[i];
+        const rawRh = rhArr[i];
+        const rawWind = windArr[i];
 
         hourlyForecast.push({
           time: timeStr,
@@ -211,9 +539,9 @@ export async function fetchLiveAtmosphericMetrics(
           pm25: ptPm25,
           usAqi: ptAqi,
           boundaryLayerHeight: ptBlh,
-          temperature: typeof tempArr[i] === 'number' && Number.isFinite(tempArr[i]) ? Math.round(tempArr[i]! * 10) / 10 : null,
-          humidity: typeof rhArr[i] === 'number' && Number.isFinite(rhArr[i]) ? Math.round(rhArr[i]!) : null,
-          windSpeed: typeof windArr[i] === 'number' && Number.isFinite(windArr[i]) ? Math.round(windArr[i]! * 10) / 10 : null,
+          temperature: typeof rawTemp === 'number' && Number.isFinite(rawTemp) ? Math.round(rawTemp * 10) / 10 : null,
+          humidity: typeof rawRh === 'number' && Number.isFinite(rawRh) && rawRh >= 0 && rawRh <= 100 ? Math.round(rawRh) : null,
+          windSpeed: typeof rawWind === 'number' && Number.isFinite(rawWind) && rawWind >= 0 ? Math.round(rawWind * 10) / 10 : null,
           isForecast,
           isSafeVentingWindow: hour >= 12 && hour <= 16 && (ptBlh ? ptBlh >= 450 : false) && (ptAqi ? ptAqi <= 150 : false),
           isStagnantDispersion: ptBlh !== null ? ptBlh < 200 : false,
@@ -230,21 +558,23 @@ export async function fetchLiveAtmosphericMetrics(
     }) : [];
     const ensemble = calculateMultiSourceConsensus(feeds);
 
-    const temperature = typeof weatherCurrent.temperature_2m === 'number' && Number.isFinite(weatherCurrent.temperature_2m)
-      ? Math.round(weatherCurrent.temperature_2m * 10) / 10
-      : null;
-    const humidity = typeof weatherCurrent.relative_humidity_2m === 'number' && Number.isFinite(weatherCurrent.relative_humidity_2m)
-      ? Math.round(weatherCurrent.relative_humidity_2m)
-      : null;
-    const windSpeed = typeof weatherCurrent.wind_speed_10m === 'number' && Number.isFinite(weatherCurrent.wind_speed_10m)
-      ? Math.round(weatherCurrent.wind_speed_10m * 10) / 10
-      : null;
-    const windDirection = typeof weatherCurrent.wind_direction_10m === 'number' && Number.isFinite(weatherCurrent.wind_direction_10m)
-      ? Math.round(weatherCurrent.wind_direction_10m)
-      : null;
+    const location: TelemetryLocationMetadata = {
+      latitude,
+      longitude,
+      cityName: options?.cityName,
+      timezone,
+    };
+
+    const cacheMetadata: TelemetryCacheMetadata = {
+      isCached: false,
+      isStale: false,
+      originalTimestamp: current.time || retrievedAt,
+      cachedAt: retrievedAt,
+      ttlMs: 1000 * 60 * 10,
+    };
 
     const metrics: AtmosphericMetrics = {
-      status: pm25 !== null || usAqi !== null ? 'success' : 'unavailable',
+      status,
       provenance: 'modeled_forecast',
       timestamp: current.time || retrievedAt,
       retrievedAt,
@@ -255,10 +585,10 @@ export async function fetchLiveAtmosphericMetrics(
       usAqi,
       pm25,
       pm10,
-      co: typeof current.carbon_monoxide === 'number' && Number.isFinite(current.carbon_monoxide) ? current.carbon_monoxide : null,
-      no2: typeof current.nitrogen_dioxide === 'number' && Number.isFinite(current.nitrogen_dioxide) ? current.nitrogen_dioxide : null,
-      so2: typeof current.sulphur_dioxide === 'number' && Number.isFinite(current.sulphur_dioxide) ? current.sulphur_dioxide : null,
-      o3: typeof current.ozone === 'number' && Number.isFinite(current.ozone) ? current.ozone : null,
+      co: coField.value,
+      no2: no2Field.value,
+      so2: so2Field.value,
+      o3: o3Field.value,
       temperature,
       humidity,
       windSpeed,
@@ -267,6 +597,10 @@ export async function fetchLiveAtmosphericMetrics(
       isThermalInversionActive: blh !== null ? isThermalInversion(blh, currentHour) : false,
       isLive: true,
       isStale: false,
+      freshness: 'fresh',
+      fields,
+      location,
+      cacheMetadata,
       cpcbAqi: cpcb?.aqi ?? null,
       cpcbCategory: cpcb?.category ?? null,
       sourceAttribution: 'Open-Meteo High-Resolution Ensemble (ECMWF & NOAA GFS)',
@@ -291,6 +625,23 @@ export async function fetchLiveAtmosphericMetrics(
     }
     console.warn('Live telemetry fetch failed, checking stale cache fallback:', error?.message || error);
 
+    let errorType: 'network' | 'timeout' | 'rate_limit' | 'validation' | 'unknown' = 'unknown';
+    let errorMessage = 'Atmospheric telemetry is currently unavailable from the provider. Please check your connection and retry.';
+
+    if (error?.status === 429 || error?.message?.includes('429') || error?.message?.toLowerCase().includes('rate limit')) {
+      errorType = 'rate_limit';
+      errorMessage = 'Provider rate limit encountered. Telemetry is temporarily unavailable.';
+    } else if (error?.name === 'TimeoutError' || error?.message?.toLowerCase().includes('timeout') || error?.message?.includes('504')) {
+      errorType = 'timeout';
+      errorMessage = 'Atmospheric telemetry provider timed out. Telemetry is temporarily unavailable.';
+    } else if (error?.name === 'TypeError' || error?.message?.toLowerCase().includes('fetch') || error?.message?.toLowerCase().includes('network')) {
+      errorType = 'network';
+      errorMessage = 'Network connection failure while contacting atmospheric telemetry providers. Telemetry is temporarily unavailable.';
+    } else if (error?.name === 'SyntaxError' || error?.name === 'ValidationError' || error?.message?.toLowerCase().includes('json')) {
+      errorType = 'validation';
+      errorMessage = 'Malformed or invalid telemetry response received from provider. Telemetry is temporarily unavailable.';
+    }
+
     // Rule 3: Check expired cache for genuine stale data preserving original timestamps
     const staleEntry = telemetryCache.getStale(cacheKey) as { value: AtmosphericMetrics; isExpired: boolean; storedAt: number } | null;
     if (staleEntry?.value) {
@@ -303,7 +654,16 @@ export async function fetchLiveAtmosphericMetrics(
         status: 'stale',
         isStale: true,
         isLive: false,
-        errorMessage: `Network error. Showing cached reading from ${originalTime}.`,
+        freshness: 'stale',
+        errorType,
+        cacheMetadata: {
+          isCached: true,
+          isStale: true,
+          originalTimestamp: staleEntry.value.timestamp,
+          cachedAt: new Date(staleEntry.storedAt).toISOString(),
+          ttlMs: 1000 * 60 * 10,
+        },
+        errorMessage: `Network error. ${errorMessage} Showing cached reading from ${originalTime}.`,
       };
     }
 
@@ -328,8 +688,10 @@ export async function fetchLiveAtmosphericMetrics(
       isThermalInversionActive: false,
       isLive: false,
       isStale: false,
+      freshness: 'unavailable',
+      errorType,
       sourceAttribution: 'Open-Meteo High-Resolution Ensemble (ECMWF & NOAA GFS)',
-      errorMessage: 'Atmospheric telemetry is currently unavailable from the provider. Please check your connection and retry.',
+      errorMessage,
       availability: {
         aqi: false,
         pm25: false,
