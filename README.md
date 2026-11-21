@@ -1,15 +1,15 @@
 <p align="center">
-  <img src="public/logo.svg" width="128" alt="Avir Logo (אֲוִיר)" />
+  <img src="public/logo.svg" width="128" alt="Avir Logo" />
 </p>
 
-# 🌿 Avir (אֲוִיר) — Urban Air Quality & Winter Smog Assistant
+# 🌿 Avir — Urban Air Quality & Winter Smog Assistant
 
 > **PromptWars Virtual — [Challenge 6] Urban Air Quality Assistant**  
-> *Avir (Hebrew: **אֲוִיר / אוויר** — meaning "Air", "Atmosphere", and "The Breath of Life") is a production-grade, mathematically grounded GenAI assistant empowering families and communities to navigate severe winter smog, diurnal thermal inversions, and hazardous particulate pollution.*
+> *Avir (Hebrew: **אֲוִיר** — meaning "Air", "Atmosphere", and "The Breath of Life") is a production-grade, mathematically grounded GenAI assistant empowering families and communities to navigate severe winter smog, diurnal thermal inversions, and hazardous particulate pollution.*
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Branch: main](https://img.shields.io/badge/Branch-main-success.svg)](https://github.com/XiaoArnav/avir)
-[![Tests: 106 Passing](https://img.shields.io/badge/Tests-106%20Passing-brightgreen.svg)](https://github.com/XiaoArnav/avir)
+[![Tests: 114 Passing](https://img.shields.io/badge/Tests-114%20Passing-brightgreen.svg)](https://github.com/XiaoArnav/avir)
 [![Next.js: 15.5 App Router](https://img.shields.io/badge/Next.js-15.5%20App%20Router-black.svg)](https://github.com/XiaoArnav/avir)
 [![Zero Fabricated Data: 100% Provenance](https://img.shields.io/badge/Data%20Integrity-100%25%20Verified%20Provenance-teal.svg)](https://github.com/XiaoArnav/avir)
 [![WCAG: 2.1 AA](https://img.shields.io/badge/WCAG-2.1%20AA%20Compliant-teal.svg)](https://github.com/XiaoArnav/avir)
