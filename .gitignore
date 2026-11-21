@@ -37,3 +37,4 @@ yarn-error.log*
 # Hackathon Temporary Files
 /tmp/
 browser_evidence/
+.vercel
