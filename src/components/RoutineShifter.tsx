@@ -21,7 +21,7 @@ export const RoutineShifter: React.FC<RoutineShifterProps> = ({ routineShifts })
             <span>Circadian Atmospheric Inversion Optimizer</span>
           </div>
           <h2 className="text-xl sm:text-2xl font-extrabold text-ink dark:text-white tracking-tight flex items-center gap-2">
-            <span>Dynamic Routine Shifter</span>
+            <span>Daily Routine Plan: Inversion-Safe Optimizer</span>
           </h2>
           <p className="text-xs text-ink-muted dark:text-zinc-400 mt-1 max-w-2xl leading-relaxed">
             Shifts high-ventilation activities out of nocturnal thermal inversion ceilings into solar convective venting windows.

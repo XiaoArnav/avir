@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   calculateAQIFromPM25,
+  calculateCpcbNaqi,
   getAQICategory,
   getGrapStage,
   calculateCigaretteEquivalence,
@@ -22,6 +23,28 @@ describe('Atmospheric Math & Exposure Toxicology Engine', () => {
       expect(calculateAQIFromPM25(150.4)).toBe(200);
       expect(calculateAQIFromPM25(250.4)).toBe(300);
       expect(calculateAQIFromPM25(500.0)).toBe(500);
+    });
+
+    it('calculates authentic CPCB NAQI via Indian National Air Quality Index breakpoints', () => {
+      // Good (0-30 -> 0-50)
+      expect(calculateCpcbNaqi(15).aqi).toBe(25);
+      expect(calculateCpcbNaqi(15).category).toBe('Good');
+
+      // Satisfactory (31-60 -> 51-100)
+      expect(calculateCpcbNaqi(45).category).toBe('Satisfactory');
+
+      // Moderate (61-90 -> 101-200)
+      expect(calculateCpcbNaqi(75).category).toBe('Moderate');
+
+      // Poor (91-120 -> 201-300)
+      expect(calculateCpcbNaqi(105).category).toBe('Poor');
+
+      // Very Poor (121-250 -> 301-400)
+      expect(calculateCpcbNaqi(185).category).toBe('Very Poor');
+
+      // Severe (250+ -> 401-500)
+      expect(calculateCpcbNaqi(300).category).toBe('Severe');
+      expect(calculateCpcbNaqi(300).aqi).toBeGreaterThanOrEqual(401);
     });
 
     it('correctly maps AQI values to clinical category labels', () => {

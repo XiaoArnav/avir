@@ -24,6 +24,58 @@ const PM25_BREAKPOINTS: BreakpointDef[] = [
   { cLow: 350.5, cHigh: 500.0, iLow: 401, iHigh: 500 },
 ];
 
+// CPCB (Central Pollution Control Board, India) Breakpoints
+const CPCB_PM25_BREAKPOINTS: BreakpointDef[] = [
+  { cLow: 0.0, cHigh: 30.0, iLow: 0, iHigh: 50 },
+  { cLow: 30.1, cHigh: 60.0, iLow: 51, iHigh: 100 },
+  { cLow: 60.1, cHigh: 90.0, iLow: 101, iHigh: 200 },
+  { cLow: 90.1, cHigh: 120.0, iLow: 201, iHigh: 300 },
+  { cLow: 120.1, cHigh: 250.0, iLow: 301, iHigh: 400 },
+  { cLow: 250.1, cHigh: 500.0, iLow: 401, iHigh: 500 },
+];
+
+const CPCB_PM10_BREAKPOINTS: BreakpointDef[] = [
+  { cLow: 0.0, cHigh: 50.0, iLow: 0, iHigh: 50 },
+  { cLow: 50.1, cHigh: 100.0, iLow: 51, iHigh: 100 },
+  { cLow: 100.1, cHigh: 250.0, iLow: 101, iHigh: 200 },
+  { cLow: 250.1, cHigh: 350.0, iLow: 201, iHigh: 300 },
+  { cLow: 350.1, cHigh: 430.0, iLow: 301, iHigh: 400 },
+  { cLow: 430.1, cHigh: 500.0, iLow: 401, iHigh: 500 },
+];
+
+function interpolateBreakpoint(c: number, bps: BreakpointDef[]): number {
+  if (c <= 0) return 0;
+  if (c >= 500) return 500;
+  for (const bp of bps) {
+    if (c <= bp.cHigh) {
+      const idx = ((bp.iHigh - bp.iLow) / (bp.cHigh - bp.cLow)) * (c - bp.cLow) + bp.iLow;
+      return Math.round(idx);
+    }
+  }
+  return 500;
+}
+
+export type CpcbCategory = 'Good' | 'Satisfactory' | 'Moderate' | 'Poor' | 'Very Poor' | 'Severe';
+
+/**
+ * Calculates genuine Indian National Air Quality Index (NAQI) per CPCB standard.
+ * Uses linear interpolation across CPCB sub-index breakpoints.
+ */
+export function calculateCpcbNaqi(pm25: number, pm10?: number): { aqi: number; category: CpcbCategory } {
+  const pm25Idx = interpolateBreakpoint(pm25, CPCB_PM25_BREAKPOINTS);
+  const pm10Idx = pm10 ? interpolateBreakpoint(pm10, CPCB_PM10_BREAKPOINTS) : 0;
+  const aqi = Math.max(pm25Idx, pm10Idx);
+
+  let category: CpcbCategory = 'Good';
+  if (aqi > 400) category = 'Severe';
+  else if (aqi > 300) category = 'Very Poor';
+  else if (aqi > 200) category = 'Poor';
+  else if (aqi > 100) category = 'Moderate';
+  else if (aqi > 50) category = 'Satisfactory';
+
+  return { aqi, category };
+}
+
 /**
  * Calculates standardized AQI from PM2.5 concentration (ug/m3) using linear breakpoint interpolation.
  */

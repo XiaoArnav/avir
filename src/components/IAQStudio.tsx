@@ -25,7 +25,7 @@ export const IAQStudio: React.FC<IAQStudioProps> = ({ spec: initialSpec }) => {
             <span>Frugal Engineering &amp; Clean Air Physics</span>
           </div>
           <h2 className="text-xl sm:text-2xl font-extrabold text-ink dark:text-white tracking-tight flex items-center gap-2">
-            <span>Frugal IAQ Studio: DIY Corsi-Rosenthal Air Cleaner</span>
+            <span>Clean Home Air: DIY Corsi-Rosenthal Cleaner</span>
           </h2>
           <p className="text-xs text-ink-muted dark:text-zinc-400 mt-1 max-w-2xl leading-relaxed">
             Mates a standard 20-inch box fan with 4 or 5 MERV-13 filters to deliver commercial hospital-grade CADR at 15% of the commercial unit cost.

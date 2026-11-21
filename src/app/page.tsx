@@ -33,16 +33,16 @@ export default function Home() {
   const [isPlanGenerating, setIsPlanGenerating] = useState(false);
   const [activeTab, setActiveTab] = useState<ActiveTabId>('overview');
 
-  // User Profile State
+  // User Profile State (Neutral un-opinionated default baseline)
   const [profile, setProfile] = useState<UserVulnerabilityProfile>({
-    ageGroup: 'child',
-    hasAsthmaOrRespiratory: true,
+    ageGroup: 'adult',
+    hasAsthmaOrRespiratory: false,
     hasCardiovascularCondition: false,
     isPregnant: false,
     isOutdoorWorker: false,
   });
-  const [roomSizeSqFt, setRoomSizeSqFt] = useState(180);
-  const [customRoutine, setCustomRoutine] = useState('06:30 AM Morning Jog & Outdoor Play');
+  const [roomSizeSqFt, setRoomSizeSqFt] = useState(200);
+  const [customRoutine, setCustomRoutine] = useState('06:30 AM Morning Jog & Daily Commute');
 
   // Plan State
   const [plan, setPlan] = useState<RecommendationPlan | null>(null);
@@ -101,7 +101,15 @@ export default function Home() {
     };
   }, [selectedCity]);
 
-  // Handle manual live telemetry refresh
+  // Handle city selection with clean transition to avoid race condition
+  const handleCitySelect = (loc: GeocodedLocation) => {
+    if (loc.id === selectedCity.id && loc.name === selectedCity.name) return;
+    setIsTelemetryLoading(true);
+    setMetrics(null); // Clear stale city metrics immediately
+    setSelectedCity(loc);
+  };
+
+  // Handle manual live telemetry refresh & dependent plan recalculation
   const refreshTelemetry = async () => {
     setIsTelemetryLoading(true);
     try {
@@ -110,6 +118,16 @@ export default function Home() {
         selectedCity.longitude
       );
       setMetrics(data);
+      // Synchronously recalculate dependent recommendation plan
+      const updatedPlan = await generateAirQualityPlan({
+        city: selectedCity.name,
+        metrics: data,
+        profile,
+        roomSizeSqFt,
+        customRoutine,
+        geminiApiKey,
+      });
+      setPlan(updatedPlan);
     } catch (err) {
       console.error('Failed to reload telemetry:', err);
     } finally {
@@ -131,7 +149,7 @@ export default function Home() {
         geminiApiKey,
       });
       setPlan(updatedPlan);
-      // Seamlessly switch to Routine Shifter to view optimized results
+      // Seamlessly switch to Daily Plan to view optimized results
       setActiveTab('routine');
     } catch (err) {
       console.error('Plan generation failed:', err);
@@ -141,6 +159,14 @@ export default function Home() {
   };
 
   const aqiCategory = metrics ? getAQICategory(metrics.usAqi) : 'Hazardous';
+
+  const reductionPercentage = plan?.impactMetrics?.totalInhaledBaselineUg
+    ? Math.round(
+        ((plan.impactMetrics.totalInhaledBaselineUg - plan.impactMetrics.totalInhaledOptimizedUg) /
+          plan.impactMetrics.totalInhaledBaselineUg) *
+          100
+      )
+    : undefined;
 
   return (
     <div className="flex-1 flex flex-col min-h-screen bg-stone-100 dark:bg-black text-ink dark:text-white transition-colors duration-200 selection:bg-emerald-500 selection:text-black">
@@ -157,25 +183,27 @@ export default function Home() {
         {/* Fast Metro Switcher Rail (One-tap swipe on mobile) */}
         <MetroRail
           currentCityName={selectedCity.name}
-          onSelectCity={(loc) => setSelectedCity(loc)}
+          onSelectCity={handleCitySelect}
           isLoading={isTelemetryLoading}
         />
 
         {/* Atmosphere Telemetry Hero - IQAir / AQI.in World-Class Duo Standard */}
-        {metrics && (
-          <AtmosphereHero
-            city={selectedCity.name}
-            metrics={metrics}
-            category={aqiCategory}
-            onOpenExplainer={() => setIsExplainerOpen(true)}
-            onRefresh={refreshTelemetry}
-            isLoading={isTelemetryLoading}
-            isDarkMode={isDarkMode}
-          />
-        )}
+        <AtmosphereHero
+          city={selectedCity.name}
+          metrics={metrics}
+          category={aqiCategory}
+          onOpenExplainer={() => setIsExplainerOpen(true)}
+          onRefresh={refreshTelemetry}
+          isLoading={isTelemetryLoading}
+          isDarkMode={isDarkMode}
+        />
 
         {/* High-Contrast Segmented Navigation View Controller */}
-        <SegmentedTabs activeTab={activeTab} onChangeTab={setActiveTab} />
+        <SegmentedTabs 
+          activeTab={activeTab} 
+          onChangeTab={setActiveTab} 
+          reductionPercentage={reductionPercentage}
+        />
 
         {/* Tab 1: Overview, Location Search, Profile & Scorecard */}
         {activeTab === 'overview' && (
@@ -185,7 +213,7 @@ export default function Home() {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <CityPicker
                 currentCity={selectedCity.name}
-                onSelectCity={(loc) => setSelectedCity(loc)}
+                onSelectCity={handleCitySelect}
                 isLoading={isTelemetryLoading}
               />
 

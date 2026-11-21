@@ -38,10 +38,10 @@ export const FamilyProfileForm: React.FC<FamilyProfileFormProps> = ({
       <div>
         <h2 className="text-base font-bold text-ink dark:text-white flex items-center gap-2">
           <Users className="w-4 h-4 text-sage-600 dark:text-zinc-300" />
-          <span>Vulnerability &amp; Household Configuration</span>
+          <span>Personalize Your Protection Plan</span>
         </h2>
         <p className="text-xs text-ink-muted dark:text-zinc-400">
-          Avir tailors routine shifts and indoor air cleaner physics to your exact household composition
+          Tailor routine shifts and indoor air filtration physics to your specific household needs
         </p>
       </div>
 

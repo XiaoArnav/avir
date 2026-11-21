@@ -1,5 +1,5 @@
 import { AtmosphericMetrics } from '@/domain/types';
-import { isThermalInversion, calculateAQIFromPM25 } from '@/domain/air-math';
+import { isThermalInversion, calculateAQIFromPM25, calculateCpcbNaqi } from '@/domain/air-math';
 import { telemetryCache } from '@/lib/cache';
 
 export interface GeocodedLocation {
@@ -116,10 +116,15 @@ export async function fetchLiveAtmosphericMetrics(
     const pm25 = typeof current.pm2_5 === 'number' ? Math.round(current.pm2_5 * 10) / 10 : 85;
     const pm10 = typeof current.pm10 === 'number' ? Math.round(current.pm10 * 10) / 10 : 120;
     const usAqi = typeof current.us_aqi === 'number' ? current.us_aqi : calculateAQIFromPM25(pm25);
+    const cpcb = calculateCpcbNaqi(pm25, pm10);
 
     const metrics: AtmosphericMetrics = {
       timestamp: current.time || new Date().toISOString(),
       usAqi,
+      cpcbAqi: cpcb.aqi,
+      cpcbCategory: cpcb.category,
+      isLive: true,
+      sourceAttribution: 'Open-Meteo High-Resolution Ensemble (ECMWF & NOAA GFS)',
       pm25,
       pm10,
       co: current.carbon_monoxide,
@@ -143,10 +148,15 @@ export async function fetchLiveAtmosphericMetrics(
     const fallbackHour = new Date().getHours();
     const fallbackBlh = fallbackHour >= 12 && fallbackHour <= 16 ? 550 : 130;
     const fallbackPM25 = 165.0;
+    const fallbackCpcb = calculateCpcbNaqi(fallbackPM25, 210.0);
 
     return {
       timestamp: new Date().toISOString(),
       usAqi: calculateAQIFromPM25(fallbackPM25),
+      cpcbAqi: fallbackCpcb.aqi,
+      cpcbCategory: fallbackCpcb.category,
+      isLive: false,
+      sourceAttribution: 'Offline Regional Benchmark (Simulated Station Fallback)',
       pm25: fallbackPM25,
       pm10: 210.0,
       temperature: 19.5,

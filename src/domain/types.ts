@@ -38,6 +38,10 @@ export interface AtmosphericMetrics {
   windDirection?: number; // degrees
   boundaryLayerHeight: number; // meters
   isThermalInversionActive: boolean;
+  isLive?: boolean;
+  cpcbAqi?: number;
+  cpcbCategory?: string;
+  sourceAttribution?: string;
 }
 
 export type ActivityIntensity = 'resting' | 'light_walk' | 'moderate_activity' | 'intense_exercise';

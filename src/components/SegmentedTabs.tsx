@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Activity, Clock, Wrench, Megaphone } from 'lucide-react';
+import { Activity, CalendarClock, Home, Users } from 'lucide-react';
 
 export type ActiveTabId = 'overview' | 'routine' | 'iaq' | 'rwa';
 
@@ -15,31 +15,36 @@ interface TabItem {
 interface SegmentedTabsProps {
   activeTab: ActiveTabId;
   onChangeTab: (tab: ActiveTabId) => void;
+  reductionPercentage?: number;
 }
 
-export const SegmentedTabs: React.FC<SegmentedTabsProps> = ({ activeTab, onChangeTab }) => {
+export const SegmentedTabs: React.FC<SegmentedTabsProps> = ({ 
+  activeTab, 
+  onChangeTab,
+  reductionPercentage 
+}) => {
   const tabs: TabItem[] = [
     {
       id: 'overview',
-      label: 'Telemetry & Profile',
+      label: 'Air Quality',
       icon: <Activity className="w-4 h-4" />,
     },
     {
       id: 'routine',
-      label: 'Routine Shifter',
-      icon: <Clock className="w-4 h-4" />,
-      badge: '-64% Dose',
+      label: 'Daily Plan',
+      icon: <CalendarClock className="w-4 h-4" />,
+      badge: reductionPercentage ? `-${reductionPercentage}% Dose` : undefined,
     },
     {
       id: 'iaq',
-      label: 'DIY Air Purifier',
-      icon: <Wrench className="w-4 h-4" />,
+      label: 'Clean Home',
+      icon: <Home className="w-4 h-4" />,
       badge: '₹2,950',
     },
     {
       id: 'rwa',
-      label: 'Community RWA Circular',
-      icon: <Megaphone className="w-4 h-4" />,
+      label: 'Community',
+      icon: <Users className="w-4 h-4" />,
       badge: 'Action',
     },
   ];
@@ -61,7 +66,7 @@ export const SegmentedTabs: React.FC<SegmentedTabsProps> = ({ activeTab, onChang
               role="tab"
               aria-selected={isActive}
               onClick={() => onChangeTab(tab.id)}
-              className={`flex-1 min-w-[130px] sm:min-w-0 py-2 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition-all duration-200 select-none touch-target ${
+              className={`flex-1 min-w-[120px] sm:min-w-0 py-2.5 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition-all duration-200 select-none touch-target ${
                 isActive
                   ? 'bg-white text-ink shadow-sm dark:bg-white dark:text-black font-bold'
                   : 'text-ink-muted hover:text-ink hover:bg-white/60 dark:text-zinc-400 dark:hover:text-white dark:hover:bg-zinc-900/60 border border-transparent'

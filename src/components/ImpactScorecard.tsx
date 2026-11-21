@@ -32,7 +32,7 @@ export const ImpactScorecard: React.FC<ImpactScorecardProps> = ({ plan }) => {
             <span>Environmental Toxicology &amp; Exposure Defense</span>
           </div>
           <h2 className="text-xl sm:text-2xl font-extrabold text-ink dark:text-white tracking-tight flex items-center gap-2">
-            <span>Quantified Protective Impact Scorecard</span>
+            <span>Estimated Exposure Reduction Scorecard</span>
           </h2>
           <p className="text-xs text-ink-muted dark:text-zinc-400 mt-1 max-w-2xl leading-relaxed">
             Measures biological respiratory savings achieved by shifting routines to solar convective venting windows.
@@ -95,10 +95,18 @@ export const ImpactScorecard: React.FC<ImpactScorecardProps> = ({ plan }) => {
           </div>
           <div className="text-lg font-bold text-ink dark:text-white tracking-tight flex items-center gap-1.5 mt-1">
             <CheckCircle2 className="w-4 h-4 text-sage-600 dark:text-white" />
-            <span>Optimal Defense</span>
+            <span>
+              {impactMetrics.respiratorySafetyScore >= 80
+                ? 'High Protection'
+                : impactMetrics.respiratorySafetyScore >= 60
+                ? 'Moderate Protection'
+                : 'Elevated Smog Risk'}
+            </span>
           </div>
           <div className="text-xs text-stone-500 dark:text-zinc-500 mt-2">
-            Multi-barrier shield active: Time Shifting + DIY IAQ + N95 Masking.
+            {impactMetrics.respiratorySafetyScore >= 80
+              ? 'Multi-barrier shield active: Time Shifting + DIY IAQ + N95 Masking.'
+              : 'Partial exposure reduction: recommend adding indoor HEPA/CR filtration.'}
           </div>
         </div>
       </div>
