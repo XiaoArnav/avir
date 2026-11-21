@@ -293,33 +293,29 @@ export default function Home() {
       </main>
 
       {/* Semantic Footer */}
-      <footer className="border-t border-stone-300 dark:border-zinc-800/80 bg-white dark:bg-black py-10 text-center text-xs text-ink-muted dark:text-zinc-500 transition-colors duration-200">
-        <div className="max-w-7xl mx-auto px-4 space-y-3">
-          <div className="flex items-center justify-center gap-2 text-ink dark:text-zinc-200 font-semibold tracking-wide">
-            <span className="text-ink dark:text-white font-extrabold text-sm">Avir</span>
+      <footer className="border-t border-stone-300 dark:border-zinc-800/80 bg-white dark:bg-black py-8 text-center text-xs text-ink-muted dark:text-zinc-500 transition-colors duration-200">
+        <div className="max-w-7xl mx-auto px-4 space-y-2">
+          <div className="flex items-center justify-center gap-2 text-ink dark:text-zinc-200 font-semibold">
+            <span className="text-ink dark:text-white font-bold text-sm">Avir</span>
             <span className="text-stone-300 dark:text-zinc-600">—</span>
-            <span className="text-ink-muted dark:text-zinc-400">Urban Atmospheric Defense &amp; Exposure Intelligence</span>
+            <span>Urban Air Quality Assistant</span>
           </div>
 
-          <p className="text-[11px] text-ink-muted dark:text-zinc-400 flex flex-wrap items-center justify-center gap-x-2 gap-y-1">
-            <span>Built by <strong className="text-ink dark:text-white">XiaoArnav</strong></span>
-            <span className="text-stone-300 dark:text-zinc-600">•</span>
-            <span>PromptWars Virtual (Challenge 6: Urban Air Quality Assistant)</span>
-            <span className="text-stone-300 dark:text-zinc-600">•</span>
-            <span>Copernicus &amp; NOAA Atmospheric Telemetry</span>
+          <p className="text-xs text-ink-muted dark:text-zinc-400 flex flex-wrap items-center justify-center gap-x-2">
+            <span>Built by <strong className="text-ink dark:text-white">XiaoArnav</strong> for PromptWars</span>
             <span className="text-stone-300 dark:text-zinc-600">•</span>
             <a 
               href="https://github.com/XiaoArnav/avir" 
               target="_blank" 
               rel="noopener noreferrer" 
-              className="text-sage-700 dark:text-white underline hover:text-sage-600 dark:hover:text-zinc-300"
+              className="text-ink dark:text-zinc-300 underline hover:text-sage-600 dark:hover:text-white"
             >
-              Open Source on GitHub
+              GitHub
             </a>
           </p>
 
-          <p className="text-[11px] text-ink-muted dark:text-zinc-500 max-w-2xl mx-auto leading-relaxed">
-            Mathematical calculations based on CPCB/EPA AQI breakpoints, Berkeley Earth particulate toxicology (22 µg/m³ ≈ 1 cig/day), and Corsi-Rosenthal Box fluid dynamics. Designed for community risk mitigation and routine shifting; not intended as a substitute for emergency clinical care during acute respiratory distress.
+          <p className="text-[11px] text-stone-500 dark:text-zinc-500 max-w-lg mx-auto">
+            Live Open-Meteo telemetry &amp; environmental health guidance. For advisory use only.
           </p>
         </div>
       </footer>
