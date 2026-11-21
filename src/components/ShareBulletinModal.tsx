@@ -29,6 +29,24 @@ export const ShareBulletinModal: React.FC<ShareBulletinModalProps> = ({
 
   if (!isOpen) return null;
 
+  if (usAqi <= 0 || pm25 <= 0) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+        <div className="bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4">
+          <div className="flex items-center justify-between pb-3 border-b border-stone-200 dark:border-zinc-800">
+            <h3 className="text-lg font-bold text-ink dark:text-white">Community Smog Bulletin</h3>
+            <button onClick={onClose} className="p-1.5 rounded-lg text-ink-muted hover:text-ink dark:text-zinc-400 dark:hover:text-white" aria-label="Close modal">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          <p className="text-xs text-ink-muted dark:text-zinc-400 leading-relaxed">
+            Atmospheric telemetry is currently unavailable for {cityName}. Bulletins cannot be shared without verified live observations.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   const bulletinText = formatWhatsAppBulletin({
     cityName,
     usAqi,

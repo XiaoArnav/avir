@@ -255,14 +255,14 @@ export default function Home() {
             {/* 3. City vs City Smog Shootout */}
             <CityShootout
               currentCityName={selectedCity.name}
-              currentAqi={metrics?.usAqi || 210}
-              currentPm25={metrics?.pm25 || 160}
+              currentAqi={metrics?.usAqi ?? 0}
+              currentPm25={metrics?.pm25 ?? 0}
             />
 
             {/* 4 & 5. Commute Exposure & Mask/Filter Lifespan Calculators */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <CommuteCalculator ambientPm25={metrics?.pm25 || 160} />
-              <FilterLifespanEstimator ambientPm25={metrics?.pm25 || 160} />
+              <CommuteCalculator ambientPm25={metrics?.pm25 ?? 0} />
+              <FilterLifespanEstimator ambientPm25={metrics?.pm25 ?? 0} />
             </div>
 
             {/* Location Search & Health Profile */}
@@ -416,8 +416,8 @@ export default function Home() {
         isOpen={isSchoolModalOpen}
         onClose={() => setIsSchoolModalOpen(false)}
         cityName={selectedCity.name}
-        usAqi={metrics?.usAqi || 200}
-        pm25={metrics?.pm25 || 150}
+        usAqi={metrics?.usAqi ?? 0}
+        pm25={metrics?.pm25 ?? 0}
       />
 
       {/* 7. Instant WhatsApp & Telegram Smog Bulletin Modal */}
@@ -425,9 +425,9 @@ export default function Home() {
         isOpen={isShareModalOpen}
         onClose={() => setIsShareModalOpen(false)}
         cityName={selectedCity.name}
-        usAqi={metrics?.usAqi || 200}
-        pm25={metrics?.pm25 || 150}
-        cigarettes={metrics ? Math.round((metrics.pm25 / 22) * 10) / 10 : 7}
+        usAqi={metrics?.usAqi ?? 0}
+        pm25={metrics?.pm25 ?? 0}
+        cigarettes={metrics && metrics.pm25 > 0 ? Math.round((metrics.pm25 / 22) * 10) / 10 : 0}
       />
 
       {/* 8. Multi-Source Atmospheric Telemetry Consensus & Uncertainty Inspector */}

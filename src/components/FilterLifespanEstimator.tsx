@@ -19,6 +19,26 @@ export const FilterLifespanEstimator: React.FC<FilterLifespanEstimatorProps> = (
   const [outdoorHours, setOutdoorHours] = useState<number>(2);
   const [purifierRunningHours, setPurifierRunningHours] = useState<number>(16);
 
+  if (ambientPm25 <= 0) {
+    return (
+      <div className="bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl p-5 sm:p-6 shadow-sm space-y-3">
+        <div className="flex items-center gap-2.5">
+          <div className="p-2 rounded-xl bg-purple-500/10 text-purple-500 border border-purple-500/20">
+            <Sparkles className="w-5 h-5" />
+          </div>
+          <div>
+            <h3 className="text-base sm:text-lg font-bold text-ink dark:text-white">
+              Mask &amp; Filter Lifespan Checker
+            </h3>
+            <p className="text-xs text-ink-muted dark:text-zinc-400">
+              Awaiting live particulate readings to calculate accurate mask and HEPA filter saturation lifespans.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const maskEstimate = estimateMaskLifespan(ambientPm25, outdoorHours, maskType);
   const hepaEstimate = estimateHepaLifespan(ambientPm25, purifierRunningHours);
 

@@ -15,6 +15,26 @@ export const CommuteCalculator: React.FC<CommuteCalculatorProps> = ({ ambientPm2
   const [duration, setDuration] = useState<number>(45);
   const [mode, setMode] = useState<CommuteTransitMode>('metro');
 
+  if (ambientPm25 <= 0) {
+    return (
+      <div className="bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl p-5 sm:p-6 shadow-sm space-y-3">
+        <div className="flex items-center gap-2.5">
+          <div className="p-2 rounded-xl bg-blue-500/10 text-blue-500 border border-blue-500/20">
+            <Navigation className="w-5 h-5" />
+          </div>
+          <div>
+            <h3 className="text-base sm:text-lg font-bold text-ink dark:text-white">
+              Commute Smog Calculator
+            </h3>
+            <p className="text-xs text-ink-muted dark:text-zinc-400">
+              Awaiting live particulate readings to calculate commute inhalation dose across transit modes.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const estimate = calculateCommuteExposure(ambientPm25, duration, mode);
 
   const transitOptions: { id: CommuteTransitMode; label: string; icon: React.ReactNode }[] = [

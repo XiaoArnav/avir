@@ -31,6 +31,26 @@ export const CityShootout: React.FC<CityShootoutProps> = ({
   const [selectedTarget, setSelectedTarget] = useState(presets[0]);
   const [isSwapped, setIsSwapped] = useState(false);
 
+  if (currentAqi <= 0 || currentPm25 <= 0) {
+    return (
+      <div className="bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl p-5 sm:p-6 shadow-sm space-y-3">
+        <div className="flex items-center gap-2.5">
+          <div className="p-2 rounded-xl bg-amber-500/10 text-amber-500 border border-amber-500/20">
+            <Swords className="w-5 h-5" />
+          </div>
+          <div>
+            <h3 className="text-base sm:text-lg font-bold text-ink dark:text-white">
+              City vs City Smog Shootout
+            </h3>
+            <p className="text-xs text-ink-muted dark:text-zinc-400">
+              Awaiting live atmospheric readings for {currentCityName} to compare with international metros. Zero synthetic data is substituted.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const cityPrimary = isSwapped
     ? selectedTarget
     : { name: currentCityName, country: 'India', aqi: currentAqi, pm25: currentPm25 };
