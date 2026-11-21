@@ -2,9 +2,9 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Avir (אֲוִיר) — Urban Air Quality & Winter Smog Assistant',
+  title: 'Avir — Urban Air Quality & Winter Smog Assistant',
   description:
-    'Derived from the ancient Hebrew root for pure air and atmosphere (אֲוִיר), Avir is a mathematically grounded GenAI assistant empowering families and communities to navigate severe winter smog, thermal inversions, and hazardous particulate pollution.',
+    'Avir is a mathematically grounded GenAI assistant empowering families and communities to navigate severe winter smog, thermal inversions, and hazardous particulate pollution with multi-source atmospheric consensus.',
   authors: [{ name: 'XiaoArnav', url: 'https://github.com/XiaoArnav' }],
   icons: {
     icon: '/favicon.svg',
@@ -12,13 +12,13 @@ export const metadata: Metadata = {
   },
   keywords: [
     'Avir',
-    'אוויר',
-    'אֲוִיר',
     'Urban Air Quality',
     'Winter Smog',
     'Thermal Inversion',
     'PM2.5',
     'AQI',
+    'Multi-Source AQI',
+    'Atmospheric Consensus',
     'Corsi-Rosenthal Box',
     'Routine Shifter',
     'GenAI Assistant',
