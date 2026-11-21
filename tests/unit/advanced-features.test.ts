@@ -24,6 +24,8 @@ describe('Advanced Air Quality & Exposure Features', () => {
           boundaryLayerHeight: isDaytime ? 1200 : 180,
           isSafeVentingWindow: isDaytime,
           isThermalInversionTrap: !isDaytime,
+          isForecast: hour > 10,
+          isStagnantDispersion: !isDaytime,
         };
       });
 

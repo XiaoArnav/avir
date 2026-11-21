@@ -7,12 +7,25 @@ import { AtmosphericMetrics, UserVulnerabilityProfile } from '@/domain/types';
 
 describe('Dual-Mode GenAI Assistant Service', () => {
   const sampleMetrics: AtmosphericMetrics = {
+    status: 'success',
+    provenance: 'modeled_forecast',
     timestamp: '2026-11-21T08:00:00Z',
+    retrievedAt: '2026-11-21T08:00:00Z',
+    timezone: 'Asia/Kolkata',
     usAqi: 240,
     pm25: 190.5,
     pm10: 280.0,
     boundaryLayerHeight: 135,
     isThermalInversionActive: true,
+    isLive: true,
+    availability: {
+      aqi: true,
+      pm25: true,
+      pm10: true,
+      blh: true,
+      weather: true,
+      forecast: true,
+    },
   };
 
   const vulnerableProfile: UserVulnerabilityProfile = {

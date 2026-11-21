@@ -42,10 +42,10 @@ export async function POST(req: NextRequest) {
                       text: `You are Avir, an expert atmospheric toxicologist and urban air quality assistant. 
 Analyze the following real-time conditions and user context:
 City: ${body.city}
-Current AQI: ${body.metrics.usAqi} (${getAQICategory(body.metrics.usAqi)})
-PM2.5: ${body.metrics.pm25} ug/m3
-PM10: ${body.metrics.pm10} ug/m3
-Boundary Layer Height: ${body.metrics.boundaryLayerHeight} meters
+Current AQI: ${body.metrics.usAqi ?? 'Unavailable'} (${getAQICategory(body.metrics.usAqi)})
+PM2.5: ${body.metrics.pm25 ?? 'Unavailable'} ug/m3
+PM10: ${body.metrics.pm10 ?? 'Unavailable'} ug/m3
+Boundary Layer Height: ${body.metrics.boundaryLayerHeight ?? 'Unavailable'} meters
 Thermal Inversion Active: ${body.metrics.isThermalInversionActive}
 User Vulnerability: Age=${body.profile.ageGroup}, Asthma=${body.profile.hasAsthmaOrRespiratory}, Pregnant=${body.profile.isPregnant}
 Room Size: ${body.roomSizeSqFt || 180} sq ft
@@ -88,13 +88,41 @@ Return only valid JSON.`,
           if (candidateText) {
             const parsed = JSON.parse(candidateText);
             const fallback = generateLocalHeuristicPlan(body);
+
+            // Strict schema validation for AI routine shifts
+            const validShifts = Array.isArray(parsed.routineShifts)
+              ? parsed.routineShifts
+                  .filter((s: any) => s && typeof s.activityName === 'string' && typeof s.timeWindow === 'string')
+                  .map((s: any, idx: number) => ({
+                    id: s.id || `ai-shift-${idx + 1}`,
+                    timeWindow: s.timeWindow,
+                    activityName: s.activityName,
+                    intensity: ['resting', 'light_walk', 'moderate_activity', 'intense_exercise'].includes(s.intensity)
+                      ? s.intensity
+                      : 'light_walk',
+                    isOutdoor: Boolean(s.isOutdoor),
+                    baselineExposureUg: typeof s.baselineExposureUg === 'number' && Number.isFinite(s.baselineExposureUg)
+                      ? Math.round(s.baselineExposureUg * 10) / 10
+                      : null,
+                    optimizedTimeWindow: s.optimizedTimeWindow || null,
+                    optimizedExposureUg: typeof s.optimizedExposureUg === 'number' && Number.isFinite(s.optimizedExposureUg)
+                      ? Math.round(s.optimizedExposureUg * 10) / 10
+                      : null,
+                    reductionPercentage: typeof s.reductionPercentage === 'number' && Number.isFinite(s.reductionPercentage)
+                      ? Math.max(0, Math.min(100, Math.round(s.reductionPercentage)))
+                      : null,
+                    rationale: typeof s.rationale === 'string' ? s.rationale : fallback.routineShifts[0]?.rationale || '',
+                    isOptimizationAvailable: true,
+                  }))
+              : [];
+
             return NextResponse.json({
               ...fallback,
               isAiGenerated: true,
-              summaryAdvisory: parsed.summaryAdvisory || fallback.summaryAdvisory,
-              routineShifts: Array.isArray(parsed.routineShifts) && parsed.routineShifts.length > 0 
-                ? parsed.routineShifts 
-                : fallback.routineShifts,
+              summaryAdvisory: typeof parsed.summaryAdvisory === 'string' && parsed.summaryAdvisory.length > 10
+                ? parsed.summaryAdvisory
+                : fallback.summaryAdvisory,
+              routineShifts: validShifts.length > 0 ? validShifts : fallback.routineShifts,
             });
           }
         }

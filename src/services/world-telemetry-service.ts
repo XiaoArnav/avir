@@ -1,5 +1,5 @@
 import { AQICategory } from '@/domain/types';
-import { getAQICategory } from '@/domain/air-math';
+import { getAQICategory, calculateAQIFromPM25 } from '@/domain/air-math';
 import { telemetryCache } from '@/lib/cache';
 import { GeocodedLocation, searchCities } from './telemetry-service';
 
@@ -93,11 +93,11 @@ export function parseBatchTelemetryResponse(
   return cities.map((city, idx) => {
     const raw = responseData[idx] || {};
     const current = raw.current || {};
-    const hasUsAqi = typeof current.us_aqi === 'number';
-    const hasPm25 = typeof current.pm2_5 === 'number';
+    const hasUsAqi = typeof current.us_aqi === 'number' && Number.isFinite(current.us_aqi);
+    const hasPm25 = typeof current.pm2_5 === 'number' && Number.isFinite(current.pm2_5);
 
-    const usAqi = hasUsAqi ? current.us_aqi : (hasPm25 ? Math.round(current.pm2_5 * 2.1) : 0);
     const pm25 = hasPm25 ? Math.round(current.pm2_5 * 10) / 10 : 0;
+    const usAqi = hasUsAqi ? current.us_aqi : (hasPm25 ? calculateAQIFromPM25(pm25) : 0);
     const category = getAQICategory(usAqi);
 
     return {

@@ -182,13 +182,18 @@ export default function Home() {
 
   const aqiCategory = metrics ? getAQICategory(metrics.usAqi) : 'Hazardous';
 
-  const reductionPercentage = plan?.impactMetrics?.totalInhaledBaselineUg
-    ? Math.round(
-        ((plan.impactMetrics.totalInhaledBaselineUg - plan.impactMetrics.totalInhaledOptimizedUg) /
-          plan.impactMetrics.totalInhaledBaselineUg) *
-          100
-      )
-    : undefined;
+  const reductionPercentage =
+    plan?.impactMetrics?.totalInhaledBaselineUg !== null &&
+    plan?.impactMetrics?.totalInhaledBaselineUg !== undefined &&
+    plan?.impactMetrics?.totalInhaledOptimizedUg !== null &&
+    plan?.impactMetrics?.totalInhaledOptimizedUg !== undefined &&
+    plan.impactMetrics.totalInhaledBaselineUg > 0
+      ? Math.round(
+          ((plan.impactMetrics.totalInhaledBaselineUg - plan.impactMetrics.totalInhaledOptimizedUg) /
+            plan.impactMetrics.totalInhaledBaselineUg) *
+            100
+        )
+      : undefined;
 
   return (
     <div className="flex-1 flex flex-col min-h-screen bg-stone-100 dark:bg-black text-ink dark:text-white transition-colors duration-200 selection:bg-emerald-500 selection:text-black">
@@ -427,7 +432,7 @@ export default function Home() {
         cityName={selectedCity.name}
         usAqi={metrics?.usAqi ?? 0}
         pm25={metrics?.pm25 ?? 0}
-        cigarettes={metrics && metrics.pm25 > 0 ? Math.round((metrics.pm25 / 22) * 10) / 10 : 0}
+        cigarettes={metrics?.pm25 !== null && metrics?.pm25 !== undefined && metrics.pm25 > 0 ? Math.round((metrics.pm25 / 22) * 10) / 10 : 0}
       />
 
       {/* 8. Multi-Source Atmospheric Telemetry Consensus & Uncertainty Inspector */}

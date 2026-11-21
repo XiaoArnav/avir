@@ -61,8 +61,12 @@ export type CpcbCategory = 'Good' | 'Satisfactory' | 'Moderate' | 'Poor' | 'Very
  * Calculates genuine Indian National Air Quality Index (NAQI) per CPCB standard.
  * Uses linear interpolation across CPCB sub-index breakpoints.
  */
-export function calculateCpcbNaqi(pm25: number, pm10?: number): { aqi: number; category: CpcbCategory } {
-  const pm25Idx = interpolateBreakpoint(pm25, CPCB_PM25_BREAKPOINTS);
+export function calculateCpcbNaqi(pm25?: number | null, pm10?: number | null): { aqi: number | null; category: CpcbCategory } {
+  if ((pm25 === null || pm25 === undefined) && (pm10 === null || pm10 === undefined)) {
+    return { aqi: null, category: 'Good' };
+  }
+  const effectivePm25 = pm25 ?? 0;
+  const pm25Idx = interpolateBreakpoint(effectivePm25, CPCB_PM25_BREAKPOINTS);
   const pm10Idx = pm10 ? interpolateBreakpoint(pm10, CPCB_PM10_BREAKPOINTS) : 0;
   const aqi = Math.max(pm25Idx, pm10Idx);
 
@@ -96,7 +100,8 @@ export function calculateAQIFromPM25(pm25: number): number {
 /**
  * Maps numerical AQI to clinical and public health advisory categories.
  */
-export function getAQICategory(aqi: number): AQICategory {
+export function getAQICategory(aqi?: number | null): AQICategory {
+  if (aqi === null || aqi === undefined) return 'Hazardous';
   if (aqi <= 50) return 'Good';
   if (aqi <= 100) return 'Moderate';
   if (aqi <= 150) return 'UnhealthySensitive';
@@ -109,7 +114,8 @@ export function getAQICategory(aqi: number): AQICategory {
  * Calculates daily cigarette equivalence from PM2.5 (ug/m3) using Berkeley Earth toxicology:
  * ~22 ug/m3 PM2.5 inhaled over 24 hours is toxicologically equivalent to 1 cigarette.
  */
-export function calculateCigaretteEquivalence(pm25: number): number {
+export function calculateCigaretteEquivalence(pm25?: number | null): number | null {
+  if (pm25 === null || pm25 === undefined) return null;
   if (pm25 <= 0) return 0;
   return Math.round((pm25 / 22.0) * 10) / 10;
 }
@@ -125,7 +131,16 @@ export interface GrapStageInfo {
 /**
  * Maps Indian AQI to CAQM Graded Response Action Plan (GRAP) emergency stages.
  */
-export function getGrapStage(aqi: number): GrapStageInfo {
+export function getGrapStage(aqi?: number | null): GrapStageInfo {
+  if (aqi === null || aqi === undefined) {
+    return {
+      stage: 'Normal',
+      label: 'GRAP Baseline',
+      color: 'text-stone-400',
+      badgeBg: 'bg-stone-500/10 border-stone-500/20 text-stone-400',
+      advisory: 'Awaiting verified AQI telemetry for statutory emergency stage declaration.',
+    };
+  }
   if (aqi > 450) {
     return {
       stage: 'Stage IV',

@@ -16,20 +16,36 @@ export const DiurnalForecastTimeline: React.FC<DiurnalForecastTimelineProps> = (
   currentHour = new Date().getHours(),
   cityName,
 }) => {
-  const analysis = analyzeDiurnalWindows(hourlyForecast);
   const [selectedHour, setSelectedHour] = useState<number>(currentHour);
+
+  if (!hourlyForecast || hourlyForecast.length === 0) {
+    return (
+      <div className="bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl p-5 sm:p-6 shadow-sm space-y-4">
+        <div className="flex items-center gap-2.5">
+          <div className="p-2 rounded-xl bg-amber-500/10 text-amber-500 border border-amber-500/20">
+            <Clock className="w-5 h-5" />
+          </div>
+          <div>
+            <h3 className="text-base sm:text-lg font-bold text-ink dark:text-white">
+              24-Hour Smog Forecast &amp; Safe Hours
+            </h3>
+            <p className="text-xs text-ink-muted dark:text-zinc-400">
+              Atmospheric dispersion and diurnal cycle for {cityName}
+            </p>
+          </div>
+        </div>
+        <div className="py-8 text-center text-xs font-mono text-ink-muted dark:text-zinc-400">
+          Hourly atmospheric forecast telemetry is currently unavailable for this station.
+        </div>
+      </div>
+    );
+  }
+
+  const analysis = analyzeDiurnalWindows(hourlyForecast);
 
   const activePoint =
     hourlyForecast.find((p) => p.hour === selectedHour) ||
-    hourlyForecast[0] || {
-      time: `${selectedHour}:00`,
-      hour: selectedHour,
-      pm25: 140,
-      usAqi: 195,
-      boundaryLayerHeight: 350,
-      isSafeVentingWindow: false,
-      isThermalInversionTrap: true,
-    };
+    hourlyForecast[0];
 
   const getAqiColor = (aqi: number | null | undefined) => {
     if (aqi === null || aqi === undefined) return 'text-stone-400 bg-stone-100 dark:bg-zinc-800 border-stone-200 dark:border-zinc-700';

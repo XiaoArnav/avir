@@ -31,23 +31,46 @@ export function generateLocalHeuristicPlan(req: PlanGenerationRequest): Recommen
   const aqiCategory = getAQICategory(metrics.usAqi);
   const roomVolumeM3 = Math.round((roomSizeSqFt * 0.0929 * 2.7) * 10) / 10; // 9ft (2.7m) ceiling
 
-  // Base PM2.5 levels for simulation
-  const peakPM25 = metrics.pm25;
-  // Diurnal solar expansion lowers afternoon PM2.5 by approx 55-65% during winter inversions
-  const ventedPM25 = Math.round(metrics.pm25 * 0.38 * 10) / 10;
+  const hasPm25 = typeof metrics.pm25 === 'number' && Number.isFinite(metrics.pm25);
+  const peakPM25 = hasPm25 ? (metrics.pm25 as number) : null;
+
+  // Determine actual daytime solar venting PM2.5 from forecast if present
+  const forecast = metrics.hourlyForecast || [];
+  const daytimeForecast = forecast.filter((p) => p.hour >= 11 && p.hour <= 16 && typeof p.pm25 === 'number');
+
+  let bestDaytimeSlot = daytimeForecast.length > 0
+    ? daytimeForecast.reduce((prev, curr) => ((curr.pm25 ?? 999) < (prev.pm25 ?? 999) ? curr : prev))
+    : null;
+
+  const ventedPM25 = bestDaytimeSlot?.pm25 !== null && bestDaytimeSlot?.pm25 !== undefined
+    ? bestDaytimeSlot.pm25
+    : peakPM25 !== null
+    ? Math.round(peakPM25 * 0.65 * 10) / 10 // conservative 35% midday solar convective dilution estimate
+    : null;
+
+  const optimalWorkoutTime = bestDaytimeSlot
+    ? `${bestDaytimeSlot.hour.toString().padStart(2, '0')}:00 - ${(bestDaytimeSlot.hour + 1).toString().padStart(2, '0')}:00`
+    : '13:00 - 14:00';
+
+  const isOptimizationAvailable = peakPM25 !== null && ventedPM25 !== null;
 
   const routineShifts: RoutineItem[] = [
     {
       id: 'shift-1',
       timeWindow: '06:30 - 07:30',
-      activityName: customRoutine || 'Morning Jog / Brisk Outdoor Walk',
+      activityName: customRoutine || 'Morning Jog / Outdoor Cardio',
       intensity: 'intense_exercise',
       isOutdoor: true,
-      baselineExposureUg: Math.round(peakPM25 * 2.8 * 1.0 * 10) / 10,
-      optimizedTimeWindow: '13:30 - 14:30',
-      optimizedExposureUg: Math.round(ventedPM25 * 2.8 * 1.0 * 10) / 10,
-      reductionPercentage: Math.round(((peakPM25 - ventedPM25) / peakPM25) * 100),
-      rationale: `During 06:30 AM, thermal inversion contracts the boundary layer to ${metrics.boundaryLayerHeight}m, trapping dense particulates at ground level. Shifting to 1:30 PM leverages solar convective mixing, dropping inhaled dose by ~62%.`,
+      baselineExposureUg: peakPM25 !== null ? Math.round(peakPM25 * 2.8 * 1.0 * 10) / 10 : null,
+      optimizedTimeWindow: optimalWorkoutTime,
+      optimizedExposureUg: ventedPM25 !== null ? Math.round(ventedPM25 * 2.8 * 1.0 * 10) / 10 : null,
+      reductionPercentage: isOptimizationAvailable && peakPM25! > 0
+        ? Math.max(0, Math.round(((peakPM25! - ventedPM25!) / peakPM25!) * 100))
+        : null,
+      rationale: metrics.boundaryLayerHeight !== null
+        ? `During early morning, nocturnal boundary layer contracts (~${metrics.boundaryLayerHeight}m), concentrating tailpipe and biomass smoke at breathing height. Shifting toward midday utilizes solar convective mixing to reduce inhaled toxic dose.`
+        : 'Early morning inversion conditions concentrate ground pollutants. Shifting workout to midday convective mixing hours reduces particulate exposure.',
+      isOptimizationAvailable,
     },
     {
       id: 'shift-2',
@@ -55,44 +78,62 @@ export function generateLocalHeuristicPlan(req: PlanGenerationRequest): Recommen
       activityName: 'School Drop-off & Office Commute',
       intensity: 'light_walk',
       isOutdoor: true,
-      baselineExposureUg: Math.round(peakPM25 * 0.8 * 0.75 * 10) / 10,
+      baselineExposureUg: peakPM25 !== null ? Math.round(peakPM25 * 0.8 * 0.75 * 10) / 10 : null,
       optimizedTimeWindow: '08:15 - 08:45',
-      optimizedExposureUg: Math.round(ventedPM25 * 0.8 * 0.75 * 0.4 * 10) / 10,
-      reductionPercentage: 68,
-      rationale: 'Switch from open two-wheeler / walking along arterial corridors to closed metro transit or vehicle cabin with active internal air recirculation and certified N95 particulate seal.',
+      optimizedExposureUg: peakPM25 !== null ? Math.round(peakPM25 * 0.8 * 0.75 * 0.25 * 10) / 10 : null,
+      reductionPercentage: peakPM25 !== null ? 75 : null,
+      rationale: 'Switch from open exposure (two-wheeler/walking arterial roads) to closed transit with internal cabin recirculation or certified N95 respirator mask (certified 75-80% inhaled mass reduction).',
+      isOptimizationAvailable: peakPM25 !== null,
     },
     {
       id: 'shift-3',
       timeWindow: '08:00 - 09:00',
-      activityName: 'Home Fresh Air Window Ventilation',
+      activityName: 'Home Window Ventilation',
       intensity: 'resting',
       isOutdoor: false,
-      baselineExposureUg: Math.round(peakPM25 * 0.45 * 1.0 * 10) / 10,
-      optimizedTimeWindow: '14:00 - 14:45',
-      optimizedExposureUg: Math.round(ventedPM25 * 0.45 * 0.75 * 10) / 10,
-      reductionPercentage: 58,
-      rationale: 'Airing homes in early morning floods living areas with nocturnal inversion smog. Reschedule natural cross-ventilation to early afternoon, followed immediately by 20-minute Corsi-Rosenthal purification.',
+      baselineExposureUg: peakPM25 !== null ? Math.round(peakPM25 * 0.45 * 1.0 * 10) / 10 : null,
+      optimizedTimeWindow: bestDaytimeSlot
+        ? `${bestDaytimeSlot.hour.toString().padStart(2, '0')}:30 - ${(bestDaytimeSlot.hour + 1).toString().padStart(2, '0')}:15`
+        : '13:30 - 14:15',
+      optimizedExposureUg: ventedPM25 !== null ? Math.round(ventedPM25 * 0.45 * 0.75 * 10) / 10 : null,
+      reductionPercentage: isOptimizationAvailable && peakPM25! > 0
+        ? Math.max(0, Math.round(((peakPM25! - ventedPM25!) / peakPM25!) * 100))
+        : null,
+      rationale: 'Opening windows during early morning traps cold nocturnal inversion smog indoors. Ventilate briefly during peak daytime boundary layer expansion, followed by indoor air filtration.',
+      isOptimizationAvailable,
     },
   ];
 
   const crBox = calculateCorsiRosenthalBox(roomVolumeM3, 4);
 
-  // Compute aggregate exposure and health impact
-  let totalBaseline = 0;
-  let totalOptimized = 0;
-  routineShifts.forEach(r => {
-    totalBaseline += r.baselineExposureUg;
-    totalOptimized += r.optimizedExposureUg;
-  });
+  // Compute aggregate exposure and health impact strictly from valid numbers
+  let totalBaseline: number | null = null;
+  let totalOptimized: number | null = null;
 
-  const netAvoidedPM25Ug = Math.round((totalBaseline - totalOptimized) * 10) / 10;
-  const avoidedCigarettesDaily = (netAvoidedPM25Ug / 22.0);
-  const avoidedCigarettesMonthly = Math.max(0, Math.round(avoidedCigarettesDaily * 30 * 10) / 10);
+  if (isOptimizationAvailable) {
+    let baseSum = 0;
+    let optSum = 0;
+    routineShifts.forEach((r) => {
+      if (r.baselineExposureUg !== null) baseSum += r.baselineExposureUg;
+      if (r.optimizedExposureUg !== null) optSum += r.optimizedExposureUg;
+    });
+    totalBaseline = Math.round(baseSum * 10) / 10;
+    totalOptimized = Math.round(optSum * 10) / 10;
+  }
 
-  // Estimated carbon abatement from modal shift (e.g. car idling avoidance & transit pooling)
-  const carbonSavedKgWeekly = 14.5;
+  const netAvoidedPM25Ug = totalBaseline !== null && totalOptimized !== null
+    ? Math.max(0, Math.round((totalBaseline - totalOptimized) * 10) / 10)
+    : null;
 
-  let summaryAdvisory = `Severe winter smog advisory active for ${city} with AQI ${metrics.usAqi} (${aqiCategory}). Ground-level thermal inversion is ${metrics.isThermalInversionActive ? 'ACTIVE' : 'DISSIPATING'}. High-exposure family members must prioritize indoor clean air zones and reschedule peak morning workouts.`;
+  const avoidedCigarettesDaily = netAvoidedPM25Ug !== null ? netAvoidedPM25Ug / 22.0 : null;
+  const avoidedCigarettesMonthly = avoidedCigarettesDaily !== null
+    ? Math.max(0, Math.round(avoidedCigarettesDaily * 30 * 10) / 10)
+    : null;
+
+  let summaryAdvisory = metrics.usAqi !== null
+    ? `Air quality advisory active for ${city} with AQI ${metrics.usAqi} (${aqiCategory}). Ground thermal inversion is ${metrics.isThermalInversionActive ? 'ACTIVE' : 'DISSIPATING'}. High-exposure individuals must prioritize indoor clean air zones and reschedule peak morning workouts.`
+    : `Air quality telemetry synchronizing for ${city}. Ground thermal inversion is ${metrics.isThermalInversionActive ? 'ACTIVE' : 'DISSIPATING'}. Follow standard preventive guidelines.`;
+
   if (profile.hasAsthmaOrRespiratory || profile.ageGroup === 'infant') {
     summaryAdvisory += ' High clinical vulnerability detected: enforce indoor N95 seals and run air cleaning continuously.';
   }
@@ -106,12 +147,16 @@ export function generateLocalHeuristicPlan(req: PlanGenerationRequest): Recommen
     routineShifts,
     corsiRosenthalBox: crBox,
     impactMetrics: {
-      totalInhaledBaselineUg: Math.round(totalBaseline * 10) / 10,
-      totalInhaledOptimizedUg: Math.round(totalOptimized * 10) / 10,
+      totalInhaledBaselineUg: totalBaseline,
+      totalInhaledOptimizedUg: totalOptimized,
       netAvoidedPM25Ug,
       avoidedCigarettesMonthly,
-      carbonSavedKgWeekly,
-      respiratorySafetyScore: Math.min(100, Math.round(88 - (metrics.usAqi * 0.08))),
+      carbonSavedKgWeekly: null, // Zero fabrication: omitted because user vehicle mileage is not modeled
+      respiratorySafetyScore: null, // Zero fabrication: unscientific scores omitted
+      isImpactCalculated: isOptimizationAvailable,
+      calculationNote: isOptimizationAvailable
+        ? 'Derived from Open-Meteo hourly PM2.5 dispersion model and activity-specific respiratory ventilation rates.'
+        : 'Hourly particulate telemetry unavailable to compute cumulative inhaled dose.',
     },
   };
 }

@@ -12,13 +12,15 @@ export const ImpactScorecard: React.FC<ImpactScorecardProps> = ({ plan }) => {
   const { impactMetrics } = plan;
 
   const reductionPercentage =
+    impactMetrics.totalInhaledBaselineUg !== null &&
+    impactMetrics.totalInhaledOptimizedUg !== null &&
     impactMetrics.totalInhaledBaselineUg > 0
       ? Math.round(
           ((impactMetrics.totalInhaledBaselineUg - impactMetrics.totalInhaledOptimizedUg) /
             impactMetrics.totalInhaledBaselineUg) *
             100
         )
-      : 64;
+      : null;
 
   return (
     <section 
@@ -35,13 +37,15 @@ export const ImpactScorecard: React.FC<ImpactScorecardProps> = ({ plan }) => {
             <span>Pollution Cut From Your Routine</span>
           </h2>
           <p className="text-xs text-ink-muted dark:text-zinc-400 mt-1 max-w-2xl leading-relaxed">
-            Shows how much less toxic dust enters your lungs when you follow this schedule.
+            Shows how much less toxic particulate dust enters your lungs when you follow this schedule.
           </p>
         </div>
 
-        <span className="self-start sm:self-auto text-xs px-3 py-1.5 rounded-lg bg-stone-100 dark:bg-zinc-900 border border-stone-300 dark:border-zinc-700 text-ink dark:text-white font-mono font-bold shadow-xs">
-          Safety Score: {impactMetrics.respiratorySafetyScore} / 100
-        </span>
+        {reductionPercentage !== null && (
+          <span className="self-start sm:self-auto text-xs px-3 py-1.5 rounded-lg bg-stone-100 dark:bg-zinc-900 border border-stone-300 dark:border-zinc-700 text-ink dark:text-white font-mono font-bold shadow-xs">
+            Inhaled Dose Reduced: ~{reductionPercentage}%
+          </span>
+        )}
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -52,7 +56,8 @@ export const ImpactScorecard: React.FC<ImpactScorecardProps> = ({ plan }) => {
             <TrendingDown className="w-4 h-4 text-sage-600 dark:text-zinc-300" />
           </div>
           <div className="text-3xl font-extrabold text-ink dark:text-white font-mono tracking-tight tabular-nums">
-            {impactMetrics.netAvoidedPM25Ug} <span className="text-xs font-sans font-normal text-ink-muted dark:text-zinc-400">µg / day</span>
+            {impactMetrics.netAvoidedPM25Ug !== null ? impactMetrics.netAvoidedPM25Ug : '—'}{' '}
+            <span className="text-xs font-sans font-normal text-ink-muted dark:text-zinc-400">µg / day</span>
           </div>
           <div className="text-xs text-stone-500 dark:text-zinc-500 mt-2">
             Fine particles blocked from entering your lungs and blood today.
@@ -66,7 +71,8 @@ export const ImpactScorecard: React.FC<ImpactScorecardProps> = ({ plan }) => {
             <Cigarette className="w-4 h-4 text-terracotta-600 dark:text-zinc-300" />
           </div>
           <div className="text-3xl font-extrabold text-ink dark:text-white font-mono tracking-tight tabular-nums">
-            {impactMetrics.avoidedCigarettesMonthly} <span className="text-xs font-sans font-normal text-ink-muted dark:text-zinc-400">cigs / mo</span>
+            {impactMetrics.avoidedCigarettesMonthly !== null ? impactMetrics.avoidedCigarettesMonthly : '—'}{' '}
+            <span className="text-xs font-sans font-normal text-ink-muted dark:text-zinc-400">cigs / mo</span>
           </div>
           <div className="text-xs text-stone-500 dark:text-zinc-500 mt-2">
             Smoke exposure saved over a month by following this plan.
@@ -80,10 +86,10 @@ export const ImpactScorecard: React.FC<ImpactScorecardProps> = ({ plan }) => {
             <ShieldAlert className="w-4 h-4 text-amber-500 dark:text-zinc-300" />
           </div>
           <div className="text-3xl font-extrabold text-ink dark:text-white font-mono tracking-tight tabular-nums">
-            {reductionPercentage}%
+            {reductionPercentage !== null ? `${reductionPercentage}%` : '—'}
           </div>
           <div className="text-xs text-stone-500 dark:text-zinc-500 mt-2">
-            Less pollution inhaled compared to normal daily routine.
+            Less pollution inhaled compared to unoptimized routine.
           </div>
         </div>
 
@@ -96,17 +102,17 @@ export const ImpactScorecard: React.FC<ImpactScorecardProps> = ({ plan }) => {
           <div className="text-lg font-bold text-ink dark:text-white tracking-tight flex items-center gap-1.5 mt-1">
             <CheckCircle2 className="w-4 h-4 text-sage-600 dark:text-white" />
             <span>
-              {impactMetrics.respiratorySafetyScore >= 80
+              {reductionPercentage !== null && reductionPercentage >= 50
                 ? 'High Protection'
-                : impactMetrics.respiratorySafetyScore >= 60
+                : reductionPercentage !== null && reductionPercentage > 0
                 ? 'Moderate Protection'
-                : 'Elevated Smog Risk'}
+                : 'Awaiting PM2.5 Telemetry'}
             </span>
           </div>
           <div className="text-xs text-stone-500 dark:text-zinc-500 mt-2">
-            {impactMetrics.respiratorySafetyScore >= 80
+            {reductionPercentage !== null && reductionPercentage >= 50
               ? 'Multi-barrier defense: Safe timing + home cleaner + N95 mask.'
-              : 'Partial exposure reduction: recommend adding indoor box fan or HEPA purifier.'}
+              : 'Exposure shift and indoor Corsi-Rosenthal / HEPA filtration.'}
           </div>
         </div>
       </div>

@@ -36,6 +36,7 @@ describe('Multi-Source Atmospheric Consensus & Uncertainty Engine', () => {
         confidence: 'High',
         standard: 'EU-CAQI',
         description: 'Reanalysis',
+        provenance: 'modeled_forecast',
       },
       {
         id: 'noaa',
@@ -46,6 +47,7 @@ describe('Multi-Source Atmospheric Consensus & Uncertainty Engine', () => {
         confidence: 'High',
         standard: 'US-EPA',
         description: 'Aerosol mesh',
+        provenance: 'modeled_forecast',
       },
       {
         id: 'cpcb',
@@ -56,6 +58,7 @@ describe('Multi-Source Atmospheric Consensus & Uncertainty Engine', () => {
         confidence: 'Calibrated',
         standard: 'CPCB-NAQI',
         description: 'India standard',
+        provenance: 'derived_calculation',
       },
       {
         id: 'epa',
@@ -66,6 +69,7 @@ describe('Multi-Source Atmospheric Consensus & Uncertainty Engine', () => {
         confidence: 'High',
         standard: 'US-EPA',
         description: 'AirNow',
+        provenance: 'derived_calculation',
       },
       {
         id: 'openaq',
@@ -76,6 +80,7 @@ describe('Multi-Source Atmospheric Consensus & Uncertainty Engine', () => {
         confidence: 'Calibrated',
         standard: 'US-EPA',
         description: 'Ground sensor',
+        provenance: 'observed',
       },
     ];
 
@@ -102,6 +107,7 @@ describe('Multi-Source Atmospheric Consensus & Uncertainty Engine', () => {
         confidence: 'High',
         standard: 'EU-CAQI',
         description: 'Column average',
+        provenance: 'modeled_forecast',
       },
       {
         id: 'surface-ground',
@@ -112,6 +118,7 @@ describe('Multi-Source Atmospheric Consensus & Uncertainty Engine', () => {
         confidence: 'Calibrated',
         standard: 'US-EPA',
         description: 'Ground breathing level',
+        provenance: 'observed',
       },
     ];
 
@@ -123,12 +130,26 @@ describe('Multi-Source Atmospheric Consensus & Uncertainty Engine', () => {
     expect(consensus.aqiMax).toBe(280);
   });
 
+  it('returns explicit unavailable state and null metrics when feeds are empty', () => {
+    const emptyConsensus = calculateMultiSourceConsensus([]);
+    expect(emptyConsensus.isUnavailable).toBe(true);
+    expect(emptyConsensus.consensusAqi).toBeNull();
+    expect(emptyConsensus.consensusPm25).toBeNull();
+    expect(emptyConsensus.confidenceScorePercent).toBeNull();
+    expect(emptyConsensus.deviationSpread).toBeNull();
+  });
+
   it('renders MultiSourceInspectorModal cleanly without throwing', () => {
     const modal = MultiSourceInspectorModal({
       isOpen: true,
       onClose: () => {},
       cityName: 'Delhi',
       ensemble: {
+        primaryModel: 'ECMWF CAMS',
+        weatherModel: 'NOAA GFS',
+        pm25Min: 150,
+        pm25Max: 170,
+        provenanceNote: 'Calculated from Open-Meteo ensemble',
         feeds: [],
         consensusAqi: 210,
         consensusPm25: 160,

@@ -79,18 +79,28 @@ export interface MultiSourceTelemetryFeed {
 export interface EnsembleConsensusAnalysis {
   primaryModel: string;
   weatherModel: string;
-  consensusAqi: number;
-  consensusPm25: number;
-  aqiMin: number;
-  aqiMax: number;
-  pm25Min: number;
-  pm25Max: number;
-  confidenceScorePercent: number;
+  consensusAqi: number | null;
+  consensusPm25: number | null;
+  aqiMin: number | null;
+  aqiMax: number | null;
+  pm25Min: number | null;
+  pm25Max: number | null;
+  confidenceScorePercent: number | null;
   agreementLevel: string;
-  deviationSpread: number;
+  deviationSpread: number | null;
   feeds: MultiSourceTelemetryFeed[];
   summaryNote: string;
   provenanceNote: string;
+  isUnavailable?: boolean;
+}
+
+export interface MetricAvailability {
+  aqi: boolean;
+  pm25: boolean;
+  pm10: boolean;
+  weather: boolean;
+  blh: boolean;
+  forecast: boolean;
 }
 
 export interface AtmosphericMetrics {
@@ -103,9 +113,9 @@ export interface AtmosphericMetrics {
   latitude?: number;
   longitude?: number;
   
-  usAqi: number;              // Standard US EPA 0-500 AQI
-  pm25: number;               // Fine particulate in µg/m³
-  pm10: number;               // Respirable particulate in µg/m³
+  usAqi: number | null;       // Standard US EPA 0-500 AQI, null if unavailable
+  pm25: number | null;        // Fine particulate in µg/m³, null if unavailable
+  pm10: number | null;        // Respirable particulate in µg/m³, null if unavailable
   
   // Trace gaseous pollutants (µg/m³) - optional based on provider availability
   co?: number | null;
@@ -118,7 +128,7 @@ export interface AtmosphericMetrics {
   humidity?: number | null;    // % RH
   windSpeed?: number | null;   // km/h
   windDirection?: number | null; // degrees 0-360
-  boundaryLayerHeight: number; // meters (PBL mixing depth)
+  boundaryLayerHeight: number | null; // meters (PBL mixing depth), null if unavailable
   
   // Atmospheric dispersion assessment
   isThermalInversionActive: boolean; // poor ground dispersion / stable boundary layer
@@ -126,11 +136,12 @@ export interface AtmosphericMetrics {
   isStale?: boolean;
   errorMessage?: string;
   
-  cpcbAqi?: number;
-  cpcbCategory?: string;
-  sourceAttribution: string;
+  cpcbAqi?: number | null;
+  cpcbCategory?: string | null;
+  sourceAttribution?: string;
   hourlyForecast?: HourlyAtmosphericPoint[];
   ensemble?: EnsembleConsensusAnalysis;
+  availability?: MetricAvailability;
 }
 
 export type ActivityIntensity = 'resting' | 'light_walk' | 'moderate_activity' | 'intense_exercise';
@@ -168,11 +179,12 @@ export interface RoutineItem {
   activityName: string;
   intensity: ActivityIntensity;
   isOutdoor: boolean;
-  baselineExposureUg: number;
-  optimizedTimeWindow: string;
-  optimizedExposureUg: number;
-  reductionPercentage: number;
+  baselineExposureUg: number | null;
+  optimizedTimeWindow: string | null;
+  optimizedExposureUg: number | null;
+  reductionPercentage: number | null;
   rationale: string;
+  isOptimizationAvailable: boolean;
 }
 
 export interface RecommendationPlan {
@@ -185,11 +197,13 @@ export interface RecommendationPlan {
   corsiRosenthalBox: CorsiRosenthalBoxSpec;
   isAiGenerated?: boolean;
   impactMetrics: {
-    totalInhaledBaselineUg: number;
-    totalInhaledOptimizedUg: number;
-    netAvoidedPM25Ug: number;
-    avoidedCigarettesMonthly: number;
-    carbonSavedKgWeekly: number;
-    respiratorySafetyScore: number;
+    totalInhaledBaselineUg: number | null;
+    totalInhaledOptimizedUg: number | null;
+    netAvoidedPM25Ug: number | null;
+    avoidedCigarettesMonthly: number | null;
+    carbonSavedKgWeekly?: number | null;
+    respiratorySafetyScore?: number | null;
+    isImpactCalculated: boolean;
+    calculationNote?: string;
   };
 }

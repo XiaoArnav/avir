@@ -15,7 +15,42 @@ export const WindVectorGauge: React.FC<WindVectorGaugeProps> = ({
   windSpeed,
   cityName,
 }) => {
-  const intel = analyzeWindVector(windDirection ?? 315, windSpeed ?? 7.5, cityName);
+  const isAvailable =
+    typeof windDirection === 'number' &&
+    Number.isFinite(windDirection) &&
+    typeof windSpeed === 'number' &&
+    Number.isFinite(windSpeed);
+
+  if (!isAvailable) {
+    return (
+      <div className="bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl p-5 sm:p-6 shadow-sm space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 rounded-xl bg-teal-500/10 text-teal-500 border border-teal-500/20">
+              <Compass className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-ink dark:text-white">
+                Wind &amp; Smoke Direction Compass
+              </h3>
+              <p className="text-xs text-ink-muted dark:text-zinc-400">
+                Shows whether wind is blowing smoke into or clearing air away from {cityName}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-stone-100 dark:bg-zinc-800 text-ink dark:text-white font-mono text-xs font-bold border border-stone-200 dark:border-zinc-700">
+            <Wind className="w-3.5 h-3.5 text-teal-500" />
+            <span>— km/h</span>
+          </div>
+        </div>
+        <div className="py-8 text-center text-xs font-mono text-ink-muted dark:text-zinc-400">
+          Surface wind telemetry (velocity &amp; azimuth) is currently unavailable for {cityName}.
+        </div>
+      </div>
+    );
+  }
+
+  const intel = analyzeWindVector(windDirection, windSpeed, cityName);
 
   return (
     <div className="bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl p-5 sm:p-6 shadow-sm space-y-4">

@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState } from 'react';
-import { AtmosphericMetrics, AQICategory } from '@/domain/types';
+import React, { useState, useMemo, useEffect } from 'react';
+import { AtmosphericMetrics, AQICategory, HourlyAtmosphericPoint } from '@/domain/types';
 import {
   calculateCigaretteEquivalence,
   calculateCpcbNaqi,
@@ -19,7 +19,6 @@ import {
   Home,
   CheckCircle2,
   Sparkles,
-  Info,
   Share2,
   GraduationCap,
 } from 'lucide-react';
@@ -49,26 +48,164 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
   isLoading,
   isDarkMode = true,
 }) => {
-  const [selectedHour, setSelectedHour] = useState<number>(new Date().getHours());
-
-  // 24-Hour Diurnal Boundary Layer Mixing Model
-  const hourlyData = Array.from({ length: 24 }, (_, hour) => {
-    let blh = 140; // nocturnal inversion floor
-    if (hour >= 10 && hour <= 17) {
-      blh = Math.round(550 + Math.sin(((hour - 10) / 7) * Math.PI) * 750);
-    } else if (hour >= 7 && hour < 10) {
-      blh = Math.round(180 + (hour - 7) * 90);
-    } else if (hour > 17 && hour <= 20) {
-      blh = Math.round(500 - (hour - 17) * 110);
+  // Parse target city's wall-clock hour directly from location timestamp to avoid browser timezone drift
+  const currentCityHour = useMemo(() => {
+    if (metrics?.timestamp && metrics.timestamp.includes('T')) {
+      const parsed = parseInt(metrics.timestamp.split('T')[1].slice(0, 2), 10);
+      if (!isNaN(parsed)) return parsed;
     }
-    const isSafeVentilation = hour >= 12 && hour <= 16;
+    return new Date().getHours();
+  }, [metrics?.timestamp]);
+
+  const [selectedHour, setSelectedHour] = useState<number>(currentCityHour);
+
+  useEffect(() => {
+    setSelectedHour(currentCityHour);
+  }, [currentCityHour]);
+
+  // Diurnal 24-hour mixing forecast points directly from Open-Meteo telemetry
+  const forecastPoints: HourlyAtmosphericPoint[] = useMemo(() => {
+    return metrics?.hourlyForecast || [];
+  }, [metrics?.hourlyForecast]);
+
+  const safeVentingWindows = useMemo(() => {
+    return forecastPoints.filter((p) => p.isSafeVentingWindow);
+  }, [forecastPoints]);
+
+  const bestVentingSlot = useMemo(() => {
+    return forecastPoints.reduce<HourlyAtmosphericPoint | null>((best, curr) => {
+      if (curr.usAqi === null && curr.boundaryLayerHeight === null) return best;
+      if (!best) return curr;
+      const currScore = (curr.boundaryLayerHeight ?? 200) - (curr.usAqi ?? 200) * 2;
+      const bestScore = (best.boundaryLayerHeight ?? 200) - (best.usAqi ?? 200) * 2;
+      return currScore > bestScore ? curr : best;
+    }, null);
+  }, [forecastPoints]);
+
+  // Dynamic 4 Protective Action Pills tailored strictly to live AQI / Particulate severity
+  const actionPills = useMemo(() => {
+    if (!metrics || metrics.usAqi === null) {
+      return [
+        { icon: AlertTriangle, title: 'Particulates', action: 'Telemetry Awaiting', color: 'text-stone-500' },
+        { icon: Activity, title: 'Air Purifier', action: 'Auto / Eco Mode', color: 'text-stone-500' },
+        { icon: Home, title: 'Windows', action: 'Normal Usage', color: 'text-stone-500' },
+        { icon: CheckCircle2, title: 'Cardio', action: 'Listen to Body', color: 'text-stone-500' },
+      ];
+    }
+
+    if (metrics.usAqi <= 50) {
+      return [
+        { icon: CheckCircle2, title: 'Outdoor Air', action: 'Safe for Everyone', color: 'text-emerald-600 dark:text-emerald-400' },
+        { icon: Activity, title: 'Air Purifiers', action: 'Eco / Standby Mode', color: 'text-emerald-600 dark:text-emerald-400' },
+        { icon: Home, title: 'Ventilation', action: 'Open Windows Freely', color: 'text-emerald-600 dark:text-emerald-400' },
+        { icon: CheckCircle2, title: 'Cardio', action: 'Ideal for Workouts', color: 'text-emerald-600 dark:text-emerald-400' },
+      ];
+    }
+
+    if (metrics.usAqi <= 100) {
+      return [
+        { icon: CheckCircle2, title: 'Outdoor Air', action: 'Acceptable Baseline', color: 'text-yellow-600 dark:text-yellow-400' },
+        { icon: Activity, title: 'Air Purifiers', action: 'Normal Auto Mode', color: 'text-yellow-600 dark:text-yellow-400' },
+        { icon: Home, title: 'Ventilation', action: 'Air Out Midday', color: 'text-yellow-600 dark:text-yellow-400' },
+        { icon: Activity, title: 'Sensitive Groups', action: 'Moderate Heavy Strain', color: 'text-yellow-600 dark:text-yellow-400' },
+      ];
+    }
+
+    if (metrics.usAqi <= 150) {
+      return [
+        { icon: ShieldAlert, title: 'Sensitive Groups', action: 'Wear N95 Outdoors', color: 'text-orange-600 dark:text-orange-400' },
+        { icon: Activity, title: 'Air Purifiers', action: 'Medium Fan Speed', color: 'text-orange-600 dark:text-orange-400' },
+        { icon: Home, title: 'Ventilation', action: 'Brief Midday Airing', color: 'text-orange-600 dark:text-orange-400' },
+        { icon: CheckCircle2, title: 'Cardio', action: 'Limit Heavy Cardio', color: 'text-orange-600 dark:text-orange-400' },
+      ];
+    }
+
+    if (metrics.usAqi <= 200) {
+      return [
+        { icon: ShieldAlert, title: 'Mask Protection', action: 'Wear N95 / FFP2', color: 'text-rose-600 dark:text-rose-400' },
+        { icon: Activity, title: 'Air Purifier', action: 'Run on High', color: 'text-rose-600 dark:text-rose-400' },
+        { icon: Home, title: 'Windows', action: 'Keep Windows Closed', color: 'text-rose-600 dark:text-rose-400' },
+        { icon: CheckCircle2, title: 'Cardio', action: 'Avoid Outdoor Cardio', color: 'text-rose-600 dark:text-rose-400' },
+      ];
+    }
+
+    // Very Unhealthy & Hazardous (201+)
+    return [
+      { icon: ShieldAlert, title: 'Severe Smog', action: 'N95 Sealed Required', color: 'text-red-600 dark:text-red-400' },
+      { icon: Activity, title: 'Air Purifier', action: 'Continuous Max Clean', color: 'text-red-600 dark:text-red-400' },
+      { icon: Home, title: 'Windows', action: 'Seal Windows & Vents', color: 'text-red-600 dark:text-red-400' },
+      { icon: CheckCircle2, title: 'Cardio', action: 'Strict Indoor Only', color: 'text-red-600 dark:text-red-400' },
+    ];
+  }, [metrics]);
+
+  // Dynamic Inversion & Mixing Ceiling Alert (Zero hardcoded static hour claims)
+  const inversionBanner = useMemo(() => {
+    if (!metrics || metrics.boundaryLayerHeight === null) {
+      return {
+        isActive: false,
+        isWarning: false,
+        title: 'PLANETARY BOUNDARY LAYER • TELEMETRY AWAITING',
+        message: 'Mixing ceiling telemetry is currently unavailable from regional model feeds. Exercise and outdoor ventilation decisions should follow observed particulate concentrations.',
+      };
+    }
+
+    if (metrics.isThermalInversionActive) {
+      let advice = `A shallow atmospheric boundary layer (${metrics.boundaryLayerHeight}m) is acting as a lid, trapping toxic vehicular and biomass emissions within human breathing height. Avoid high-exertion outdoor activities.`;
+
+      if (safeVentingWindows.length > 0) {
+        const start = Math.min(...safeVentingWindows.map((w) => w.hour));
+        const end = Math.max(...safeVentingWindows.map((w) => w.hour)) + 1;
+        advice += ` Atmospheric dispersion is projected to temporarily improve between ${start}:00 and ${end}:00 as solar heating expands the boundary layer.`;
+      } else if (bestVentingSlot && bestVentingSlot.hour !== currentCityHour && (bestVentingSlot.boundaryLayerHeight ?? 0) > metrics.boundaryLayerHeight + 150) {
+        advice += ` Relative mixing ceiling peak is forecast around ${bestVentingSlot.hour}:00 (~${bestVentingSlot.boundaryLayerHeight}m).`;
+      } else {
+        advice += ` No significant solar venting window is projected across the forecast; keep workouts indoors in filtered air zones.`;
+      }
+
+      return {
+        isActive: true,
+        isWarning: true,
+        title: 'CRITICAL WARNING: ACTIVE THERMAL INVERSION TRAP',
+        message: advice,
+      };
+    }
+
+    // When inversion is NOT active
+    if (category === 'Good' || category === 'Moderate') {
+      return {
+        isActive: false,
+        isWarning: false,
+        title: 'ATMOSPHERIC DISPERSION ACTIVE • NORMAL VENTILATION',
+        message: `Expanded atmospheric boundary layer ceiling (${metrics.boundaryLayerHeight}m) facilitates natural pollutant dispersion. Favorable conditions for outdoor errands, workouts, and fresh air ventilation.`,
+      };
+    }
+
     return {
-      hour,
-      blh,
-      isSafeVentilation,
-      timeLabel: `${hour.toString().padStart(2, '0')}:00`,
+      isActive: false,
+      isWarning: true,
+      title: 'ELEVATED PARTICULATE ADVECTION • REGIONAL SMOG',
+      message: `Vertical mixing ceiling is elevated (${metrics.boundaryLayerHeight}m), but ambient particulate density remains elevated from heavy regional emissions or advection. Sensitive individuals should moderate prolonged outdoor cardio.`,
     };
-  });
+  }, [metrics, safeVentingWindows, bestVentingSlot, currentCityHour, category]);
+
+  // Dynamic Ventilation text for Quick Health Guide Question 3
+  const ventilationGuideText = useMemo(() => {
+    if (!metrics || metrics.usAqi === null) {
+      return 'Follow local municipal guidance while telemetry feed synchronizes.';
+    }
+    if (metrics.usAqi <= 50) {
+      return 'Air quality is pristine; open windows whenever desired for natural cross-ventilation.';
+    }
+    if (metrics.usAqi <= 100) {
+      return 'Moderate particulate levels; natural ventilation is safe, ideally during midday solar mixing.';
+    }
+    if (safeVentingWindows.length > 0) {
+      const start = Math.min(...safeVentingWindows.map((w) => w.hour));
+      const end = Math.max(...safeVentingWindows.map((w) => w.hour)) + 1;
+      return `Air out rooms briefly during the ${start}:00–${end}:00 venting window; keep windows shut during night and morning inversion peaks.`;
+    }
+    return 'Keep windows sealed; severe ambient particulates detected across the forecast. Rely on indoor HEPA / Corsi-Rosenthal filtration.';
+  }, [metrics, safeVentingWindows]);
 
   const getCategoryBadge = (cat: AQICategory) => {
     switch (cat) {
@@ -117,7 +254,7 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
   // If loading and no metrics, render sleek skeleton
   if (!metrics || isLoading) {
     return (
-      <section 
+      <section
         aria-label="Real-time Atmospheric Telemetry Loading"
         className="relative overflow-hidden rounded-2xl glass-panel p-6 sm:p-8 lg:p-10 border border-stone-300 dark:border-zinc-800 bg-white/90 dark:bg-black/90 min-h-[460px] flex flex-col justify-between animate-pulse"
       >
@@ -145,7 +282,7 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
   // Graceful zero-fabrication error state
   if (metrics.status === 'error') {
     return (
-      <section 
+      <section
         aria-label="Atmospheric Telemetry Connection Error"
         className="relative overflow-hidden rounded-2xl glass-panel p-6 sm:p-8 lg:p-10 border border-red-300 dark:border-red-900/60 bg-red-50/50 dark:bg-zinc-950 shadow-sm"
       >
@@ -179,31 +316,31 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
   }
 
   const cigarettes = calculateCigaretteEquivalence(metrics.pm25);
-  const cpcb = metrics.cpcbAqi 
+  const cpcb = metrics.cpcbAqi
     ? { aqi: metrics.cpcbAqi, category: metrics.cpcbCategory || 'Poor' }
     : calculateCpcbNaqi(metrics.pm25, metrics.pm10);
   const grap = getGrapStage(metrics.usAqi);
 
-  const formattedTime = new Date(metrics.timestamp).toLocaleTimeString([], { 
-    hour: '2-digit', 
+  const formattedTime = new Date(metrics.timestamp).toLocaleTimeString([], {
+    hour: '2-digit',
     minute: '2-digit',
     hour12: true,
   });
 
   return (
-    <section 
+    <section
       aria-label="Real-time Atmospheric Telemetry Hero"
       className="relative overflow-hidden rounded-2xl glass-panel p-6 sm:p-8 lg:p-10 transition-colors shadow-sm"
     >
       {/* Background Architectural Vector Skyline Silhouette */}
-      <div 
+      <div
         className="absolute inset-x-0 bottom-0 h-36 sm:h-48 opacity-15 dark:opacity-20 pointer-events-none select-none overflow-hidden transition-opacity duration-700"
         aria-hidden="true"
       >
-        <CityPanoramicBackdrop 
-          cityId={city} 
-          isDark={isDarkMode} 
-          className="w-full h-full" 
+        <CityPanoramicBackdrop
+          cityId={city}
+          isDark={isDarkMode}
+          className="w-full h-full"
         />
       </div>
 
@@ -295,39 +432,43 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
         <div className="lg:col-span-5 flex flex-col justify-center">
           <div className="flex items-baseline gap-4">
             <div className="text-6xl sm:text-7xl lg:text-8xl font-black text-ink dark:text-white tracking-tighter tabular-nums font-mono">
-              {metrics.usAqi}
+              {metrics.usAqi !== null ? metrics.usAqi : '—'}
             </div>
             <div className="flex flex-col">
               <span className="text-xs uppercase font-mono tracking-widest text-ink-muted dark:text-zinc-400 font-semibold">
                 US AQI
               </span>
               <span className="text-xs font-mono text-ink-muted dark:text-zinc-400 mt-0.5">
-                CPCB NAQI: <strong className="text-ink dark:text-zinc-200">{cpcb.aqi}</strong> ({cpcb.category})
+                CPCB NAQI: <strong className="text-ink dark:text-zinc-200">{cpcb.aqi !== null ? cpcb.aqi : '—'}</strong> ({cpcb.category})
               </span>
             </div>
           </div>
 
           {/* Multi-Source Open-Source AQI Consensus Range Badge */}
-          {metrics.ensemble && (
+          {metrics.ensemble && metrics.ensemble.consensusAqi !== null && (
             <button
               onClick={onOpenMultiSource}
               className="mt-3.5 inline-flex items-center flex-wrap gap-2 px-3 py-1.5 rounded-xl bg-white/90 dark:bg-zinc-900/90 border border-stone-200 dark:border-zinc-800 text-xs text-ink dark:text-zinc-200 hover:border-emerald-500/60 hover:bg-emerald-50/40 dark:hover:bg-emerald-950/20 transition-all shadow-sm group cursor-pointer text-left w-fit"
-              title="Compare 5 independent air quality data sources"
-              aria-label="Inspect 5 Open-Source AQI Feeds"
+              title="Compare open-source air quality model feeds"
+              aria-label="Inspect Open-Source AQI Feeds"
             >
               <span className="flex h-2 w-2 relative">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
               </span>
               <span className="font-semibold text-ink dark:text-white">
-                5-Source Average: <strong className="font-mono text-emerald-600 dark:text-emerald-400 font-bold">{metrics.ensemble.consensusAqi} AQI</strong>
+                Multi-Model Consensus: <strong className="font-mono text-emerald-600 dark:text-emerald-400 font-bold">{metrics.ensemble.consensusAqi} AQI</strong>
               </span>
-              <span className="font-mono text-ink-muted dark:text-zinc-400 text-[11px]">
-                (Range: {metrics.ensemble.aqiMin}–{metrics.ensemble.aqiMax})
-              </span>
-              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 font-bold border border-emerald-500/20">
-                {metrics.ensemble.confidenceScorePercent}% Agreement
-              </span>
+              {metrics.ensemble.aqiMin !== null && metrics.ensemble.aqiMax !== null && (
+                <span className="font-mono text-ink-muted dark:text-zinc-400 text-[11px]">
+                  (Spread: {metrics.ensemble.aqiMin}–{metrics.ensemble.aqiMax})
+                </span>
+              )}
+              {metrics.ensemble.confidenceScorePercent !== null && (
+                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 font-bold border border-emerald-500/20">
+                  {metrics.ensemble.confidenceScorePercent}% Agreement
+                </span>
+              )}
               <span className="text-emerald-600 dark:text-emerald-400 font-bold text-xs group-hover:translate-x-0.5 transition-transform">
                 &rarr;
               </span>
@@ -343,7 +484,7 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
               <div className="font-semibold text-ink dark:text-white flex items-center gap-1.5">
                 <span>Breathing Burden:</span>
                 <span className="font-bold font-mono text-sm px-1.5 py-0.5 rounded bg-terracotta-50 dark:bg-zinc-800 text-terracotta-700 dark:text-white border border-terracotta-200 dark:border-zinc-700">
-                  ≈ {cigarettes} cigs/day
+                  {cigarettes !== null ? `≈ ${cigarettes} cigs/day` : 'Data Awaiting'}
                 </span>
               </div>
               <p className="text-[11px] text-ink-muted dark:text-zinc-400 leading-tight mt-1">
@@ -372,7 +513,7 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
               <CloudFog className="w-4 h-4 text-terracotta-500 dark:text-zinc-400" />
             </div>
             <div className="text-2xl sm:text-3xl font-extrabold text-ink dark:text-white font-mono tracking-tight tabular-nums">
-              {metrics.pm25} <span className="text-xs font-sans font-normal text-ink-muted dark:text-zinc-400">µg/m³</span>
+              {metrics.pm25 !== null ? metrics.pm25 : '—'} <span className="text-xs font-sans font-normal text-ink-muted dark:text-zinc-400">µg/m³</span>
             </div>
             <div className="text-[11px] text-ink-muted dark:text-zinc-500 mt-1">Enters lungs &amp; bloodstream</div>
           </div>
@@ -384,7 +525,7 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
               <CloudFog className="w-4 h-4 text-amber-500 dark:text-zinc-400" />
             </div>
             <div className="text-2xl sm:text-3xl font-extrabold text-ink dark:text-white font-mono tracking-tight tabular-nums">
-              {metrics.pm10} <span className="text-xs font-sans font-normal text-ink-muted dark:text-zinc-400">µg/m³</span>
+              {metrics.pm10 !== null ? metrics.pm10 : '—'} <span className="text-xs font-sans font-normal text-ink-muted dark:text-zinc-400">µg/m³</span>
             </div>
             <div className="text-[11px] text-ink-muted dark:text-zinc-500 mt-1">Irritates eyes, nose &amp; throat</div>
           </div>
@@ -396,10 +537,14 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
               <Gauge className="w-4 h-4 text-sage-600 dark:text-zinc-400" />
             </div>
             <div className="text-2xl sm:text-3xl font-extrabold text-ink dark:text-white font-mono tracking-tight tabular-nums">
-              {metrics.boundaryLayerHeight} <span className="text-xs font-sans font-normal text-ink-muted dark:text-zinc-400">m</span>
+              {metrics.boundaryLayerHeight !== null ? metrics.boundaryLayerHeight : '—'} <span className="text-xs font-sans font-normal text-ink-muted dark:text-zinc-400">m</span>
             </div>
             <div className="text-[11px] text-ink-muted dark:text-zinc-500 mt-1">
-              {metrics.isThermalInversionActive ? 'Low ceiling (Trapping smog near ground)' : 'High ceiling (Blowing smog away)'}
+              {metrics.boundaryLayerHeight === null
+                ? 'Mixing ceiling telemetry unavailable'
+                : metrics.isThermalInversionActive
+                ? 'Low ceiling (Trapping smog near ground)'
+                : 'High ceiling (Blowing smog away)'}
             </div>
           </div>
 
@@ -410,13 +555,13 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
               <Activity className="w-4 h-4 text-sage-600 dark:text-zinc-400" />
             </div>
             <div className="text-xl sm:text-2xl font-extrabold text-ink dark:text-white font-mono tracking-tight">
-              {metrics.temperature !== undefined ? `${metrics.temperature}°C` : '18.4°C'}
+              {metrics.temperature !== null && metrics.temperature !== undefined ? `${metrics.temperature}°C` : '—'}
               <span className="text-xs font-normal text-ink-muted dark:text-zinc-400 ml-2">
-                {metrics.humidity !== undefined ? `${metrics.humidity}% Humidity` : '74% Humidity'}
+                {metrics.humidity !== null && metrics.humidity !== undefined ? `${metrics.humidity}% Humidity` : '—'}
               </span>
             </div>
             <div className="text-[11px] text-ink-muted dark:text-zinc-500 mt-1">
-              Wind: {metrics.windSpeed !== undefined ? `${metrics.windSpeed} km/h` : '3.8 km/h'}
+              Wind: {metrics.windSpeed !== null && metrics.windSpeed !== undefined ? `${metrics.windSpeed} km/h` : '—'}
             </div>
           </div>
         </div>
@@ -444,11 +589,13 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
               <span>1. How bad is the air?</span>
             </div>
             <p className="text-ink-muted dark:text-zinc-400 text-[11px] leading-relaxed">
-              {metrics.usAqi > 200 
-                ? 'Severe toxic smog. Breathing today is like smoking 8-10 cigarettes.'
-                : metrics.usAqi > 100 
-                ? 'Unhealthy air. Children, elderly, and sensitive lungs will cough.'
-                : 'Good air. Safe for normal outdoor activities.'}
+              {metrics.usAqi === null
+                ? 'Telemetry awaiting synchronization with regional station.'
+                : metrics.usAqi > 200
+                ? 'Severe toxic smog. Inhaled particulate burden is substantial.'
+                : metrics.usAqi > 100
+                ? 'Unhealthy air. Children, elderly, and sensitive lungs will experience symptoms.'
+                : 'Good air quality. Safe for normal outdoor activities.'}
             </p>
           </div>
 
@@ -459,10 +606,12 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
               <span>2. Can I go outside?</span>
             </div>
             <p className="text-ink-muted dark:text-zinc-400 text-[11px] leading-relaxed">
-              {metrics.usAqi > 200 
-                ? 'Avoid outdoor workouts in the morning. Wear an N95 mask if you step out.'
-                : metrics.usAqi > 100 
-                ? 'Avoid heavy morning runs. Walking with a mask is safe.'
+              {metrics.usAqi === null
+                ? 'Check local advisories for outdoor activity clearance.'
+                : metrics.usAqi > 200
+                ? 'Avoid outdoor exertion. Wear a tightly fitted N95 mask if stepping out.'
+                : metrics.usAqi > 100
+                ? 'Avoid heavy morning runs. Walking with an N95 mask is safer.'
                 : 'Safe for normal outdoor exercise and daily activities.'}
             </p>
           </div>
@@ -474,7 +623,7 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
               <span>3. When should I air out rooms?</span>
             </div>
             <p className="text-ink-muted dark:text-zinc-400 text-[11px] leading-relaxed">
-              Open windows only during the 12:30–3:30 PM afternoon clean air window; keep windows shut at night and morning.
+              {ventilationGuideText}
             </p>
           </div>
         </div>
@@ -485,112 +634,115 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
           <div className="flex items-center gap-2">
             <span className="text-xs font-bold text-ink dark:text-white uppercase font-mono tracking-wider">
-              Hourly Clean Air Trend (24-Hour Day Cycle)
+              Hourly Smog &amp; Mixing Trend (24-Hour Diurnal Cycle)
             </span>
           </div>
           <div className="flex items-center gap-3 text-[11px] font-mono text-ink-muted dark:text-zinc-400">
             <span className="flex items-center gap-1">
               <span className="w-2.5 h-2.5 rounded-sm bg-emerald-500/80" />
-              <span>Clean Air Window (12:00–16:00)</span>
+              <span>Solar Venting Window</span>
             </span>
             <span className="flex items-center gap-1">
               <span className="w-2.5 h-2.5 rounded-sm bg-stone-300 dark:bg-zinc-800" />
-              <span>Peak Smog Hours (Stay Indoors)</span>
+              <span>Inversion Smog Trap</span>
             </span>
           </div>
         </div>
 
-        {/* 24-Bar Heatmap Strip */}
-        <div className="grid grid-cols-24 gap-1 h-10 items-end" role="meter" aria-label="24-hour atmospheric boundary layer trend">
-          {hourlyData.map((slot) => {
-            const isCurrent = slot.hour === new Date().getHours();
-            const isSelected = slot.hour === selectedHour;
-            const heightPercent = Math.max(20, Math.min(100, (slot.blh / 1200) * 100));
+        {/* 24-Bar Heatmap Strip directly driven by Open-Meteo hourly forecast */}
+        {forecastPoints.length > 0 ? (
+          <>
+            <div className="grid grid-cols-24 gap-1 h-10 items-end" role="meter" aria-label="24-hour atmospheric boundary layer trend">
+              {forecastPoints.slice(0, 24).map((slot) => {
+                const isCurrent = slot.hour === currentCityHour;
+                const isSelected = slot.hour === selectedHour;
+                const blh = slot.boundaryLayerHeight ?? 200;
+                const heightPercent = Math.max(20, Math.min(100, (blh / 1200) * 100));
 
-            return (
-              <button
-                key={slot.hour}
-                type="button"
-                onClick={() => setSelectedHour(slot.hour)}
-                className={`relative w-full rounded-t-sm transition-all group ${
-                  slot.isSafeVentilation
-                    ? 'bg-emerald-500/80 hover:bg-emerald-400'
-                    : 'bg-stone-300 dark:bg-zinc-800 hover:bg-stone-400 dark:hover:bg-zinc-700'
-                } ${isSelected ? 'ring-2 ring-primary ring-offset-1' : ''}`}
-                style={{ height: `${heightPercent}%` }}
-                title={`${slot.timeLabel} — Estimated Boundary Layer: ${slot.blh}m ${slot.isSafeVentilation ? '(Solar Venting Window)' : '(Inversion Trap)'}`}
-              >
-                {isCurrent && (
-                  <span className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-primary" />
-                )}
-              </button>
-            );
-          })}
-        </div>
+                return (
+                  <button
+                    key={slot.hour}
+                    type="button"
+                    onClick={() => setSelectedHour(slot.hour)}
+                    className={`relative w-full rounded-t-sm transition-all group ${
+                      slot.isSafeVentingWindow
+                        ? 'bg-emerald-500/80 hover:bg-emerald-400'
+                        : 'bg-stone-300 dark:bg-zinc-800 hover:bg-stone-400 dark:hover:bg-zinc-700'
+                    } ${isSelected ? 'ring-2 ring-primary ring-offset-1' : ''}`}
+                    style={{ height: `${heightPercent}%` }}
+                    title={`${slot.hour.toString().padStart(2, '0')}:00 — Mixing Depth: ${slot.boundaryLayerHeight !== null ? `${slot.boundaryLayerHeight}m` : 'N/A'}, PM2.5: ${slot.pm25 !== null ? `${slot.pm25}µg/m³` : 'N/A'}`}
+                  >
+                    {isCurrent && (
+                      <span className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-primary" />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
 
-        <div className="flex justify-between text-[10px] font-mono text-ink-muted dark:text-zinc-500 mt-1.5">
-          <span>00:00 (Heavy Smog)</span>
-          <span className="text-emerald-600 dark:text-emerald-400 font-bold">13:30 (Best Air Window)</span>
-          <span>23:00 (Smog Settles)</span>
-        </div>
+            <div className="flex justify-between text-[10px] font-mono text-ink-muted dark:text-zinc-500 mt-1.5">
+              <span>00:00 ({forecastPoints[0]?.pm25 !== null ? `${forecastPoints[0].pm25} µg/m³` : 'Night'})</span>
+              {bestVentingSlot && (
+                <span className="text-emerald-600 dark:text-emerald-400 font-bold">
+                  {bestVentingSlot.hour}:00 (Best Dispersion: ~{bestVentingSlot.boundaryLayerHeight ?? '—'}m)
+                </span>
+              )}
+              <span>23:00 ({forecastPoints[23]?.pm25 !== null ? `${forecastPoints[23].pm25} µg/m³` : 'Late Night'})</span>
+            </div>
+          </>
+        ) : (
+          <div className="py-4 text-center text-xs font-mono text-ink-muted dark:text-zinc-500">
+            Hourly diurnal atmospheric forecast telemetry is currently unavailable.
+          </div>
+        )}
       </div>
 
       {/* Live Atmospheric Trace Gases Strip */}
       <div className="relative z-10 py-3 px-4 rounded-xl bg-white/70 dark:bg-zinc-950/80 border border-stone-200 dark:border-zinc-800/70 mb-5 flex flex-wrap items-center justify-between gap-3 text-xs font-mono shadow-sm">
         <div className="text-ink-muted dark:text-zinc-400 flex items-center gap-1.5 text-[11px]">
           <Gauge className="w-3.5 h-3.5 text-sage-600 dark:text-zinc-400" />
-          <span className="uppercase tracking-wider">Key Gas Pollutants:</span>
+          <span className="uppercase tracking-wider">Key Trace Gas Pollutants:</span>
         </div>
         <div className="flex flex-wrap items-center gap-4 text-ink dark:text-zinc-300 text-[11px]">
-          <span>CO: <strong className="font-mono text-ink dark:text-white">{metrics.co ? `${Math.round(metrics.co)}` : '4,228'}</strong> µg/m³</span>
+          <span>CO: <strong className="font-mono text-ink dark:text-white">{metrics.co !== null && metrics.co !== undefined ? `${Math.round(metrics.co)}` : '—'}</strong> µg/m³</span>
           <span className="text-stone-300 dark:text-zinc-700">•</span>
-          <span>NO₂: <strong className="font-mono text-ink dark:text-white">{metrics.no2 ? `${metrics.no2}` : '117.5'}</strong> µg/m³</span>
+          <span>NO₂: <strong className="font-mono text-ink dark:text-white">{metrics.no2 !== null && metrics.no2 !== undefined ? `${metrics.no2}` : '—'}</strong> µg/m³</span>
           <span className="text-stone-300 dark:text-zinc-700">•</span>
-          <span>SO₂: <strong className="font-mono text-ink dark:text-white">{metrics.so2 ? `${metrics.so2}` : '104.5'}</strong> µg/m³</span>
+          <span>SO₂: <strong className="font-mono text-ink dark:text-white">{metrics.so2 !== null && metrics.so2 !== undefined ? `${metrics.so2}` : '—'}</strong> µg/m³</span>
           <span className="text-stone-300 dark:text-zinc-700">•</span>
-          <span>O₃: <strong className="font-mono text-ink dark:text-white">{metrics.o3 ? `${metrics.o3}` : '17.0'}</strong> µg/m³</span>
+          <span>O₃: <strong className="font-mono text-ink dark:text-white">{metrics.o3 !== null && metrics.o3 !== undefined ? `${metrics.o3}` : '—'}</strong> µg/m³</span>
         </div>
       </div>
 
-      {/* 4-Icon Protective Action Advice Strip */}
+      {/* 4-Icon Protective Action Advice Strip - Tailored Dynamically to Live Severity */}
       <div className="relative z-10 grid grid-cols-2 sm:grid-cols-4 gap-2 mb-5">
-        <div className="p-2.5 rounded-lg bg-white/80 dark:bg-zinc-900/40 border border-stone-200 dark:border-zinc-800 flex items-center gap-2.5 shadow-sm">
-          <ShieldAlert className="w-4 h-4 text-terracotta-600 dark:text-zinc-300 shrink-0" />
-          <span className="text-[11px] text-ink dark:text-zinc-300 leading-tight">
-            Wear <strong>N95 / FFP2</strong> outdoors
-          </span>
-        </div>
-        <div className="p-2.5 rounded-lg bg-white/80 dark:bg-zinc-900/40 border border-stone-200 dark:border-zinc-800 flex items-center gap-2.5 shadow-sm">
-          <Activity className="w-4 h-4 text-sage-600 dark:text-zinc-300 shrink-0" />
-          <span className="text-[11px] text-ink dark:text-zinc-300 leading-tight">
-            Run <strong>Air Purifier</strong> on High
-          </span>
-        </div>
-        <div className="p-2.5 rounded-lg bg-white/80 dark:bg-zinc-900/40 border border-stone-200 dark:border-zinc-800 flex items-center gap-2.5 shadow-sm">
-          <Home className="w-4 h-4 text-sage-600 dark:text-zinc-300 shrink-0" />
-          <span className="text-[11px] text-ink dark:text-zinc-300 leading-tight">
-            Keep <strong>Windows Closed</strong>
-          </span>
-        </div>
-        <div className="p-2.5 rounded-lg bg-white/80 dark:bg-zinc-900/40 border border-stone-200 dark:border-zinc-800 flex items-center gap-2.5 shadow-sm">
-          <CheckCircle2 className="w-4 h-4 text-sage-600 dark:text-zinc-300 shrink-0" />
-          <span className="text-[11px] text-ink dark:text-zinc-300 leading-tight">
-            Avoid <strong>Outdoor Cardio</strong>
-          </span>
-        </div>
+        {actionPills.map((pill, idx) => {
+          const IconComp = pill.icon;
+          return (
+            <div
+              key={idx}
+              className="p-2.5 rounded-lg bg-white/80 dark:bg-zinc-900/40 border border-stone-200 dark:border-zinc-800 flex items-center gap-2.5 shadow-sm"
+            >
+              <IconComp className={`w-4 h-4 ${pill.color} shrink-0`} />
+              <span className="text-[11px] text-ink dark:text-zinc-300 leading-tight">
+                {pill.title}: <strong>{pill.action}</strong>
+              </span>
+            </div>
+          );
+        })}
       </div>
 
-      {/* Atmospheric Thermal Inversion Alert Banner */}
+      {/* Atmospheric Thermal Inversion Alert Banner - Directly driven by Meteorological Models */}
       <div
         className={`relative z-10 rounded-xl p-4 sm:p-5 border flex items-start gap-3.5 transition-colors ${
-          metrics.isThermalInversionActive
+          inversionBanner.isWarning
             ? 'bg-red-50 dark:bg-zinc-950 border-red-200 dark:border-red-900/50 text-red-900 dark:text-zinc-200'
             : 'bg-emerald-50 dark:bg-zinc-950 border-emerald-200 dark:border-emerald-900/50 text-emerald-900 dark:text-zinc-200'
         }`}
         role="alert"
         aria-live="polite"
       >
-        {metrics.isThermalInversionActive ? (
+        {inversionBanner.isWarning ? (
           <AlertTriangle className="w-5 h-5 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
         ) : (
           <ShieldCheck className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
@@ -598,16 +750,10 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
 
         <div className="text-xs sm:text-sm">
           <div className="font-bold tracking-wide flex items-center gap-2 font-mono text-ink dark:text-white">
-            <span>
-              {metrics.isThermalInversionActive
-                ? 'CRITICAL WARNING: ACTIVE THERMAL INVERSION TRAP'
-                : 'AFTERNOON VENTING WINDOW ACTIVE • SAFE VENTILATION'}
-            </span>
+            <span>{inversionBanner.title}</span>
           </div>
           <p className="mt-1 text-ink-muted dark:text-zinc-400 leading-relaxed text-xs sm:text-sm">
-            {metrics.isThermalInversionActive
-              ? `A low atmospheric boundary layer (${metrics.boundaryLayerHeight}m) is physically acting as a lid, trapping toxic vehicular and biomass emissions within human breathing height. Avoid high-exertion outdoor activities; shift workouts to the 12:30 PM - 3:30 PM solar venting window.`
-              : `Sunlight has expanded the atmospheric boundary layer ceiling (${metrics.boundaryLayerHeight}m). Stagnant air has dissipated. This is your safest window today for outdoor errands, workouts, and opening windows.`}
+            {inversionBanner.message}
           </p>
         </div>
       </div>

@@ -9,6 +9,13 @@ interface RoutineShifterProps {
 }
 
 export const RoutineShifter: React.FC<RoutineShifterProps> = ({ routineShifts }) => {
+  const validReductions = routineShifts
+    .map((s) => s.reductionPercentage)
+    .filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
+  const avgReduction = validReductions.length > 0
+    ? Math.round(validReductions.reduce((a, b) => a + b, 0) / validReductions.length)
+    : null;
+
   return (
     <section 
       aria-label="Dynamic Routine Shifter Section"
@@ -29,7 +36,7 @@ export const RoutineShifter: React.FC<RoutineShifterProps> = ({ routineShifts })
         </div>
 
         <span className="self-start sm:self-auto text-xs px-3 py-1.5 rounded-lg bg-stone-100 dark:bg-zinc-900 border border-stone-300 dark:border-zinc-700 text-ink dark:text-white font-mono font-bold shadow-xs">
-          Breathe ~64% Less Smog Today
+          {avgReduction !== null ? `Breathe ~${avgReduction}% Less Inhaled Smog` : 'Exposure Shift Optimization'}
         </span>
       </div>
 
@@ -61,7 +68,9 @@ export const RoutineShifter: React.FC<RoutineShifterProps> = ({ routineShifts })
                   <div>
                     <div className="text-[10px] uppercase font-mono text-stone-500 dark:text-zinc-500">Normal Time (Heavy Smog)</div>
                     <div className="text-xs font-bold text-ink dark:text-zinc-300 font-mono">{shift.timeWindow}</div>
-                    <div className="text-[11px] text-terracotta-700 dark:text-zinc-500 font-mono">{shift.baselineExposureUg} µg inhaled</div>
+                    <div className="text-[11px] text-terracotta-700 dark:text-zinc-500 font-mono">
+                      {shift.baselineExposureUg !== null ? `${shift.baselineExposureUg} µg inhaled` : 'Awaiting PM2.5'}
+                    </div>
                   </div>
                 </div>
 
@@ -79,10 +88,11 @@ export const RoutineShifter: React.FC<RoutineShifterProps> = ({ routineShifts })
                       Clean Air Window
                     </div>
                     <div className="text-xs font-bold text-ink dark:text-white font-mono">
-                      {shift.optimizedTimeWindow}
+                      {shift.optimizedTimeWindow || 'Daytime Mixing'}
                     </div>
                     <div className="text-[11px] text-sage-600 dark:text-zinc-400 font-mono font-semibold">
-                      {shift.optimizedExposureUg} µg ({shift.reductionPercentage}% less smog)
+                      {shift.optimizedExposureUg !== null ? `${shift.optimizedExposureUg} µg` : 'Estimated'}
+                      {shift.reductionPercentage !== null ? ` (${shift.reductionPercentage}% less smog)` : ''}
                     </div>
                   </div>
                 </div>

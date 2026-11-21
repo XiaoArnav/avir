@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   fetchLiveAtmosphericMetrics,
   searchCities,
@@ -76,8 +76,11 @@ describe('Telemetry & Geocoding Service', () => {
       expect(metrics.status).toBe('error');
       expect(metrics.provenance).toBe('unavailable');
       expect(metrics.isLive).toBe(false);
-      expect(metrics.usAqi).toBe(0);
-      expect(metrics.pm25).toBe(0);
+      expect(metrics.usAqi).toBeNull();
+      expect(metrics.pm25).toBeNull();
+      expect(metrics.boundaryLayerHeight).toBeNull();
+      expect(metrics.availability?.aqi).toBe(false);
+      expect(metrics.availability?.pm25).toBe(false);
       expect(metrics.errorMessage).toContain('unavailable');
       fetchSpy.mockRestore();
     });

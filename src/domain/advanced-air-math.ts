@@ -479,7 +479,7 @@ https://avir-blue.vercel.app`;
 export function buildMultiSourceFeeds(params: {
   pm25: number;
   usAqi: number;
-  cpcbAqi?: number;
+  cpcbAqi?: number | null;
   boundaryLayerHeight: number;
   isThermalInversion: boolean;
 }): MultiSourceTelemetryFeed[] {
@@ -569,18 +569,19 @@ export function calculateMultiSourceConsensus(
     return {
       primaryModel: 'Copernicus Atmosphere Monitoring Service (ECMWF CAMS)',
       weatherModel: 'NOAA Global Forecast System (GFS)',
-      consensusAqi: 150,
-      consensusPm25: 65,
-      aqiMin: 140,
-      aqiMax: 160,
-      pm25Min: 60,
-      pm25Max: 70,
-      confidenceScorePercent: 90,
-      agreementLevel: 'High Consensus',
-      deviationSpread: 10,
+      consensusAqi: null,
+      consensusPm25: null,
+      aqiMin: null,
+      aqiMax: null,
+      pm25Min: null,
+      pm25Max: null,
+      confidenceScorePercent: null,
+      agreementLevel: 'Telemetry Unavailable',
+      deviationSpread: null,
       feeds: [],
-      summaryNote: 'Multi-source baseline model active.',
-      provenanceNote: 'Baseline atmospheric verification model.',
+      summaryNote: 'Multi-source atmospheric consensus telemetry currently unavailable.',
+      provenanceNote: 'Calculated from Open-Meteo High-Resolution Ensemble with official US-EPA and CPCB NAQI piecewise concentration breakpoints.',
+      isUnavailable: true,
     };
   }
 
