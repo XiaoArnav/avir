@@ -31,7 +31,8 @@ export const DiurnalForecastTimeline: React.FC<DiurnalForecastTimelineProps> = (
       isThermalInversionTrap: true,
     };
 
-  const getAqiColor = (aqi: number) => {
+  const getAqiColor = (aqi: number | null | undefined) => {
+    if (aqi === null || aqi === undefined) return 'text-stone-400 bg-stone-100 dark:bg-zinc-800 border-stone-200 dark:border-zinc-700';
     if (aqi <= 50) return 'text-emerald-500 bg-emerald-500/10 border-emerald-500/30';
     if (aqi <= 100) return 'text-yellow-500 bg-yellow-500/10 border-yellow-500/30';
     if (aqi <= 150) return 'text-orange-500 bg-orange-500/10 border-orange-500/30';
@@ -100,22 +101,21 @@ export const DiurnalForecastTimeline: React.FC<DiurnalForecastTimelineProps> = (
                     isSelected ? 'bg-white/20 text-white dark:text-black' : getAqiColor(point.usAqi)
                   }`}
                 >
-                  {point.usAqi}
+                  {point.usAqi ?? '--'}
                 </div>
 
                 <div className="mt-1 text-[10px] font-mono opacity-80">
-                  {point.pm25} µg
+                  {point.pm25 !== null ? `${point.pm25} µg` : '--'}
                 </div>
 
                 <div className="mt-1 text-[9px] font-mono opacity-60">
-                  {point.boundaryLayerHeight}m
+                  {point.boundaryLayerHeight !== null ? `${point.boundaryLayerHeight}m` : '--'}
                 </div>
 
-                {point.isSafeVentingWindow && (
-                  <span className="mt-1 text-[9px] text-emerald-500 font-bold">Safe</span>
-                )}
-                {point.isThermalInversionTrap && !point.isSafeVentingWindow && (
-                  <span className="mt-1 text-[9px] text-rose-500 font-bold">Trap</span>
+                {point.isForecast ? (
+                  <span className="mt-1 text-[8px] font-mono text-sky-500 font-bold uppercase">Fcst</span>
+                ) : (
+                  <span className="mt-1 text-[8px] font-mono text-stone-400 font-bold uppercase">Obs</span>
                 )}
               </button>
             );

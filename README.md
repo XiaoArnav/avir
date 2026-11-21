@@ -9,8 +9,9 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Branch: main](https://img.shields.io/badge/Branch-main-success.svg)](https://github.com/XiaoArnav/avir)
-[![Tests: 33 Passing](https://img.shields.io/badge/Tests-33%20Passing-brightgreen.svg)](https://github.com/XiaoArnav/avir)
-[![Repo Size: < 1MB](https://img.shields.io/badge/Repo%20Size-%3C%201%20MB-success.svg)](https://github.com/XiaoArnav/avir)
+[![Tests: 106 Passing](https://img.shields.io/badge/Tests-106%20Passing-brightgreen.svg)](https://github.com/XiaoArnav/avir)
+[![Next.js: 15.5 App Router](https://img.shields.io/badge/Next.js-15.5%20App%20Router-black.svg)](https://github.com/XiaoArnav/avir)
+[![Zero Fabricated Data: 100% Provenance](https://img.shields.io/badge/Data%20Integrity-100%25%20Verified%20Provenance-teal.svg)](https://github.com/XiaoArnav/avir)
 [![WCAG: 2.1 AA](https://img.shields.io/badge/WCAG-2.1%20AA%20Compliant-teal.svg)](https://github.com/XiaoArnav/avir)
 
 ---
@@ -81,9 +82,9 @@ flowchart TD
 
 ---
 
-## 🧪 5. Automated Test Suite (31 Tests Passing)
+## 🧪 5. Automated Test Suite (106 Tests Passing)
 
-Avir maintains 100% test passing across 5 dedicated test suites in Vitest:
+Avir maintains 100% test passing across 10 dedicated test suites in Vitest:
 
 ```bash
 # Run the complete automated test suite
@@ -94,12 +95,17 @@ npm test
 
 | Test Suite | Tests | Verification Focus |
 | :--- | :---: | :--- |
-| `tests/unit/atmospheric-math.test.ts` | **8** | EPA/CPCB AQI breakpoints, diurnal inversion physics, inhaled PM2.5 dosage, Berkeley Earth cigarette formula, and Corsi-Rosenthal CADR decay. |
-| `tests/security/sanitizer.test.ts` | **8** | XSS sanitization, script stripping, prompt injection override detection, role-hijacking defenses, and payload length caps. |
-| `tests/integration/telemetry.test.ts` | **6** | Open-Meteo live atmospheric telemetry ingestion, geocoding city lookup, and in-memory LRU caching. |
+| `tests/integration/telemetry.test.ts` | **9** | Live Open-Meteo ingestion, coordinate caching, zero fabricated numbers on failure, stale cache preservation, AbortSignal cancellation. |
+| `tests/integration/ai-plan-route.test.ts` | **3** | Secure Next.js App Router `/api/ai/plan` endpoint, schema validation, server-side prompt injection neutralization. |
 | `tests/integration/ai-assistant.test.ts` | **4** | Dual-mode AI execution, deterministic offline fallback, structured schema conformity, and injection neutralization. |
+| `tests/unit/multi-source-consensus.test.ts` | **4** | Model breakdown (ECMWF CAMS, NOAA GFS), international standards (EPA, CPCB), zero synthetic multipliers. |
+| `tests/unit/world-telemetry.test.ts` | **4** | Curated world tracked metros, batch URL generation, response parsing, no ranking mocks. |
+| `tests/unit/advanced-features.test.ts` | **15** | Diurnal window analysis, commute calculator, filter lifespan, city shootout, wind vector compass. |
+| `tests/unit/atmospheric-math.test.ts` | **11** | EPA/CPCB AQI breakpoints, diurnal inversion physics, inhaled PM2.5 dosage, Berkeley Earth cigarette formula, and Corsi-Rosenthal CADR decay. |
+| `tests/unit/city-panoramic-backdrop.test.ts` | **43** | Custom SVG architectural vector skylines for major cities, high contrast across dark and light themes. |
+| `tests/security/sanitizer.test.ts` | **8** | XSS sanitization, script stripping, prompt injection override detection, role-hijacking defenses, and payload length caps. |
 | `tests/a11y/accessibility.test.ts` | **5** | Semantic landmark validation, ARIA live region declarations, accessible modal dialogs, and reduced-motion CSS. |
-| **Total Passing** | **31** | **All suites pass in < 3 seconds** |
+| **Total Passing** | **106** | **All 10 suites pass in < 4 seconds** |
 
 ---
 

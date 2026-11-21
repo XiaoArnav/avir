@@ -67,5 +67,58 @@ describe('Telemetry & Geocoding Service', () => {
       expect(fetchSpy.mock.calls.length).toBe(count);
       fetchSpy.mockRestore();
     });
+
+    it('returns typed error state without fabricated numbers when network fails and no cache exists', async () => {
+      const fetchSpy = vi.spyOn(global, 'fetch').mockRejectedValue(new Error('Network Connection Refused'));
+      
+      const metrics = await fetchLiveAtmosphericMetrics(12.97, 77.59, { forceRefresh: true }); // Bengaluru
+      
+      expect(metrics.status).toBe('error');
+      expect(metrics.provenance).toBe('unavailable');
+      expect(metrics.isLive).toBe(false);
+      expect(metrics.usAqi).toBe(0);
+      expect(metrics.pm25).toBe(0);
+      expect(metrics.errorMessage).toContain('unavailable');
+      fetchSpy.mockRestore();
+    });
+
+    it('returns stale cached reading preserving original timestamp when network fails but expired cache exists', async () => {
+      // Seed cache with a known historical reading
+      const originalTimestamp = '2026-11-20T10:00:00Z';
+      telemetryCache.set('telemetry:26.85,80.95', {
+        status: 'success',
+        provenance: 'modeled_forecast',
+        timestamp: originalTimestamp,
+        retrievedAt: originalTimestamp,
+        timezone: 'Asia/Kolkata',
+        usAqi: 245,
+        pm25: 195.0,
+        pm10: 260.0,
+        boundaryLayerHeight: 180,
+        isThermalInversionActive: true,
+        isLive: true,
+        sourceAttribution: 'Open-Meteo High-Resolution Ensemble (ECMWF & NOAA GFS)',
+      }, -1000); // Expired immediately
+
+      const fetchSpy = vi.spyOn(global, 'fetch').mockRejectedValue(new Error('Timeout'));
+      const staleMetrics = await fetchLiveAtmosphericMetrics(26.85, 80.95); // Lucknow
+
+      expect(staleMetrics.status).toBe('stale');
+      expect(staleMetrics.isStale).toBe(true);
+      expect(staleMetrics.isLive).toBe(false);
+      expect(staleMetrics.usAqi).toBe(245);
+      expect(staleMetrics.timestamp).toBe(originalTimestamp);
+      expect(staleMetrics.errorMessage).toContain('Network error');
+      fetchSpy.mockRestore();
+    });
+
+    it('respects AbortSignal during rapid city switching without hanging', async () => {
+      const controller = new AbortController();
+      controller.abort();
+
+      await expect(
+        fetchLiveAtmosphericMetrics(25.59, 85.14, { signal: controller.signal }) // Patna
+      ).rejects.toThrow();
+    });
   });
 });

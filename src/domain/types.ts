@@ -1,6 +1,21 @@
 /**
  * Avir Core Domain Types & Interfaces
+ * Rigorous Data-Provenance & Environmental Intelligence Model
  */
+
+export type DataProvenance = 
+  | 'observed'             // Direct ground monitor observation
+  | 'modeled_forecast'     // Provider numerical atmospheric chemistry & weather model
+  | 'derived_calculation'  // Mathematical calculation from verified inputs (e.g. CPCB NAQI from PM2.5)
+  | 'estimated_outcome'    // Modeled personal inhalation estimate based on documented assumptions
+  | 'unavailable';         // Measurement or parameter unavailable from provider
+
+export type TelemetryStatus = 
+  | 'loading' 
+  | 'success' 
+  | 'stale' 
+  | 'unavailable' 
+  | 'error';
 
 export type AQICategory = 
   | 'Good'
@@ -24,13 +39,29 @@ export interface AQIBreakpoint {
 }
 
 export interface HourlyAtmosphericPoint {
-  time: string;
-  hour: number;
-  pm25: number;
-  usAqi: number;
-  boundaryLayerHeight: number;
+  time: string;           // Local ISO timestamp in target city's timezone
+  hour: number;           // 0-23 in target city's wall-clock time
+  pm25: number | null;
+  usAqi: number | null;
+  boundaryLayerHeight: number | null;
+  temperature?: number | null;
+  humidity?: number | null;
+  windSpeed?: number | null;
+  isForecast: boolean;    // true if future hour, false if past/current observation
   isSafeVentingWindow: boolean;
-  isThermalInversionTrap: boolean;
+  isStagnantDispersion: boolean; // low boundary layer height (<200m)
+}
+
+export interface AtmosphericSourceFeed {
+  id: string;
+  sourceName: string;
+  provider: string;
+  provenance: DataProvenance;
+  standard: string;
+  description: string;
+  coverage: string;
+  isLive: boolean;
+  lastUpdated?: string;
 }
 
 export interface MultiSourceTelemetryFeed {
@@ -42,41 +73,62 @@ export interface MultiSourceTelemetryFeed {
   confidence: 'High' | 'Medium' | 'Calibrated';
   standard: 'US-EPA' | 'CPCB-NAQI' | 'EU-CAQI' | 'WHO-Reference';
   description: string;
+  provenance: DataProvenance;
 }
 
 export interface EnsembleConsensusAnalysis {
+  primaryModel: string;
+  weatherModel: string;
   consensusAqi: number;
   consensusPm25: number;
   aqiMin: number;
   aqiMax: number;
   pm25Min: number;
   pm25Max: number;
-  confidenceScorePercent: number; // e.g. 92%
-  agreementLevel: 'High Consensus' | 'Moderate Variance' | 'Inversion Spread';
-  deviationSpread: number; // +/- AQI
+  confidenceScorePercent: number;
+  agreementLevel: string;
+  deviationSpread: number;
   feeds: MultiSourceTelemetryFeed[];
   summaryNote: string;
+  provenanceNote: string;
 }
 
 export interface AtmosphericMetrics {
-  timestamp: string;
-  usAqi: number;
-  pm25: number;       // ug/m3
-  pm10: number;       // ug/m3
-  co?: number;        // ug/m3
-  no2?: number;       // ug/m3
-  so2?: number;       // ug/m3
-  o3?: number;        // ug/m3
-  temperature?: number; // °C
-  humidity?: number;    // %
-  windSpeed?: number;   // km/h
-  windDirection?: number; // degrees
-  boundaryLayerHeight: number; // meters
-  isThermalInversionActive: boolean;
-  isLive?: boolean;
+  status: TelemetryStatus;
+  provenance: DataProvenance;
+  timestamp: string;          // ISO string of provider observation/forecast time
+  retrievedAt: string;        // ISO string when data was fetched by client/server
+  timezone: string;           // City's local timezone (e.g. 'Asia/Kolkata')
+  cityName?: string;
+  latitude?: number;
+  longitude?: number;
+  
+  usAqi: number;              // Standard US EPA 0-500 AQI
+  pm25: number;               // Fine particulate in µg/m³
+  pm10: number;               // Respirable particulate in µg/m³
+  
+  // Trace gaseous pollutants (µg/m³) - optional based on provider availability
+  co?: number | null;
+  no2?: number | null;
+  so2?: number | null;
+  o3?: number | null;
+  
+  // Ambient weather
+  temperature?: number | null; // °C
+  humidity?: number | null;    // % RH
+  windSpeed?: number | null;   // km/h
+  windDirection?: number | null; // degrees 0-360
+  boundaryLayerHeight: number; // meters (PBL mixing depth)
+  
+  // Atmospheric dispersion assessment
+  isThermalInversionActive: boolean; // poor ground dispersion / stable boundary layer
+  isLive: boolean;
+  isStale?: boolean;
+  errorMessage?: string;
+  
   cpcbAqi?: number;
   cpcbCategory?: string;
-  sourceAttribution?: string;
+  sourceAttribution: string;
   hourlyForecast?: HourlyAtmosphericPoint[];
   ensemble?: EnsembleConsensusAnalysis;
 }
@@ -95,7 +147,7 @@ export interface ExposureCalculation {
   inhaledPM25Micrograms: number;
   vulnerabilityWeightedExposure: number;
   equivalentCigarettesDay: number;
-  respiratoryRiskScore: number; // 0 - 100
+  respiratoryRiskScore: number;
 }
 
 export interface CorsiRosenthalBoxSpec {
@@ -131,6 +183,7 @@ export interface RecommendationPlan {
   summaryAdvisory: string;
   routineShifts: RoutineItem[];
   corsiRosenthalBox: CorsiRosenthalBoxSpec;
+  isAiGenerated?: boolean;
   impactMetrics: {
     totalInhaledBaselineUg: number;
     totalInhaledOptimizedUg: number;

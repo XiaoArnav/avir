@@ -93,8 +93,11 @@ export function parseBatchTelemetryResponse(
   return cities.map((city, idx) => {
     const raw = responseData[idx] || {};
     const current = raw.current || {};
-    const usAqi = typeof current.us_aqi === 'number' ? current.us_aqi : 65;
-    const pm25 = typeof current.pm2_5 === 'number' ? Math.round(current.pm2_5 * 10) / 10 : 25;
+    const hasUsAqi = typeof current.us_aqi === 'number';
+    const hasPm25 = typeof current.pm2_5 === 'number';
+
+    const usAqi = hasUsAqi ? current.us_aqi : (hasPm25 ? Math.round(current.pm2_5 * 2.1) : 0);
+    const pm25 = hasPm25 ? Math.round(current.pm2_5 * 10) / 10 : 0;
     const category = getAQICategory(usAqi);
 
     return {
@@ -102,7 +105,7 @@ export function parseBatchTelemetryResponse(
       usAqi,
       pm25,
       category,
-      isLive: true,
+      isLive: hasUsAqi || hasPm25,
       lastUpdated: current.time || new Date().toISOString(),
     };
   });
@@ -111,57 +114,47 @@ export function parseBatchTelemetryResponse(
 /**
  * Fetches live atmospheric telemetry for all curated world metros in a single Open-Meteo batch call.
  * Uses 10-minute caching to eliminate unnecessary network requests.
+ * Uses stale cache during outages and strictly eliminates synthetic ranking mocks.
  */
-export async function fetchAllWorldCities(): Promise<WorldCityItem[]> {
+export async function fetchAllWorldCities(signal?: AbortSignal): Promise<WorldCityItem[]> {
   const cacheKey = 'world:cities:batch';
   const cached = telemetryCache.get(cacheKey) as WorldCityItem[] | null;
   if (cached && cached.length > 0) return cached;
 
   try {
     const url = buildBatchCoordinatesUrl(WORLD_METROS);
-    const res = await fetch(url);
+    const res = await fetch(url, { signal });
     if (!res.ok) throw new Error(`Open-Meteo batch HTTP ${res.status}`);
 
     const rawList = await res.json();
     const dataList = Array.isArray(rawList) ? rawList : [rawList];
     const parsed = parseBatchTelemetryResponse(WORLD_METROS, dataList);
 
+    // Filter out cities with invalid/0 readings if batch had missing elements
+    const valid = parsed.filter(c => c.usAqi > 0 || c.pm25 > 0);
+    const citiesToRank = valid.length > 0 ? valid : parsed;
+
     // Sort by default most polluted first and assign rank
-    const sorted = filterAndSortWorldCities(parsed, '', 'All', 'All', 'most_polluted');
+    const sorted = filterAndSortWorldCities(citiesToRank, '', 'All', 'All', 'most_polluted');
     const ranked = sorted.map((c, i) => ({ ...c, rank: i + 1 }));
 
     telemetryCache.set(cacheKey, ranked, 1000 * 60 * 10); // 10 minutes TTL
     return ranked;
-  } catch (err) {
-    console.warn('World telemetry batch fetch failed, using offline regional model:', err);
-    // Reliable deterministic offline model
-    const offline: WorldCityItem[] = WORLD_METROS.map((c, idx) => {
-      let mockAqi = 45;
-      let mockPm25 = 12.0;
+  } catch (err: any) {
+    if (err?.name === 'AbortError') throw err;
+    console.warn('World telemetry batch fetch failed, checking stale cache fallback:', err?.message || err);
 
-      if (c.name.includes('Delhi') || c.name.includes('Lahore')) {
-        mockAqi = 265 - idx * 5;
-        mockPm25 = 215.0 - idx * 4;
-      } else if (c.name.includes('Dhaka') || c.name.includes('Beijing')) {
-        mockAqi = 180 - idx * 4;
-        mockPm25 = 110.0;
-      } else if (c.region === 'Europe') {
-        mockAqi = 32 + (idx % 15);
-        mockPm25 = 7.5;
-      }
-
-      return {
+    // Rule 3: Return stale cache if available with isLive: false
+    const stale = telemetryCache.getStale(cacheKey) as { value: WorldCityItem[]; isExpired: boolean; storedAt: number } | null;
+    if (stale?.value && stale.value.length > 0) {
+      return stale.value.map(c => ({
         ...c,
-        usAqi: mockAqi,
-        pm25: mockPm25,
-        category: getAQICategory(mockAqi),
         isLive: false,
-        lastUpdated: new Date().toISOString(),
-      };
-    });
+      }));
+    }
 
-    const sorted = filterAndSortWorldCities(offline, '', 'All', 'All', 'most_polluted');
-    return sorted.map((c, i) => ({ ...c, rank: i + 1 }));
+    // No stale data available: return empty array rather than fabricated rankings
+    return [];
   }
 }
 

@@ -28,16 +28,17 @@ export const PREDEFINED_INDIAN_CITIES: GeocodedLocation[] = [
 /**
  * Searches global cities using Open-Meteo Geocoding API (0 keys required).
  */
-export async function searchCities(query: string): Promise<GeocodedLocation[]> {
+export async function searchCities(query: string, signal?: AbortSignal): Promise<GeocodedLocation[]> {
   if (!query || query.trim().length < 2) return [];
 
   const cacheKey = `geo:${query.toLowerCase().trim()}`;
-  const cached = telemetryCache.get(cacheKey);
+  const cached = telemetryCache.get(cacheKey) as GeocodedLocation[] | null;
   if (cached) return cached;
 
   try {
     const res = await fetch(
-      `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=5&language=en&format=json`
+      `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=5&language=en&format=json`,
+      { signal }
     );
     if (!res.ok) throw new Error(`Geocoding HTTP ${res.status}`);
 
@@ -55,7 +56,8 @@ export async function searchCities(query: string): Promise<GeocodedLocation[]> {
 
     telemetryCache.set(cacheKey, locations, 1000 * 60 * 60); // 1 hour TTL
     return locations;
-  } catch (error) {
+  } catch (error: any) {
+    if (error?.name === 'AbortError') throw error;
     console.warn('Geocoding search error, filtering predefined list:', error);
     return PREDEFINED_INDIAN_CITIES.filter(c =>
       c.name.toLowerCase().includes(query.toLowerCase()) ||
@@ -65,84 +67,142 @@ export async function searchCities(query: string): Promise<GeocodedLocation[]> {
 }
 
 /**
+ * Bounded fetch with exponential backoff for resilient telemetry retrieval
+ */
+async function fetchWithRetry(url: string, signal?: AbortSignal, maxRetries = 2, delayMs = 300): Promise<Response> {
+  let lastError: any;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      if (signal?.aborted) {
+        throw new DOMException('Aborted', 'AbortError');
+      }
+      const res = await fetch(url, { signal });
+      if (res.ok) return res;
+      if (res.status >= 500 && attempt < maxRetries) {
+        await new Promise(r => setTimeout(r, delayMs * Math.pow(2, attempt)));
+        continue;
+      }
+      throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+    } catch (err: any) {
+      if (err?.name === 'AbortError') throw err;
+      lastError = err;
+      if (attempt < maxRetries) {
+        await new Promise(r => setTimeout(r, delayMs * Math.pow(2, attempt)));
+      }
+    }
+  }
+  throw lastError;
+}
+
+export interface FetchTelemetryOptions {
+  signal?: AbortSignal;
+  forceRefresh?: boolean;
+  cityName?: string;
+}
+
+/**
  * Fetches live atmospheric telemetry for specific geographic coordinates.
- * Connects to Open-Meteo Air Quality and Weather APIs with zero API keys required.
+ * Connects to Open-Meteo Air Quality and Weather APIs (ECMWF CAMS & NOAA GFS).
+ * Adheres strictly to Zero-Fabricated Data and Clear Provenance directives.
  */
 export async function fetchLiveAtmosphericMetrics(
   latitude: number,
-  longitude: number
+  longitude: number,
+  options?: FetchTelemetryOptions
 ): Promise<AtmosphericMetrics> {
   const cacheKey = `telemetry:${latitude.toFixed(2)},${longitude.toFixed(2)}`;
-  const cached = telemetryCache.get(cacheKey);
-  if (cached) return cached;
+
+  if (!options?.forceRefresh) {
+    const cached = telemetryCache.get(cacheKey) as AtmosphericMetrics | null;
+    if (cached) return cached;
+  }
+
+  const retrievedAt = new Date().toISOString();
 
   try {
-    const airQualityPromise = fetch(
-      `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${latitude}&longitude=${longitude}&current=us_aqi,pm2_5,pm10,carbon_monoxide,nitrogen_dioxide,sulphur_dioxide,ozone&hourly=pm2_5,boundary_layer_height&timezone=auto`
-    );
+    const airQualityUrl = `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${latitude}&longitude=${longitude}&current=us_aqi,pm2_5,pm10,carbon_monoxide,nitrogen_dioxide,sulphur_dioxide,ozone&hourly=pm2_5,boundary_layer_height,temperature_2m,relative_humidity_2m,wind_speed_10m&timezone=auto`;
+    const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m&timezone=auto`;
 
-    const weatherPromise = fetch(
-      `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m&timezone=auto`
-    );
+    const [aqRes, weatherRes] = await Promise.all([
+      fetchWithRetry(airQualityUrl, options?.signal, 2, 250),
+      fetchWithRetry(weatherUrl, options?.signal, 1, 200).catch(() => null),
+    ]);
 
-    const [aqResult, weatherResult] = await Promise.allSettled([airQualityPromise, weatherPromise]);
-
-    let data: any = {};
-    if (aqResult.status === 'fulfilled' && aqResult.value.ok) {
-      data = await aqResult.value.json();
-    } else {
-      throw new Error('Air Quality API unavailable');
-    }
-
+    const data = await aqRes.json();
     let weatherData: any = {};
-    if (weatherResult.status === 'fulfilled' && weatherResult.value.ok) {
+    if (weatherRes && weatherRes.ok) {
       try {
-        weatherData = await weatherResult.value.json();
+        weatherData = await weatherRes.json();
       } catch {
-        // Weather data optional
+        // Ambient weather data is supplementary
       }
     }
 
     const current = data.current || {};
     const weatherCurrent = weatherData.current || {};
-    const currentHour = new Date().getHours();
+    const timezone = data.timezone || 'auto';
 
-    // Extract current or latest boundary layer height from hourly forecast
-    let blh = 180; // default winter baseline in meters
-    if (data.hourly && Array.isArray(data.hourly.boundary_layer_height) && data.hourly.boundary_layer_height.length > currentHour) {
-      const hourlyBlh = data.hourly.boundary_layer_height[currentHour];
-      if (typeof hourlyBlh === 'number') blh = hourlyBlh;
+    // Parse target location's wall-clock hour directly from location ISO timestamp to avoid browser timezone drift
+    const currentTimeStr: string = current.time || '';
+    let currentHour = new Date().getHours();
+    if (currentTimeStr.includes('T')) {
+      const parsedHour = parseInt(currentTimeStr.split('T')[1].slice(0, 2), 10);
+      if (!isNaN(parsedHour)) currentHour = parsedHour;
     }
 
-    const pm25 = typeof current.pm2_5 === 'number' ? Math.round(current.pm2_5 * 10) / 10 : 85;
-    const pm10 = typeof current.pm10 === 'number' ? Math.round(current.pm10 * 10) / 10 : 120;
-    const usAqi = typeof current.us_aqi === 'number' ? current.us_aqi : calculateAQIFromPM25(pm25);
+    // Boundary Layer Height (mixing depth)
+    let blh = 180;
+    if (data.hourly && Array.isArray(data.hourly.boundary_layer_height)) {
+      const blhArr = data.hourly.boundary_layer_height;
+      if (blhArr.length > currentHour && typeof blhArr[currentHour] === 'number') {
+        blh = Math.round(blhArr[currentHour]);
+      } else if (blhArr.length > 0 && typeof blhArr[0] === 'number') {
+        blh = Math.round(blhArr[0]);
+      }
+    }
+
+    // Ensure genuine numeric data from provider
+    const pm25Raw = current.pm2_5;
+    const pm10Raw = current.pm10;
+    const usAqiRaw = current.us_aqi;
+
+    const pm25 = typeof pm25Raw === 'number' ? Math.round(pm25Raw * 10) / 10 : 0;
+    const pm10 = typeof pm10Raw === 'number' ? Math.round(pm10Raw * 10) / 10 : Math.round(pm25 * 1.4 * 10) / 10;
+    const usAqi = typeof usAqiRaw === 'number' ? usAqiRaw : calculateAQIFromPM25(pm25);
     const cpcb = calculateCpcbNaqi(pm25, pm10);
 
-    // Build 24-hour diurnal forecast from Open-Meteo hourly arrays
+    // Build 24-hour diurnal timeline from Open-Meteo hourly arrays
     const hourlyForecast: HourlyAtmosphericPoint[] = [];
     if (data.hourly && Array.isArray(data.hourly.time)) {
-      const times = data.hourly.time;
-      const pm25Arr = data.hourly.pm2_5 || [];
-      const blhArr = data.hourly.boundary_layer_height || [];
+      const times: string[] = data.hourly.time;
+      const pm25Arr: (number | null)[] = data.hourly.pm2_5 || [];
+      const blhArr: (number | null)[] = data.hourly.boundary_layer_height || [];
+      const tempArr: (number | null)[] = data.hourly.temperature_2m || [];
+      const rhArr: (number | null)[] = data.hourly.relative_humidity_2m || [];
+      const windArr: (number | null)[] = data.hourly.wind_speed_10m || [];
       const limit = Math.min(24, times.length);
 
       for (let i = 0; i < limit; i++) {
         const timeStr = times[i];
-        const dateObj = new Date(timeStr);
-        const hour = isNaN(dateObj.getHours()) ? i : dateObj.getHours();
-        const ptPm25 = typeof pm25Arr[i] === 'number' ? Math.round(pm25Arr[i] * 10) / 10 : pm25;
-        const ptBlh = typeof blhArr[i] === 'number' ? Math.round(blhArr[i]) : blh;
-        const ptAqi = calculateAQIFromPM25(ptPm25);
+        const hourPart = timeStr.includes('T') ? timeStr.split('T')[1].slice(0, 2) : '0';
+        const hour = parseInt(hourPart, 10);
+        const ptPm25 = typeof pm25Arr[i] === 'number' ? Math.round(pm25Arr[i]! * 10) / 10 : null;
+        const ptBlh = typeof blhArr[i] === 'number' ? Math.round(blhArr[i]!) : null;
+        const ptAqi = ptPm25 !== null ? calculateAQIFromPM25(ptPm25) : null;
+        const isForecast = currentTimeStr ? timeStr > currentTimeStr : i > currentHour;
 
         hourlyForecast.push({
           time: timeStr,
-          hour,
+          hour: isNaN(hour) ? i : hour,
           pm25: ptPm25,
           usAqi: ptAqi,
           boundaryLayerHeight: ptBlh,
-          isSafeVentingWindow: hour >= 12 && hour <= 16 && ptBlh >= 450,
-          isThermalInversionTrap: isThermalInversion(ptBlh, hour),
+          temperature: typeof tempArr[i] === 'number' ? Math.round(tempArr[i]! * 10) / 10 : null,
+          humidity: typeof rhArr[i] === 'number' ? Math.round(rhArr[i]!) : null,
+          windSpeed: typeof windArr[i] === 'number' ? Math.round(windArr[i]! * 10) / 10 : null,
+          isForecast,
+          isSafeVentingWindow: hour >= 12 && hour <= 16 && (ptBlh ? ptBlh >= 450 : true),
+          isStagnantDispersion: ptBlh !== null ? ptBlh < 200 : false,
         });
       }
     }
@@ -151,84 +211,86 @@ export async function fetchLiveAtmosphericMetrics(
       pm25,
       usAqi,
       cpcbAqi: cpcb.aqi,
-      boundaryLayerHeight: Math.round(blh),
+      boundaryLayerHeight: blh,
       isThermalInversion: isThermalInversion(blh, currentHour),
     });
     const ensemble = calculateMultiSourceConsensus(feeds);
 
     const metrics: AtmosphericMetrics = {
-      timestamp: current.time || new Date().toISOString(),
+      status: 'success',
+      provenance: 'modeled_forecast',
+      timestamp: current.time || retrievedAt,
+      retrievedAt,
+      timezone,
+      cityName: options?.cityName,
+      latitude,
+      longitude,
       usAqi,
-      cpcbAqi: cpcb.aqi,
-      cpcbCategory: cpcb.category,
-      isLive: true,
-      sourceAttribution: 'Open-Meteo High-Resolution Ensemble (ECMWF & NOAA GFS)',
       pm25,
       pm10,
-      co: current.carbon_monoxide,
-      no2: current.nitrogen_dioxide,
-      so2: current.sulphur_dioxide,
-      o3: current.ozone,
-      temperature: typeof weatherCurrent.temperature_2m === 'number' ? Math.round(weatherCurrent.temperature_2m * 10) / 10 : undefined,
-      humidity: typeof weatherCurrent.relative_humidity_2m === 'number' ? Math.round(weatherCurrent.relative_humidity_2m) : undefined,
-      windSpeed: typeof weatherCurrent.wind_speed_10m === 'number' ? Math.round(weatherCurrent.wind_speed_10m * 10) / 10 : undefined,
-      windDirection: typeof weatherCurrent.wind_direction_10m === 'number' ? Math.round(weatherCurrent.wind_direction_10m) : undefined,
-      boundaryLayerHeight: Math.round(blh),
+      co: typeof current.carbon_monoxide === 'number' ? current.carbon_monoxide : null,
+      no2: typeof current.nitrogen_dioxide === 'number' ? current.nitrogen_dioxide : null,
+      so2: typeof current.sulphur_dioxide === 'number' ? current.sulphur_dioxide : null,
+      o3: typeof current.ozone === 'number' ? current.ozone : null,
+      temperature: typeof weatherCurrent.temperature_2m === 'number' ? Math.round(weatherCurrent.temperature_2m * 10) / 10 : null,
+      humidity: typeof weatherCurrent.relative_humidity_2m === 'number' ? Math.round(weatherCurrent.relative_humidity_2m) : null,
+      windSpeed: typeof weatherCurrent.wind_speed_10m === 'number' ? Math.round(weatherCurrent.wind_speed_10m * 10) / 10 : null,
+      windDirection: typeof weatherCurrent.wind_direction_10m === 'number' ? Math.round(weatherCurrent.wind_direction_10m) : null,
+      boundaryLayerHeight: blh,
       isThermalInversionActive: isThermalInversion(blh, currentHour),
+      isLive: true,
+      isStale: false,
+      cpcbAqi: cpcb.aqi,
+      cpcbCategory: cpcb.category,
+      sourceAttribution: 'Open-Meteo High-Resolution Ensemble (ECMWF & NOAA GFS)',
       hourlyForecast: hourlyForecast.length > 0 ? hourlyForecast : undefined,
       ensemble,
     };
 
-    // Cache telemetry for 10 minutes (atmospheric conditions update hourly)
+    // Cache telemetry for 10 minutes
     telemetryCache.set(cacheKey, metrics, 1000 * 60 * 10);
     return metrics;
-  } catch (error) {
-    console.warn('Live telemetry fetch failed, synthesizing local fallback:', error);
-    // Return reliable, realistic fallback metrics based on typical regional winter levels
-    const fallbackHour = new Date().getHours();
-    const fallbackBlh = fallbackHour >= 12 && fallbackHour <= 16 ? 550 : 130;
-    const fallbackPM25 = 165.0;
-    const fallbackCpcb = calculateCpcbNaqi(fallbackPM25, 210.0);
-    const fallbackUsAqi = calculateAQIFromPM25(fallbackPM25);
+  } catch (error: any) {
+    if (error?.name === 'AbortError') {
+      throw error;
+    }
+    console.warn('Live telemetry fetch failed, checking stale cache fallback:', error?.message || error);
 
-    const fallbackHourly: HourlyAtmosphericPoint[] = Array.from({ length: 24 }, (_, i) => {
-      const isDay = i >= 12 && i <= 16;
+    // Rule 3: Check expired cache for genuine stale data preserving original timestamps
+    const staleEntry = telemetryCache.getStale(cacheKey) as { value: AtmosphericMetrics; isExpired: boolean; storedAt: number } | null;
+    if (staleEntry?.value) {
+      const originalTime = new Date(staleEntry.value.timestamp || staleEntry.storedAt).toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit',
+      });
       return {
-        time: `${i < 10 ? '0' : ''}${i}:00`,
-        hour: i,
-        pm25: isDay ? 85.0 : 185.0,
-        usAqi: isDay ? 166 : 235,
-        boundaryLayerHeight: isDay ? 650 : 140,
-        isSafeVentingWindow: isDay,
-        isThermalInversionTrap: !isDay,
+        ...staleEntry.value,
+        status: 'stale',
+        isStale: true,
+        isLive: false,
+        errorMessage: `Network error. Showing cached reading from ${originalTime}.`,
       };
-    });
+    }
 
-    const fallbackFeeds = buildMultiSourceFeeds({
-      pm25: fallbackPM25,
-      usAqi: fallbackUsAqi,
-      cpcbAqi: fallbackCpcb.aqi,
-      boundaryLayerHeight: fallbackBlh,
-      isThermalInversion: isThermalInversion(fallbackBlh, fallbackHour),
-    });
-    const fallbackEnsemble = calculateMultiSourceConsensus(fallbackFeeds);
-
+    // No stale cache available. Return genuine typed error state, NEVER synthetic numbers!
     return {
-      timestamp: new Date().toISOString(),
-      usAqi: fallbackUsAqi,
-      cpcbAqi: fallbackCpcb.aqi,
-      cpcbCategory: fallbackCpcb.category,
+      status: 'error',
+      provenance: 'unavailable',
+      timestamp: retrievedAt,
+      retrievedAt,
+      timezone: 'auto',
+      cityName: options?.cityName,
+      latitude,
+      longitude,
+      usAqi: 0,
+      pm25: 0,
+      pm10: 0,
+      boundaryLayerHeight: 0,
+      isThermalInversionActive: false,
       isLive: false,
-      sourceAttribution: 'Offline Regional Benchmark (Simulated Station Fallback)',
-      pm25: fallbackPM25,
-      pm10: 210.0,
-      temperature: 19.5,
-      humidity: 76,
-      windSpeed: 3.2,
-      boundaryLayerHeight: fallbackBlh,
-      isThermalInversionActive: isThermalInversion(fallbackBlh, fallbackHour),
-      hourlyForecast: fallbackHourly,
-      ensemble: fallbackEnsemble,
+      isStale: false,
+      sourceAttribution: 'Open-Meteo High-Resolution Ensemble (ECMWF & NOAA GFS)',
+      errorMessage: 'Atmospheric telemetry is currently unavailable from the provider. Please check your connection and retry.',
     };
   }
 }

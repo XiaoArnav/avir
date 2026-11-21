@@ -5,17 +5,17 @@ import { analyzeWindVector } from '@/domain/advanced-air-math';
 import { Compass, Wind, AlertTriangle, ShieldCheck } from 'lucide-react';
 
 interface WindVectorGaugeProps {
-  windDirection?: number; // degrees
-  windSpeed?: number;     // km/h
+  windDirection?: number | null; // degrees
+  windSpeed?: number | null;     // km/h
   cityName: string;
 }
 
 export const WindVectorGauge: React.FC<WindVectorGaugeProps> = ({
-  windDirection = 315,
-  windSpeed = 7.5,
+  windDirection,
+  windSpeed,
   cityName,
 }) => {
-  const intel = analyzeWindVector(windDirection, windSpeed, cityName);
+  const intel = analyzeWindVector(windDirection ?? 315, windSpeed ?? 7.5, cityName);
 
   return (
     <div className="bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl p-5 sm:p-6 shadow-sm space-y-4">

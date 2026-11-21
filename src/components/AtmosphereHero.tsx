@@ -142,6 +142,42 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
     );
   }
 
+  // Graceful zero-fabrication error state
+  if (metrics.status === 'error') {
+    return (
+      <section 
+        aria-label="Atmospheric Telemetry Connection Error"
+        className="relative overflow-hidden rounded-2xl glass-panel p-6 sm:p-8 lg:p-10 border border-red-300 dark:border-red-900/60 bg-red-50/50 dark:bg-zinc-950 shadow-sm"
+      >
+        <div className="flex flex-col items-center justify-center text-center max-w-lg mx-auto py-10 space-y-4">
+          <div className="w-14 h-14 rounded-full bg-red-100 dark:bg-red-950/80 border border-red-200 dark:border-red-800 flex items-center justify-center text-red-600 dark:text-red-400">
+            <AlertTriangle className="w-7 h-7" />
+          </div>
+          <div className="space-y-1.5">
+            <h2 className="text-xl sm:text-2xl font-bold text-ink dark:text-white">
+              Atmospheric Telemetry Unavailable
+            </h2>
+            <p className="text-xs sm:text-sm text-ink-muted dark:text-zinc-400 leading-relaxed">
+              {metrics.errorMessage || 'Unable to establish connection to Open-Meteo atmospheric servers.'}
+            </p>
+            <p className="text-[11px] font-mono text-stone-500 dark:text-zinc-500">
+              Zero synthetic data policy: Avir never fabricates pollution levels when feeds are down.
+            </p>
+          </div>
+          {onRefresh && (
+            <button
+              onClick={onRefresh}
+              className="px-5 py-2.5 rounded-xl bg-ink hover:bg-stone-800 text-white dark:bg-white dark:hover:bg-zinc-200 dark:text-black font-semibold text-xs transition-all shadow-md active:scale-95 flex items-center gap-2"
+            >
+              <Activity className="w-3.5 h-3.5" />
+              <span>Retry Telemetry Connection</span>
+            </button>
+          )}
+        </div>
+      </section>
+    );
+  }
+
   const cigarettes = calculateCigaretteEquivalence(metrics.pm25);
   const cpcb = metrics.cpcbAqi 
     ? { aqi: metrics.cpcbAqi, category: metrics.cpcbCategory || 'Poor' }
@@ -176,14 +212,18 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
         <div>
           <div className="flex items-center gap-2 text-[11px] font-mono text-ink-muted dark:text-zinc-400 tracking-wider uppercase mb-1.5">
             <span className="flex h-2 w-2 relative">
-              <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${metrics.isLive !== false ? 'bg-emerald-500' : 'bg-amber-500'} opacity-75`}></span>
-              <span className={`relative inline-flex rounded-full h-2 w-2 ${metrics.isLive !== false ? 'bg-emerald-500' : 'bg-amber-500'}`}></span>
+              <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${metrics.isLive && !metrics.isStale ? 'bg-emerald-500' : 'bg-amber-500'} opacity-75`}></span>
+              <span className={`relative inline-flex rounded-full h-2 w-2 ${metrics.isLive && !metrics.isStale ? 'bg-emerald-500' : 'bg-amber-500'}`}></span>
             </span>
             <span>
               {metrics.sourceAttribution || 'Open-Meteo High-Resolution Ensemble (ECMWF & NOAA GFS)'}
             </span>
-            <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-stone-200 dark:bg-zinc-800 text-ink dark:text-zinc-300">
-              {metrics.isLive !== false ? 'Live Telemetry' : 'Cached Sample'}
+            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+              metrics.isStale || metrics.status === 'stale'
+                ? 'bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800'
+                : 'bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800'
+            }`}>
+              {metrics.isStale || metrics.status === 'stale' ? 'Cached Reading' : 'Live Observation'}
             </span>
           </div>
           <div className="flex flex-wrap items-center gap-3">
@@ -544,30 +584,30 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
       <div
         className={`relative z-10 rounded-xl p-4 sm:p-5 border flex items-start gap-3.5 transition-colors ${
           metrics.isThermalInversionActive
-            ? 'bg-terracotta-50 dark:bg-zinc-950 border-terracotta-200 dark:border-red-900/50 text-terracotta-800 dark:text-zinc-200'
-            : 'bg-sage-50 dark:bg-zinc-950 border-sage-200 dark:border-emerald-900/50 text-sage-800 dark:text-zinc-200'
+            ? 'bg-red-50 dark:bg-zinc-950 border-red-200 dark:border-red-900/50 text-red-900 dark:text-zinc-200'
+            : 'bg-emerald-50 dark:bg-zinc-950 border-emerald-200 dark:border-emerald-900/50 text-emerald-900 dark:text-zinc-200'
         }`}
         role="alert"
         aria-live="polite"
       >
         {metrics.isThermalInversionActive ? (
-          <AlertTriangle className="w-5 h-5 text-terracotta-600 dark:text-red-400 shrink-0 mt-0.5" />
+          <AlertTriangle className="w-5 h-5 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
         ) : (
-          <ShieldCheck className="w-5 h-5 text-sage-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+          <ShieldCheck className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
         )}
 
         <div className="text-xs sm:text-sm">
           <div className="font-bold tracking-wide flex items-center gap-2 font-mono text-ink dark:text-white">
             <span>
               {metrics.isThermalInversionActive
-                ? 'SMOG TRAP WARNING • COLD AIR LID ACTIVE'
-                : 'CLEAN AIR WINDOW ACTIVE • SAFE VENTILATION'}
+                ? 'CRITICAL WARNING: ACTIVE THERMAL INVERSION TRAP'
+                : 'AFTERNOON VENTING WINDOW ACTIVE • SAFE VENTILATION'}
             </span>
           </div>
           <p className="mt-1 text-ink-muted dark:text-zinc-400 leading-relaxed text-xs sm:text-sm">
             {metrics.isThermalInversionActive
-              ? `Cold air (${metrics.boundaryLayerHeight}m ceiling) is trapping vehicle smoke and dust near the ground. Avoid outdoor exercise and keep windows shut; wait for the afternoon sun to disperse the smog.`
-              : 'Warm afternoon sun has lifted the smoke ceiling. This is your best and safest window today for outdoor errands, workouts, and opening windows.'}
+              ? `A low atmospheric boundary layer (${metrics.boundaryLayerHeight}m) is physically acting as a lid, trapping toxic vehicular and biomass emissions within human breathing height. Avoid high-exertion outdoor activities; shift workouts to the 12:30 PM - 3:30 PM solar venting window.`
+              : `Sunlight has expanded the atmospheric boundary layer ceiling (${metrics.boundaryLayerHeight}m). Stagnant air has dissipated. This is your safest window today for outdoor errands, workouts, and opening windows.`}
           </p>
         </div>
       </div>

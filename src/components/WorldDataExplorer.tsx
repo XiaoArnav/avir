@@ -142,17 +142,17 @@ export const WorldDataExplorer: React.FC<WorldDataExplorerProps> = ({
               <span>Global Atmospheric Telemetry Network</span>
             </div>
             <h2 className="text-xl sm:text-2xl font-extrabold text-ink dark:text-white tracking-tight flex items-center gap-2">
-              <span>World Air Quality Rankings &amp; Live Search</span>
+              <span>Air Quality Across Tracked Cities</span>
             </h2>
             <p className="text-xs text-ink-muted dark:text-zinc-400 mt-1 max-w-2xl leading-relaxed">
-              Live pollution rankings across 35+ major world metros. Search any city globally to inspect air quality, smoke ceilings, and exposure plans.
+              Real-time atmospheric telemetry across 35+ tracked world metros. Search any city worldwide to inspect air quality, mixing ceilings, and exposure reduction plans.
             </p>
           </div>
 
           <div className="flex items-center gap-2 self-start lg:self-auto">
             <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-stone-100 dark:bg-zinc-900 border border-stone-300 dark:border-zinc-800 text-xs font-mono font-bold text-ink dark:text-zinc-200 shadow-xs">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              <span>{cities.length} Global Stations Live</span>
+              <span>{cities.length} Tracked Metros</span>
             </span>
           </div>
         </div>

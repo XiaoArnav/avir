@@ -118,7 +118,9 @@ export function generateLocalHeuristicPlan(req: PlanGenerationRequest): Recommen
 
 /**
  * Dual-Mode AI Assistant Service
- * Tries Google Gemini API when API key is provided; falls back transparently to local heuristic engine.
+ * Routes through secure server-side /api/ai/plan when in browser,
+ * preventing client-side API key leakage and prompt injection.
+ * Falls back deterministically to local heuristic engine with zero network dependencies.
  */
 export async function generateAirQualityPlan(req: PlanGenerationRequest): Promise<RecommendationPlan> {
   // First, verify security guardrails against prompt injection
@@ -130,84 +132,26 @@ export async function generateAirQualityPlan(req: PlanGenerationRequest): Promis
     }
   }
 
-  const apiKey = req.geminiApiKey || process.env.GEMINI_API_KEY;
-
-  if (apiKey) {
+  // If in browser runtime, route securely through Next.js server endpoint
+  if (typeof window !== 'undefined') {
     try {
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [
-              {
-                role: 'user',
-                parts: [
-                  {
-                    text: `You are Avir, an expert atmospheric toxicologist and urban air quality assistant. 
-Analyze the following real-time conditions and user context:
-City: ${req.city}
-Current AQI: ${req.metrics.usAqi} (${getAQICategory(req.metrics.usAqi)})
-PM2.5: ${req.metrics.pm25} ug/m3
-PM10: ${req.metrics.pm10} ug/m3
-Boundary Layer Height: ${req.metrics.boundaryLayerHeight} meters
-Thermal Inversion Active: ${req.metrics.isThermalInversionActive}
-User Vulnerability: Age=${req.profile.ageGroup}, Asthma=${req.profile.hasAsthmaOrRespiratory}, Pregnant=${req.profile.isPregnant}
-Room Size: ${req.roomSizeSqFt || 180} sq ft
-User Routine: ${req.customRoutine || 'Morning jog at 7 AM, school commute at 8 AM'}
-
-Generate a tailored JSON plan matching this exact schema:
-{
-  "summaryAdvisory": string,
-  "routineShifts": [
-    {
-      "id": string,
-      "timeWindow": string,
-      "activityName": string,
-      "intensity": "resting" | "light_walk" | "moderate_activity" | "intense_exercise",
-      "isOutdoor": boolean,
-      "baselineExposureUg": number,
-      "optimizedTimeWindow": string,
-      "optimizedExposureUg": number,
-      "reductionPercentage": number,
-      "rationale": string
-    }
-  ]
-}
-Return only valid JSON.`,
-                  },
-                ],
-              },
-            ],
-            generationConfig: {
-              responseMimeType: 'application/json',
-              temperature: 0.2,
-            },
-          }),
-        }
-      );
+      const response = await fetch('/api/ai/plan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(req),
+      });
 
       if (response.ok) {
-        const geminiData = await response.json();
-        const candidateText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (candidateText) {
-          const parsed = JSON.parse(candidateText);
-          const fallback = generateLocalHeuristicPlan(req);
-          return {
-            ...fallback,
-            summaryAdvisory: parsed.summaryAdvisory || fallback.summaryAdvisory,
-            routineShifts: Array.isArray(parsed.routineShifts) && parsed.routineShifts.length > 0 
-              ? parsed.routineShifts 
-              : fallback.routineShifts,
-          };
+        const data = await response.json();
+        if (data && data.routineShifts) {
+          return data as RecommendationPlan;
         }
       }
     } catch (err) {
-      console.warn('Gemini API query failed or timed out, executing deterministic local fallback:', err);
+      console.warn('Server /api/ai/plan route unavailable, running deterministic local engine:', err);
     }
   }
 
-  // Deterministic Local Heuristic Fallback (100% reliable)
+  // Deterministic Local Heuristic Fallback (100% reliable offline)
   return generateLocalHeuristicPlan(req);
 }

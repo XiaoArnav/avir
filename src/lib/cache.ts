@@ -1,11 +1,12 @@
 /**
- * In-Memory LRU Cache with TTL (Time-To-Live)
+ * In-Memory LRU Cache with TTL & Stale-While-Revalidate Support
  * Provides sub-millisecond retrieval and prevents redundant API roundtrips.
  */
 
 interface CacheEntry<T> {
   value: T;
   expiresAt: number;
+  storedAt: number;
 }
 
 export class MemoryCache<T> {
@@ -21,11 +22,26 @@ export class MemoryCache<T> {
     if (!entry) return null;
 
     if (Date.now() > entry.expiresAt) {
-      this.cache.delete(key);
+      // Retain in cache for stale fallback, but return null for fresh requests
       return null;
     }
 
     return entry.value;
+  }
+
+  /**
+   * Retrieves an entry even if expired, for graceful offline/error fallback.
+   * Returns whether the entry is expired so the caller can mark it as 'stale'.
+   */
+  getStale(key: string): { value: T; isExpired: boolean; storedAt: number } | null {
+    const entry = this.cache.get(key);
+    if (!entry) return null;
+
+    return {
+      value: entry.value,
+      isExpired: Date.now() > entry.expiresAt,
+      storedAt: entry.storedAt,
+    };
   }
 
   set(key: string, value: T, ttlMs: number): void {
@@ -38,6 +54,7 @@ export class MemoryCache<T> {
     this.cache.set(key, {
       value,
       expiresAt: Date.now() + ttlMs,
+      storedAt: Date.now(),
     });
   }
 
@@ -45,9 +62,14 @@ export class MemoryCache<T> {
     return this.get(key) !== null;
   }
 
+  delete(key: string): boolean {
+    return this.cache.delete(key);
+  }
+
   clear(): void {
     this.cache.clear();
   }
 }
 
-export const telemetryCache = new MemoryCache<any>(50);
+// Global telemetry cache singleton
+export const telemetryCache = new MemoryCache<any>(150);

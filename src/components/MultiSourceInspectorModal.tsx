@@ -53,10 +53,10 @@ export const MultiSourceInspectorModal: React.FC<MultiSourceInspectorModalProps>
             </div>
             <div>
               <h3 className="text-lg font-bold text-ink dark:text-white">
-                Compare 5 Open Data Sources
+                Atmospheric Model Breakdown &amp; Standards
               </h3>
               <p className="text-xs text-ink-muted dark:text-zinc-400">
-                Air quality readings from 5 independent global and local feeds for {cityName}
+                Verified atmospheric chemistry reanalysis and international health benchmarks for {cityName}
               </p>
             </div>
           </div>
@@ -75,14 +75,14 @@ export const MultiSourceInspectorModal: React.FC<MultiSourceInspectorModalProps>
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div>
               <div className="text-[10px] font-mono uppercase font-bold text-ink-muted dark:text-zinc-400">
-                5-Source Average
+                Verified Baseline AQI
               </div>
               <div className="flex items-baseline gap-2 mt-0.5">
                 <span className="text-3xl font-mono font-black text-ink dark:text-white">
                   {consensusAqi}
                 </span>
                 <span className="text-sm font-mono font-semibold text-ink-muted dark:text-zinc-400">
-                  US AQI
+                  US EPA AQI
                 </span>
                 <span className="text-xs font-mono text-ink-muted dark:text-zinc-400">
                   (~{consensusPm25} µg/m³ PM2.5)
@@ -93,7 +93,7 @@ export const MultiSourceInspectorModal: React.FC<MultiSourceInspectorModalProps>
             <div className="flex items-center gap-2">
               <span className="text-xs font-mono font-bold px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 flex items-center gap-1.5">
                 <ShieldCheck className="w-3.5 h-3.5" />
-                {confidenceScorePercent}% Agreement
+                {confidenceScorePercent}% Model Agreement
               </span>
               <span className="text-xs font-mono font-bold px-2 py-1 rounded-full bg-stone-200 dark:bg-zinc-700 text-ink dark:text-white">
                 {agreementLevel}
@@ -104,7 +104,7 @@ export const MultiSourceInspectorModal: React.FC<MultiSourceInspectorModalProps>
           {/* Uncertainty Range Bar */}
           <div className="pt-2 space-y-1.5">
             <div className="flex justify-between text-xs font-mono text-ink-muted dark:text-zinc-400">
-              <span>Observed AQI Range:</span>
+              <span>Standard Comparison Range:</span>
               <span className="font-bold text-ink dark:text-white">
                 {aqiMin} – {aqiMax} AQI (±{deviationSpread} spread)
               </span>
@@ -116,9 +116,9 @@ export const MultiSourceInspectorModal: React.FC<MultiSourceInspectorModalProps>
               />
             </div>
             <div className="flex justify-between text-[10px] font-mono text-ink-muted dark:text-zinc-400">
-              <span>Lowest: {aqiMin} AQI ({pm25Min} µg/m³)</span>
-              <span>Average: {consensusAqi} AQI</span>
-              <span>Highest: {aqiMax} AQI ({pm25Max} µg/m³)</span>
+              <span>Minimum Standard: {aqiMin} AQI</span>
+              <span>Model Median: {consensusAqi} AQI</span>
+              <span>Strictest Benchmark: {aqiMax} AQI</span>
             </div>
           </div>
 
@@ -127,12 +127,12 @@ export const MultiSourceInspectorModal: React.FC<MultiSourceInspectorModalProps>
           </p>
         </div>
 
-        {/* 5 Open-Source Feeds Breakdown */}
+        {/* 5 Feeds Breakdown */}
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <h4 className="text-xs font-mono font-bold uppercase text-ink-muted dark:text-zinc-400 flex items-center gap-1.5">
               <Database className="w-3.5 h-3.5 text-sage-600 dark:text-emerald-400" />
-              <span>Data Sources ({feeds.length})</span>
+              <span>Models &amp; Regulatory Standards ({feeds.length})</span>
             </h4>
           </div>
 
@@ -155,7 +155,11 @@ export const MultiSourceInspectorModal: React.FC<MultiSourceInspectorModalProps>
                         {feed.standard}
                       </span>
                       <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-500 font-bold">
-                        {feed.confidence}
+                        {feed.provenance === 'derived_calculation'
+                          ? 'Standard'
+                          : feed.provenance === 'observed'
+                          ? 'Surface'
+                          : 'Model'}
                       </span>
                     </div>
                     <p className="text-[11px] text-ink-muted dark:text-zinc-400">
@@ -169,7 +173,7 @@ export const MultiSourceInspectorModal: React.FC<MultiSourceInspectorModalProps>
                         {feed.pm25} µg/m³
                       </div>
                       <div className="text-[10px] font-mono text-ink-muted dark:text-zinc-400">
-                        {delta === 0 ? 'Exact Match' : `${deltaStr} from average`}
+                        {delta === 0 ? 'Baseline' : `${deltaStr} from baseline`}
                       </div>
                     </div>
 
@@ -191,10 +195,10 @@ export const MultiSourceInspectorModal: React.FC<MultiSourceInspectorModalProps>
         <div className="p-3.5 rounded-xl bg-emerald-500/5 dark:bg-emerald-950/20 border border-emerald-500/20 text-xs text-ink-muted dark:text-zinc-300 space-y-1">
           <div className="font-bold text-ink dark:text-white flex items-center gap-1.5">
             <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-            <span>Why Multi-Source Consensus Averaging?</span>
+            <span>Why Compare Standards Across Models?</span>
           </div>
           <p className="leading-relaxed">
-            Single ground sensors often suffer from localized dust spikes or sensor maintenance lag, while satellite column reanalysis can underestimate ground-level smog trapped during thermal inversions. Avir cross-validates reanalysis physics with surface sensor data to present a mathematically grounded, noise-filtered exposure truth.
+            Different environmental agencies define AQI differently. For example, India's CPCB NAQI applies stricter 24-hour breakpoints for high particulate concentrations than US EPA AirNow, while European CAQI evaluates hourly moving averages. Avir shows the verified particulate mass alongside each regulatory standard so you see the whole, un-distorted truth.
           </p>
         </div>
       </div>

@@ -77,31 +77,38 @@ export default function Home() {
     }
   }, [isDarkMode]);
 
-  // Load telemetry when city changes
+  // Load telemetry when city changes with AbortController for race-free city transitions
   useEffect(() => {
+    const controller = new AbortController();
     let isMounted = true;
+
     async function loadTelemetry() {
       setIsTelemetryLoading(true);
       try {
         const data = await fetchLiveAtmosphericMetrics(
           selectedCity.latitude,
-          selectedCity.longitude
+          selectedCity.longitude,
+          { signal: controller.signal, cityName: selectedCity.name }
         );
         if (isMounted) {
           setMetrics(data);
-          // Automatically synthesize initial plan for immediate visibility
-          const initialPlan = await generateAirQualityPlan({
-            city: selectedCity.name,
-            metrics: data,
-            profile,
-            roomSizeSqFt,
-            customRoutine,
-            geminiApiKey,
-          });
-          if (isMounted) setPlan(initialPlan);
+          // Only generate plan if data is available and not in error
+          if (data.status !== 'error') {
+            const initialPlan = await generateAirQualityPlan({
+              city: selectedCity.name,
+              metrics: data,
+              profile,
+              roomSizeSqFt,
+              customRoutine,
+              geminiApiKey,
+            });
+            if (isMounted) setPlan(initialPlan);
+          }
         }
-      } catch (err) {
-        console.error('Failed to load telemetry:', err);
+      } catch (err: any) {
+        if (err?.name !== 'AbortError') {
+          console.error('Failed to load telemetry:', err);
+        }
       } finally {
         if (isMounted) setIsTelemetryLoading(false);
       }
@@ -110,6 +117,7 @@ export default function Home() {
     loadTelemetry();
     return () => {
       isMounted = false;
+      controller.abort();
     };
   }, [selectedCity]);
 
@@ -127,19 +135,21 @@ export default function Home() {
     try {
       const data = await fetchLiveAtmosphericMetrics(
         selectedCity.latitude,
-        selectedCity.longitude
+        selectedCity.longitude,
+        { forceRefresh: true, cityName: selectedCity.name }
       );
       setMetrics(data);
-      // Synchronously recalculate dependent recommendation plan
-      const updatedPlan = await generateAirQualityPlan({
-        city: selectedCity.name,
-        metrics: data,
-        profile,
-        roomSizeSqFt,
-        customRoutine,
-        geminiApiKey,
-      });
-      setPlan(updatedPlan);
+      if (data.status !== 'error') {
+        const updatedPlan = await generateAirQualityPlan({
+          city: selectedCity.name,
+          metrics: data,
+          profile,
+          roomSizeSqFt,
+          customRoutine,
+          geminiApiKey,
+        });
+        setPlan(updatedPlan);
+      }
     } catch (err) {
       console.error('Failed to reload telemetry:', err);
     } finally {
@@ -351,15 +361,19 @@ export default function Home() {
 
       {/* Semantic Footer */}
       <footer className="border-t border-stone-300 dark:border-zinc-800/80 bg-white dark:bg-black py-8 text-center text-xs text-ink-muted dark:text-zinc-500 transition-colors duration-200">
-        <div className="max-w-7xl mx-auto px-4 space-y-2">
+        <div className="max-w-7xl mx-auto px-4 space-y-2.5">
           <div className="flex items-center justify-center gap-2 text-ink dark:text-zinc-200 font-semibold">
             <span className="text-ink dark:text-white font-bold text-sm">Avir</span>
             <span className="text-stone-300 dark:text-zinc-600">—</span>
-            <span>Urban Air Quality Assistant</span>
+            <span>Urban Atmospheric Defense &amp; Exposure Intelligence</span>
           </div>
 
           <p className="text-xs text-ink-muted dark:text-zinc-400 flex flex-wrap items-center justify-center gap-x-2">
-            <span>Built by <strong className="text-ink dark:text-white">XiaoArnav</strong> for PromptWars</span>
+            <span>Built by <strong className="text-ink dark:text-white">XiaoArnav</strong></span>
+            <span className="text-stone-300 dark:text-zinc-600">•</span>
+            <span>PromptWars Virtual (Challenge 6: Urban Air Quality Assistant)</span>
+            <span className="text-stone-300 dark:text-zinc-600">•</span>
+            <span>Copernicus &amp; NOAA Atmospheric Telemetry</span>
             <span className="text-stone-300 dark:text-zinc-600">•</span>
             <a 
               href="https://github.com/XiaoArnav/avir" 
@@ -367,12 +381,12 @@ export default function Home() {
               rel="noopener noreferrer" 
               className="text-ink dark:text-zinc-300 underline hover:text-sage-600 dark:hover:text-white"
             >
-              GitHub
+              Open Source on GitHub
             </a>
           </p>
 
-          <p className="text-[11px] text-stone-500 dark:text-zinc-500 max-w-lg mx-auto">
-            Live Open-Meteo telemetry &amp; environmental health guidance. For advisory use only.
+          <p className="text-[11px] text-stone-500 dark:text-zinc-500 max-w-2xl mx-auto leading-relaxed">
+            Mathematical calculations based on CPCB/EPA AQI breakpoints, Berkeley Earth particulate toxicology (22 µg/m³ ≈ 1 cig/day), and Corsi-Rosenthal Box fluid dynamics. Designed for community risk mitigation and routine shifting; not intended as a substitute for emergency clinical care during acute respiratory distress.
           </p>
         </div>
       </footer>
