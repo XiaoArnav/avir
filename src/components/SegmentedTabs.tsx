@@ -51,7 +51,7 @@ export const SegmentedTabs: React.FC<SegmentedTabsProps> = ({ activeTab, onChang
     >
       <div 
         role="tablist"
-        className="w-full max-w-3xl p-1 rounded-xl bg-zinc-950 border border-zinc-800 flex items-center gap-1 overflow-x-auto no-scrollbar shadow-lg"
+        className="w-full max-w-3xl p-1 rounded-xl bg-stone-200/90 dark:bg-zinc-950 border border-stone-300 dark:border-zinc-800 flex items-center gap-1 overflow-x-auto no-scrollbar shadow-sm dark:shadow-lg transition-colors"
       >
         {tabs.map((tab) => {
           const isActive = activeTab === tab.id;
@@ -63,11 +63,11 @@ export const SegmentedTabs: React.FC<SegmentedTabsProps> = ({ activeTab, onChang
               onClick={() => onChangeTab(tab.id)}
               className={`flex-1 min-w-[130px] sm:min-w-0 py-2 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition-all duration-200 select-none touch-target ${
                 isActive
-                  ? 'bg-white text-black shadow-sm'
-                  : 'text-zinc-400 hover:text-white hover:bg-zinc-900/60 border border-transparent'
+                  ? 'bg-white text-ink shadow-sm dark:bg-white dark:text-black font-bold'
+                  : 'text-ink-muted hover:text-ink hover:bg-white/60 dark:text-zinc-400 dark:hover:text-white dark:hover:bg-zinc-900/60 border border-transparent'
               }`}
             >
-              <span className={isActive ? 'text-black' : 'text-zinc-500'}>
+              <span className={isActive ? 'text-ink dark:text-black' : 'text-ink-muted dark:text-zinc-500'}>
                 {tab.icon}
               </span>
               <span className="truncate">{tab.label}</span>
@@ -75,8 +75,8 @@ export const SegmentedTabs: React.FC<SegmentedTabsProps> = ({ activeTab, onChang
                 <span
                   className={`text-[10px] px-1.5 py-0.5 rounded font-mono hidden sm:inline-block ${
                     isActive
-                      ? 'bg-black/10 text-black font-bold'
-                      : 'bg-zinc-800 text-zinc-400'
+                      ? 'bg-stone-100 text-ink dark:bg-black/10 dark:text-black font-bold'
+                      : 'bg-stone-300/80 text-ink-muted dark:bg-zinc-800 dark:text-zinc-400'
                   }`}
                 >
                   {tab.badge}

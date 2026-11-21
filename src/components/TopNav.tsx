@@ -1,13 +1,15 @@
 'use client';
 
 import React from 'react';
-import { Wind, Settings, Atom, Megaphone } from 'lucide-react';
+import { Wind, Settings, Atom, Megaphone, Sun, Moon } from 'lucide-react';
 
 interface TopNavProps {
   onOpenSettings: () => void;
   onOpenExplainer: () => void;
   onOpenRwa: () => void;
   hasCustomKey: boolean;
+  isDarkMode?: boolean;
+  onToggleTheme?: () => void;
 }
 
 export const TopNav: React.FC<TopNavProps> = ({
@@ -15,23 +17,25 @@ export const TopNav: React.FC<TopNavProps> = ({
   onOpenExplainer,
   onOpenRwa,
   hasCustomKey,
+  isDarkMode = true,
+  onToggleTheme,
 }) => {
   return (
-    <header className="border-b border-zinc-800/80 bg-black/90 backdrop-blur-2xl sticky top-0 z-40 transition-colors">
+    <header className="border-b border-stone-300 dark:border-zinc-800/80 bg-stone-100/90 dark:bg-black/90 backdrop-blur-2xl sticky top-0 z-40 transition-colors">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
         {/* Brand identity */}
         <div className="flex items-center gap-3">
           <div 
-            className="w-10 h-10 rounded-xl bg-zinc-900 border border-zinc-800 p-1 flex items-center justify-center shrink-0 select-none transition-transform hover:scale-105"
+            className="w-10 h-10 rounded-xl bg-white dark:bg-zinc-900 border border-stone-300 dark:border-zinc-800 p-1 flex items-center justify-center shrink-0 select-none transition-transform hover:scale-105 shadow-sm"
             title="אֲוִיר (Avir) — Hebrew for Air & Atmosphere"
           >
             {/* Embedded Monogram: Merged Hebrew אֲוִיר */}
             <svg viewBox="0 0 128 128" className="w-full h-full" fill="none" aria-hidden="true">
               <defs>
                 <linearGradient id="nav-glyph" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" stopColor="#ffffff" />
-                  <stop offset="50%" stopColor="#a1a1aa" />
-                  <stop offset="100%" stopColor="#71717a" />
+                  <stop offset="0%" stopColor="#10b981" />
+                  <stop offset="50%" stopColor="#236B56" />
+                  <stop offset="100%" stopColor="#059669" />
                 </linearGradient>
               </defs>
               <g transform="translate(14, 14) scale(0.78)">
@@ -43,10 +47,10 @@ export const TopNav: React.FC<TopNavProps> = ({
                 {/* Vav (ו) Pillar */}
                 <path 
                   d="M 60 26 C 60 20, 66 16, 72 16 C 78 16, 84 20, 84 26 L 84 96 C 84 102, 78 108, 70 108 C 62 108, 56 102, 56 96 Z" 
-                  fill="#ffffff" 
+                  fill={isDarkMode ? '#ffffff' : '#18201D'} 
                 />
                 {/* Yod (י) Spark */}
-                <circle cx="102" cy="38" r="6" fill="#ffffff" />
+                <circle cx="102" cy="38" r="6" fill="#10b981" />
                 {/* Alef (א) Dynamic Cross-flow */}
                 <path 
                   d="M 24 104 C 16 110, 10 104, 14 96 L 68 28 C 72 22, 80 22, 84 28 L 96 46 C 100 52, 98 58, 92 62 L 38 104 Z" 
@@ -58,12 +62,12 @@ export const TopNav: React.FC<TopNavProps> = ({
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-lg font-bold tracking-tight text-white">Avir</span>
-              <span className="text-xs font-semibold text-zinc-300 font-sans tracking-wide px-1.5 py-0.5 rounded bg-zinc-800 border border-zinc-700/60" title="Hebrew: אֲוִיר (Air, Atmosphere & Pure Breath)">
+              <span className="text-lg font-bold tracking-tight text-ink dark:text-white">Avir</span>
+              <span className="text-xs font-semibold font-sans tracking-wide px-1.5 py-0.5 rounded bg-sage-100 dark:bg-zinc-800 text-sage-700 dark:text-emerald-400 border border-sage-200 dark:border-zinc-700/60" title="Hebrew: אֲוִיר (Air, Atmosphere & Pure Breath)">
                 אֲוִיר
               </span>
             </div>
-            <p className="text-[11px] text-zinc-400 hidden sm:block">
+            <p className="text-[11px] text-ink-muted dark:text-zinc-400 hidden sm:block">
               Urban Air Quality &amp; Winter Smog Assistant
             </p>
           </div>
@@ -71,33 +75,49 @@ export const TopNav: React.FC<TopNavProps> = ({
 
         {/* Live telemetry status & action buttons */}
         <div className="flex items-center gap-2 sm:gap-2.5">
+          {/* Duo Theme Toggle Button (Antigravity Dark <-> Vikas Paper Light) */}
+          {onToggleTheme && (
+            <button
+              onClick={onToggleTheme}
+              className="p-2 rounded-xl bg-white dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 text-ink dark:text-zinc-200 transition-colors border border-stone-300 dark:border-zinc-800 shadow-sm"
+              title={isDarkMode ? 'Switch to Vikas Paper Light Theme' : 'Switch to Antigravity Dark Theme'}
+              aria-label="Toggle between Antigravity Dark and Vikas Light themes"
+            >
+              {isDarkMode ? (
+                <Sun className="w-4 h-4 text-amber-400" />
+              ) : (
+                <Moon className="w-4 h-4 text-ink" />
+              )}
+            </button>
+          )}
+
           {/* Science Explainer Button */}
           <button
             onClick={onOpenExplainer}
-            className="hidden md:inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 hover:text-white transition-colors border border-zinc-800"
+            className="hidden md:inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-white dark:bg-zinc-900/80 hover:bg-stone-200 dark:hover:bg-zinc-800 text-ink dark:text-zinc-300 transition-colors border border-stone-300 dark:border-zinc-800 shadow-sm"
             aria-label="Open Atmospheric Science Explainer"
           >
-            <Atom className="w-3.5 h-3.5 text-zinc-400" />
+            <Atom className="w-3.5 h-3.5 text-sage-600 dark:text-zinc-400" />
             <span>The Science</span>
           </button>
 
           {/* RWA Circular Generator Button */}
           <button
             onClick={onOpenRwa}
-            className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 hover:text-white transition-colors border border-zinc-800"
+            className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-white dark:bg-zinc-900/80 hover:bg-stone-200 dark:hover:bg-zinc-800 text-ink dark:text-zinc-300 transition-colors border border-stone-300 dark:border-zinc-800 shadow-sm"
             aria-label="Open RWA Notice Circular"
           >
-            <Megaphone className="w-3.5 h-3.5 text-zinc-400" />
+            <Megaphone className="w-3.5 h-3.5 text-terracotta-600 dark:text-zinc-400" />
             <span className="hidden sm:inline">RWA Notice</span>
           </button>
 
           {/* AI Settings Button */}
           <button
             onClick={onOpenSettings}
-            className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white transition-colors border border-zinc-800"
+            className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-white dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 text-ink dark:text-zinc-300 transition-colors border border-stone-300 dark:border-zinc-800 shadow-sm"
             aria-label="Open AI and Sensor Settings"
           >
-            <Settings className="w-3.5 h-3.5 text-zinc-400" />
+            <Settings className="w-3.5 h-3.5 text-sage-600 dark:text-emerald-400" />
             <span className="hidden sm:inline">
               {hasCustomKey ? 'Gemini Active' : 'AI Engine'}
             </span>
@@ -108,7 +128,7 @@ export const TopNav: React.FC<TopNavProps> = ({
             href="https://github.com/XiaoArnav/avir"
             target="_blank"
             rel="noopener noreferrer"
-            className="p-2 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white transition-colors border border-zinc-800"
+            className="p-2 rounded-lg bg-white dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 text-ink dark:text-zinc-400 transition-colors border border-stone-300 dark:border-zinc-800 shadow-sm"
             aria-label="GitHub Repository"
           >
             <svg

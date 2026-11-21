@@ -3,11 +3,29 @@
 @tailwind utilities;
 
 :root {
-  --background: #000000;
-  --foreground: #ffffff;
-  --card: rgba(14, 14, 17, 0.9);
+  /* Vikas Warm Stone Paper Light Theme */
+  --background: #F6F5F0;
+  --foreground: #18201D;
+  --card: #FFFFFF;
+  --card-border: #DCD9D0;
+  --panel-bg: rgba(255, 255, 255, 0.94);
+  --panel-subtle: rgba(246, 245, 240, 0.9);
+  --ink-primary: #18201D;
+  --ink-muted: #52605A;
+  --primary: #236B56;
+}
+
+.dark {
+  /* Antigravity Deep Dark Night Theme */
+  --background: #080c14;
+  --foreground: #EDEDE8;
+  --card: #0c101c;
   --card-border: rgba(255, 255, 255, 0.08);
-  --primary: #ffffff;
+  --panel-bg: rgba(12, 16, 28, 0.88);
+  --panel-subtle: rgba(18, 24, 40, 0.65);
+  --ink-primary: #EDEDE8;
+  --ink-muted: #94a3b8;
+  --primary: #10b981;
 }
 
 html {
@@ -24,22 +42,27 @@ body {
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  transition: background-color 0.25s ease, color 0.25s ease;
 }
 
-/* World-Class Duo Swiss Monochrome Glass Panels */
+/* Glass Panels with Duo Adaptive Themes */
 .glass-panel {
-  background: rgba(12, 12, 15, 0.88);
+  background: var(--panel-bg);
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--card-border);
+  box-shadow: 0 8px 30px -8px rgba(0, 0, 0, 0.08);
+}
+
+.dark .glass-panel {
   box-shadow: 0 12px 36px 0 rgba(0, 0, 0, 0.6);
 }
 
 .glass-panel-subtle {
-  background: rgba(18, 18, 22, 0.65);
+  background: var(--panel-subtle);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--card-border);
 }
 
 .glass-card-interactive {
@@ -48,7 +71,11 @@ body {
 
 .glass-card-interactive:hover {
   transform: translateY(-2px);
-  border-color: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.2);
+  box-shadow: 0 16px 40px -8px rgba(0, 0, 0, 0.15);
+}
+
+.dark .glass-card-interactive:hover {
   box-shadow: 0 16px 40px -8px rgba(0, 0, 0, 0.7);
 }
 
@@ -56,7 +83,7 @@ body {
   transform: scale(0.985);
 }
 
-/* Touch & Android Optimization */
+/* Touch & Mobile Optimization */
 .touch-target {
   min-height: 44px;
   min-width: 44px;
@@ -71,7 +98,7 @@ body {
   scrollbar-width: none;
 }
 
-/* Safe area insets for Android gestures and iOS dynamic island / home bar */
+/* Safe area insets for mobile gestures */
 .pb-safe {
   padding-bottom: env(safe-area-inset-bottom, 1rem);
 }
