@@ -22,19 +22,46 @@ export const TopNav: React.FC<TopNavProps> = ({
         {/* Brand identity */}
         <div className="flex items-center gap-3">
           <div 
-            className="w-11 h-11 rounded-2xl bg-gradient-to-br from-emerald-950/90 via-slate-900 to-slate-950 border border-emerald-500/50 flex items-center justify-center shadow-[0_0_24px_rgba(16,185,129,0.4)] shrink-0 select-none transition-transform hover:scale-105"
+            className="w-11 h-11 rounded-2xl bg-gradient-to-br from-emerald-950/90 via-slate-900 to-slate-950 border border-emerald-500/50 p-1 flex items-center justify-center shadow-[0_0_24px_rgba(16,185,129,0.4)] shrink-0 select-none transition-transform hover:scale-105"
             title="אֲוִיר (Avir) — Hebrew for Air & Atmosphere"
           >
-            <span 
-              className="text-base sm:text-lg font-black tracking-normal bg-gradient-to-r from-emerald-300 via-teal-200 to-cyan-300 bg-clip-text text-transparent drop-shadow-[0_2px_10px_rgba(16,185,129,0.6)] font-sans"
-              style={{ direction: 'rtl' }}
-            >
-              אֲוִיר
-            </span>
+            {/* Embedded Monogram: Merged Hebrew אֲוִיר */}
+            <svg viewBox="0 0 128 128" className="w-full h-full" fill="none" aria-hidden="true">
+              <defs>
+                <linearGradient id="nav-glyph" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#6ee7b7" />
+                  <stop offset="50%" stopColor="#10b981" />
+                  <stop offset="100%" stopColor="#38bdf8" />
+                </linearGradient>
+              </defs>
+              <g transform="translate(14, 14) scale(0.78)">
+                {/* Resh (ר) Arch */}
+                <path 
+                  d="M 20 40 C 20 28, 32 20, 52 20 L 92 20 C 108 20, 116 28, 116 44 L 116 92 C 116 100, 110 104, 102 104 C 94 104, 90 100, 90 92 L 90 46 C 90 38, 84 34, 76 34 L 46 34 C 34 34, 26 38, 20 40 Z" 
+                  fill="url(#nav-glyph)" 
+                />
+                {/* Vav (ו) Pillar */}
+                <path 
+                  d="M 60 26 C 60 20, 66 16, 72 16 C 78 16, 84 20, 84 26 L 84 96 C 84 102, 78 108, 70 108 C 62 108, 56 102, 56 96 Z" 
+                  fill="#34d399" 
+                />
+                {/* Yod (י) Spark */}
+                <circle cx="102" cy="38" r="6" fill="#ffffff" />
+                {/* Alef (א) Dynamic Cross-flow */}
+                <path 
+                  d="M 24 104 C 16 110, 10 104, 14 96 L 68 28 C 72 22, 80 22, 84 28 L 96 46 C 100 52, 98 58, 92 62 L 38 104 Z" 
+                  fill="url(#nav-glyph)" 
+                  opacity="0.85" 
+                />
+              </g>
+            </svg>
           </div>
           <div>
             <div className="flex items-center gap-2">
               <span className="text-xl font-black tracking-tight text-white">Avir</span>
+              <span className="text-xs font-bold text-emerald-400 font-sans tracking-wide px-1.5 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/20" title="Hebrew: אֲוִיר (Air, Atmosphere & Pure Breath)">
+                אֲוִיר
+              </span>
               <span className="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-mono">
                 Challenge 6
               </span>
