@@ -558,7 +558,7 @@ export async function fetchLiveAtmosphericMetrics(
       const groundMatch = await getNearestGroundStation(
         latitude,
         longitude,
-        humidity ?? 50,
+        humidityField.value, // Genuine measured relative humidity; never invent 50%
         { signal: options?.signal, modelPm25: pm25 }
       );
       groundStation = groundMatch.station;
@@ -634,6 +634,7 @@ export async function fetchLiveAtmosphericMetrics(
       groundModelDelta,
       cpcbAqi: cpcbResult.aqi ?? cpcb?.aqi ?? null,
       cpcbCategory: cpcbResult.category ?? cpcb?.category ?? null,
+      cpcbStatus: cpcbResult.classification,
       sourceAttribution: 'Open-Meteo High-Resolution Ensemble (ECMWF & NOAA GFS)',
       hourlyForecast: hourlyForecast.length > 0 ? hourlyForecast : undefined,
       ensemble,

@@ -109,7 +109,8 @@ export const WorldDataExplorer: React.FC<WorldDataExplorerProps> = ({
     sortOrder
   );
 
-  const getAqiBadgeColor = (aqi: number) => {
+  const getAqiBadgeColor = (aqi: number | null | undefined) => {
+    if (aqi === null || aqi === undefined) return 'bg-stone-200/60 border-stone-300 text-stone-500 dark:bg-zinc-800 dark:border-zinc-700 dark:text-zinc-400';
     if (aqi <= 50) return 'bg-emerald-500/15 border-emerald-500/30 text-emerald-600 dark:text-emerald-400';
     if (aqi <= 100) return 'bg-yellow-500/15 border-yellow-500/30 text-yellow-600 dark:text-yellow-400';
     if (aqi <= 150) return 'bg-orange-500/15 border-orange-500/30 text-orange-600 dark:text-orange-400';
@@ -300,7 +301,7 @@ export const WorldDataExplorer: React.FC<WorldDataExplorerProps> = ({
                   <div>
                     <div className="flex items-center gap-1.5">
                       <span className="text-[11px] font-mono font-bold px-1.5 py-0.5 rounded bg-stone-100 dark:bg-zinc-800 text-ink dark:text-zinc-300 border border-stone-200 dark:border-zinc-700">
-                        #{city.rank || idx + 1}
+                        {city.rank ? `#${city.rank}` : 'Unranked'}
                       </span>
                       <span className="text-[11px] font-mono text-ink-muted dark:text-zinc-400">
                         {city.country}
@@ -317,7 +318,7 @@ export const WorldDataExplorer: React.FC<WorldDataExplorerProps> = ({
                       city.usAqi
                     )}`}
                   >
-                    <div className="text-xl leading-none">{city.usAqi}</div>
+                    <div className="text-xl leading-none">{city.usAqi !== null ? city.usAqi : '--'}</div>
                     <div className="text-[9px] uppercase tracking-wider font-sans mt-0.5">AQI</div>
                   </div>
                 </div>
@@ -329,7 +330,11 @@ export const WorldDataExplorer: React.FC<WorldDataExplorerProps> = ({
                       Fine PM2.5
                     </span>
                     <div className="font-mono font-bold text-ink dark:text-white">
-                      {city.pm25} <span className="text-[10px] font-normal text-stone-400">µg/m³</span>
+                      {city.pm25 !== null ? (
+                        <>{city.pm25} <span className="text-[10px] font-normal text-stone-400">µg/m³</span></>
+                      ) : (
+                        <span className="text-stone-400">Unavailable</span>
+                      )}
                     </div>
                   </div>
 
@@ -339,7 +344,7 @@ export const WorldDataExplorer: React.FC<WorldDataExplorerProps> = ({
                     </span>
                     <div className="font-mono font-bold text-terracotta-600 dark:text-zinc-300 flex items-center gap-1">
                       <Cigarette className="w-3 h-3" />
-                      <span>~{cigarettes} cigs/d</span>
+                      <span>{cigarettes !== null ? `~${cigarettes} cigs/d` : 'Unavailable'}</span>
                     </div>
                   </div>
                 </div>
@@ -390,7 +395,7 @@ export const WorldDataExplorer: React.FC<WorldDataExplorerProps> = ({
                       }`}
                     >
                       <td className="py-3 px-4 font-mono font-bold text-ink-muted dark:text-zinc-400">
-                        #{city.rank || idx + 1}
+                        {city.rank ? `#${city.rank}` : '-'}
                       </td>
                       <td className="py-3 px-4 font-bold text-ink dark:text-white">
                         {city.name}
@@ -404,14 +409,14 @@ export const WorldDataExplorer: React.FC<WorldDataExplorerProps> = ({
                             city.usAqi
                           )}`}
                         >
-                          {city.usAqi}
+                          {city.usAqi !== null ? city.usAqi : '--'}
                         </span>
                       </td>
                       <td className="py-3 px-4 font-mono font-semibold text-ink dark:text-zinc-200">
-                        {city.pm25}
+                        {city.pm25 !== null ? city.pm25 : '--'}
                       </td>
                       <td className="py-3 px-4 font-mono text-terracotta-600 dark:text-zinc-300">
-                        ~{cigarettes} cigs/day
+                        {cigarettes !== null ? `~${cigarettes} cigs/day` : '--'}
                       </td>
                       <td className="py-3 px-4 text-right">
                         <button

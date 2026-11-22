@@ -111,15 +111,15 @@ export const TopNav: React.FC<TopNavProps> = ({
             </button>
           )}
 
-          {/* Multi-Source Open-Source Consensus Button */}
+          {/* Atmospheric Data Sources & Quality Button */}
           {onOpenMultiSource && (
             <button
               onClick={onOpenMultiSource}
               className="hidden md:inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-white dark:bg-zinc-900/80 hover:bg-stone-200 dark:hover:bg-zinc-800 text-ink dark:text-zinc-300 transition-colors border border-stone-300 dark:border-zinc-800 shadow-sm"
-              aria-label="Compare 5 Open-Source Air Quality Data Sources"
+              aria-label="Inspect Atmospheric Data Sources and Quality"
             >
               <Layers className="w-3.5 h-3.5 text-emerald-500" />
-              <span>Compare 5 Sources</span>
+              <span>Data Sources &amp; Quality</span>
             </button>
           )}
 

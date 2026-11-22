@@ -4,6 +4,7 @@ import {
   buildBatchCoordinatesUrl, 
   parseBatchTelemetryResponse,
   filterAndSortWorldCities,
+  searchAndFetchGlobalCity,
   WorldCityItem,
 } from '@/services/world-telemetry-service';
 
@@ -64,5 +65,81 @@ describe('World Telemetry & Global Air Quality Rankings', () => {
     // Sort by cleanest first
     const cleanestFirst = filterAndSortWorldCities(testCities, '', 'All', 'All', 'cleanest');
     expect(cleanestFirst[0].name).toBe('London');
+  });
+
+  describe('Zero-Fabrication Worldwide Data Integrity (Regression Tests 21-29)', () => {
+    it('21 & 22. API failure in searchAndFetchGlobalCity never returns synthetic AQI 75 or PM2.5 22', async () => {
+      // Mock global fetch failure
+      const originalFetch = global.fetch;
+      global.fetch = () => Promise.reject(new Error('Network error'));
+
+      try {
+        const results = await searchAndFetchGlobalCity('Berlin');
+        // If cities geocoded or searched fail atmospheric fetch:
+        for (const item of results) {
+          expect(item.usAqi).toBeNull();
+          expect(item.pm25).toBeNull();
+          expect(item.usAqi).not.toBe(75);
+          expect(item.pm25).not.toBe(22);
+          expect(item.category).toBe('Unavailable');
+        }
+      } finally {
+        global.fetch = originalFetch;
+      }
+    });
+
+    it('23 & 24. Missing AQI and PM2.5 in batch response remain null rather than defaulting to 0', () => {
+      const emptyBatch = [
+        { latitude: 28.6, longitude: 77.2, current: {} }, // missing both
+      ];
+
+      const parsed = parseBatchTelemetryResponse(WORLD_METROS.slice(0, 1), emptyBatch);
+      expect(parsed[0].usAqi).toBeNull();
+      expect(parsed[0].pm25).toBeNull();
+      expect(parsed[0].category).toBe('Unavailable');
+      expect(parsed[0].isLive).toBe(false);
+    });
+
+    it('25. Valid zero pollution values are preserved as authentic clean air and not discarded', () => {
+      const cleanBatch = [
+        { latitude: 35.6, longitude: 139.6, current: { us_aqi: 0, pm2_5: 0, time: '2026-11-22T08:00' } },
+      ];
+
+      const parsed = parseBatchTelemetryResponse(WORLD_METROS.slice(0, 1), cleanBatch);
+      expect(parsed[0].usAqi).toBe(0);
+      expect(parsed[0].pm25).toBe(0);
+      expect(parsed[0].category).toBe('Good');
+      expect(parsed[0].isLive).toBe(true);
+    });
+
+    it('26. Missing timestamps remain null rather than defaulting to current time', () => {
+      const noTimeBatch = [
+        { latitude: 28.6, longitude: 77.2, current: { us_aqi: 50, pm2_5: 12 } },
+      ];
+
+      const parsed = parseBatchTelemetryResponse(WORLD_METROS.slice(0, 1), noTimeBatch);
+      expect(parsed[0].lastUpdated).toBeNull();
+    });
+
+    it('27. Cities without valid readings are excluded from numeric rankings and placed at end', () => {
+      const mixedCities: WorldCityItem[] = [
+        { id: 1, name: 'Delhi', country: 'India', region: 'Asia', latitude: 28.6, longitude: 77.2, usAqi: 250, pm25: 200, category: 'VeryUnhealthy' },
+        { id: 2, name: 'London', country: 'UK', region: 'Europe', latitude: 51.5, longitude: -0.1, usAqi: null, pm25: null, category: 'Unavailable' },
+        { id: 3, name: 'Tokyo', country: 'Japan', region: 'Asia', latitude: 35.6, longitude: 139.6, usAqi: 30, pm25: 7, category: 'Good' },
+      ];
+
+      const sortedCleanest = filterAndSortWorldCities(mixedCities, '', 'All', 'All', 'cleanest');
+      // London with null AQI must NOT be treated as cleanest
+      expect(sortedCleanest[0].name).toBe('Tokyo');
+      expect(sortedCleanest[sortedCleanest.length - 1].name).toBe('London');
+    });
+
+    it('28. Search results retain correct geographic metadata and region', async () => {
+      const results = parseBatchTelemetryResponse([WORLD_METROS[0]], [
+        { latitude: 28.6139, longitude: 77.209, current: { us_aqi: 180, pm2_5: 110 } }
+      ]);
+      expect(results[0].country).toBe('India');
+      expect(results[0].region).toBe('Asia');
+    });
   });
 });

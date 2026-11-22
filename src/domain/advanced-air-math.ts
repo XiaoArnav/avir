@@ -474,7 +474,7 @@ https://avir-blue.vercel.app`;
 }
 
 // ---------------------------------------------------------------------------
-// 8. MULTI-SOURCE ATMOSPHERIC REANALYSIS & REGULATORY CONSENSUS
+// 8. MULTI-SOURCE ATMOSPHERIC REANALYSIS & REGULATORY STANDARDS
 // ---------------------------------------------------------------------------
 
 export function buildMultiSourceFeeds(params: {
@@ -487,101 +487,76 @@ export function buildMultiSourceFeeds(params: {
 }): MultiSourceTelemetryFeed[] {
   const { pm25, usAqi, cpcbAqi, groundStation } = params;
 
-  // 1. Copernicus Atmosphere Monitoring Service (ECMWF CAMS)
-  const camsPm25 = pm25;
-  const camsAqi = usAqi;
+  const feeds: MultiSourceTelemetryFeed[] = [];
 
-  // 2. NOAA Global Forecast System (GFS Aerosol Optical Depth)
-  const gfsPm25 = pm25;
-  const gfsAqi = usAqi;
+  // 1. Primary Numerical Atmospheric Model: Open-Meteo (ECMWF IFS / CAMS Aerosol Chemistry Grid)
+  feeds.push({
+    id: 'open-meteo-primary',
+    sourceName: 'Open-Meteo Atmospheric Chemistry (ECMWF IFS)',
+    provider: 'Open-Meteo / ECMWF Numerical Weather Prediction',
+    aqi: usAqi,
+    pm25: pm25,
+    confidence: 'High',
+    standard: 'US-EPA',
+    description: 'Regional atmospheric dispersion and aerosol chemistry grid (interpolated).',
+    provenance: 'modeled_forecast',
+  });
 
-  // 3. CPCB National Air Quality Index (Central Pollution Control Board, India)
-  const cpcbVal = cpcbAqi ?? usAqi;
-
-  // 4. US EPA AirNow Standard (2024 Breakpoint Revision)
-  const epaAqi = usAqi;
-
-  // 5. Ground Truth Monitoring Station (CPCB CAAQMS / Sensor.Community / User BYOD)
-  let groundFeed: MultiSourceTelemetryFeed;
-  if (groundStation && groundStation.pm25 !== null && Number.isFinite(groundStation.pm25)) {
+  // 2. Physical Ground Truth Monitor (ONLY included if authentic measurements were retrieved)
+  if (
+    groundStation &&
+    groundStation.pm25 !== null &&
+    Number.isFinite(groundStation.pm25) &&
+    groundStation.stationState !== 'registry_only'
+  ) {
     const groundPm25 = groundStation.pm25;
     const groundAqi = calculateAQIFromPM25(groundPm25);
     const stationLabel = `${groundStation.stationName} (${groundStation.distanceKm}km)`;
 
-    groundFeed = {
+    feeds.push({
       id: `ground-${groundStation.stationId}`,
       sourceName: stationLabel,
       provider: groundStation.provider,
       aqi: groundAqi,
       pm25: groundPm25,
-      confidence: groundStation.stationType === 'official_reference' ? 'High' : 'Calibrated',
+      confidence: groundStation.isCalibrated ? 'Calibrated' : 'High',
       standard: groundStation.stationType === 'official_reference' ? 'CPCB-NAQI' : 'US-EPA',
       description: groundStation.isCalibrated
-        ? `Optical laser monitor with ${groundStation.calibrationFormula || 'US EPA Barkjohn'} de-humidification.`
-        : 'Physical regulatory ground monitor at human breathing height.',
+        ? `Citizen-science optical monitor with ${groundStation.calibrationFormula || 'US EPA Barkjohn'} de-humidification.`
+        : 'In-situ physical ground monitor at human breathing height.',
       provenance: 'observed',
-    };
-  } else {
-    groundFeed = {
-      id: 'openaq-surface',
-      sourceName: 'Surface Sensor Mesh (OpenAQ)',
-      provider: 'Regional Surface Calibration Network',
-      aqi: usAqi,
-      pm25,
-      confidence: 'Calibrated',
-      standard: 'US-EPA',
-      description: 'Regional surface model estimation (no physical ground station within 30 km).',
-      provenance: 'modeled_forecast',
-    };
+    });
   }
 
-  return [
-    {
-      id: 'cams-ecmwf',
-      sourceName: 'Copernicus Atmosphere (CAMS)',
-      provider: 'European Centre for Medium-Range Weather Forecasts (ECMWF)',
-      aqi: camsAqi,
-      pm25: camsPm25,
-      confidence: 'High',
-      standard: 'EU-CAQI',
-      description: 'Satellite & chemistry transport reanalysis model (0.4° resolution).',
-      provenance: 'modeled_forecast',
-    },
-    {
-      id: 'noaa-gfs',
-      sourceName: 'NOAA GFS Aerosol Mesh',
-      provider: 'National Oceanic and Atmospheric Administration (USA)',
-      aqi: gfsAqi,
-      pm25: gfsPm25,
-      confidence: 'High',
-      standard: 'US-EPA',
-      description: 'Global aerosol optical depth (AOD) & wind vector dispersion model.',
-      provenance: 'modeled_forecast',
-    },
-    {
-      id: 'cpcb-naqi',
-      sourceName: 'CPCB NAQI Benchmark',
+  // 3. Derived Regulatory Standards (Mathematical conversions from the same physical concentration)
+  // These are standard comparisons, NOT independent monitoring stations.
+  if (cpcbAqi !== null && cpcbAqi !== undefined && Number.isFinite(cpcbAqi)) {
+    feeds.push({
+      id: 'cpcb-naqi-standard',
+      sourceName: 'CPCB NAQI Standard (Indicative)',
       provider: 'Central Pollution Control Board (India)',
-      aqi: cpcbVal,
+      aqi: cpcbAqi,
       pm25,
       confidence: 'Calibrated',
       standard: 'CPCB-NAQI',
-      description: 'Indian National Air Quality Index 24-hr concentration piecewise sub-index.',
+      description: 'Piecewise Indian National AQI sub-index derived from particulate concentration.',
       provenance: 'derived_calculation',
-    },
-    {
-      id: 'us-epa',
-      sourceName: 'US EPA AirNow Standard',
-      provider: 'United States Environmental Protection Agency',
-      aqi: epaAqi,
-      pm25,
-      confidence: 'High',
-      standard: 'US-EPA',
-      description: 'Revised 2024 fine particulate exposure health benchmark.',
-      provenance: 'derived_calculation',
-    },
-    groundFeed,
-  ];
+    });
+  }
+
+  feeds.push({
+    id: 'us-epa-standard',
+    sourceName: 'US EPA AirNow Standard',
+    provider: 'United States Environmental Protection Agency',
+    aqi: usAqi,
+    pm25,
+    confidence: 'High',
+    standard: 'US-EPA',
+    description: 'Piecewise US EPA 0-500 air quality index derived from particulate concentration.',
+    provenance: 'derived_calculation',
+  });
+
+  return feeds;
 }
 
 export function calculateMultiSourceConsensus(
@@ -589,7 +564,7 @@ export function calculateMultiSourceConsensus(
 ): EnsembleConsensusAnalysis {
   if (!feeds || feeds.length === 0) {
     return {
-      primaryModel: 'Copernicus Atmosphere Monitoring Service (ECMWF CAMS)',
+      primaryModel: 'Open-Meteo Atmospheric Chemistry (ECMWF IFS)',
       weatherModel: 'NOAA Global Forecast System (GFS)',
       consensusAqi: null,
       consensusPm25: null,
@@ -602,13 +577,46 @@ export function calculateMultiSourceConsensus(
       deviationSpread: null,
       feeds: [],
       summaryNote: 'Multi-source atmospheric consensus telemetry currently unavailable.',
-      provenanceNote: 'Calculated from Open-Meteo High-Resolution Ensemble with official US-EPA and CPCB NAQI piecewise concentration breakpoints.',
+      provenanceNote: 'Derived standards calculated via official US-EPA and CPCB NAQI piecewise concentration breakpoints.',
       isUnavailable: true,
+      isSingleModelActive: false,
     };
   }
 
-  const aqiValues = feeds.map((f) => f.aqi);
-  const pm25Values = feeds.map((f) => f.pm25);
+  // Filter for genuine independent observation or model inputs (excluding derived mathematical recalculations)
+  const independentFeeds = feeds.filter(
+    (f) => f.provenance === 'observed' || f.provenance === 'modeled_forecast'
+  );
+
+  // If fewer than 2 genuinely independent observing/modeling systems are present,
+  // do NOT calculate artificial consensus agreement or spread from duplicated data!
+  if (independentFeeds.length < 2) {
+    const single = independentFeeds[0] || feeds[0];
+    return {
+      primaryModel: 'Open-Meteo Atmospheric Chemistry (ECMWF IFS)',
+      weatherModel: 'NOAA GFS & ECMWF High-Resolution',
+      consensusAqi: single ? single.aqi : null,
+      consensusPm25: single ? single.pm25 : null,
+      aqiMin: single ? single.aqi : null,
+      aqiMax: single ? single.aqi : null,
+      pm25Min: single ? single.pm25 : null,
+      pm25Max: single ? single.pm25 : null,
+      confidenceScorePercent: null, // Zero fabrication: no consensus score from single provider
+      agreementLevel: independentFeeds.length === 1 ? 'Single Primary Provider' : 'Telemetry Unavailable',
+      deviationSpread: null,
+      feeds,
+      summaryNote: independentFeeds.length === 1
+        ? 'Active atmospheric readings are provided by Open-Meteo numerical models. Genuine inter-model consensus requires 2+ independent observation or forecast networks.'
+        : 'Multi-source atmospheric consensus telemetry currently unavailable.',
+      provenanceNote: 'Regulatory comparisons are derived from verified US-EPA and CPCB NAQI piecewise concentration breakpoints.',
+      isUnavailable: independentFeeds.length === 0,
+      isSingleModelActive: independentFeeds.length === 1,
+    };
+  }
+
+  // Real multi-source consensus across 2+ independent feeds (e.g. Ground Observation + Satellite Model)
+  const aqiValues = independentFeeds.map((f) => f.aqi);
+  const pm25Values = independentFeeds.map((f) => f.pm25);
 
   const aqiMin = Math.min(...aqiValues);
   const aqiMax = Math.max(...aqiValues);
@@ -620,8 +628,8 @@ export function calculateMultiSourceConsensus(
   let totalPmWeight = 0;
   let weightedPmSum = 0;
 
-  for (const f of feeds) {
-    const weight = f.confidence === 'Calibrated' ? 1.25 : f.confidence === 'High' ? 1.1 : 1.0;
+  for (const f of independentFeeds) {
+    const weight = f.provenance === 'observed' ? 1.5 : 1.0;
     weightedAqiSum += f.aqi * weight;
     totalAqiWeight += weight;
     weightedPmSum += f.pm25 * weight;
@@ -635,24 +643,24 @@ export function calculateMultiSourceConsensus(
   const deviationSpread = Math.round(aqiSpread / 2);
 
   const relativeSpread = aqiSpread / Math.max(1, consensusAqi);
-  const confidenceScorePercent = Math.max(70, Math.min(98, Math.round((1 - relativeSpread * 0.75) * 100)));
+  const confidenceScorePercent = Math.max(50, Math.min(98, Math.round((1 - relativeSpread * 0.75) * 100)));
 
-  let agreementLevel: 'High Consensus' | 'Moderate Variance' | 'Inversion Spread' = 'High Consensus';
+  let agreementLevel: string = 'High Consensus';
   let summaryNote = '';
 
-  if (relativeSpread < 0.12) {
+  if (relativeSpread < 0.15) {
     agreementLevel = 'High Consensus';
-    summaryNote = `High inter-model consensus across ${feeds.length} open-source feeds (±${deviationSpread} AQI spread). Ground sensors and satellite reanalysis tightly agree.`;
-  } else if (relativeSpread < 0.25) {
+    summaryNote = `High agreement across ${independentFeeds.length} independent feeds (±${deviationSpread} AQI spread). Ground sensor and model grid closely align.`;
+  } else if (relativeSpread < 0.35) {
     agreementLevel = 'Moderate Variance';
-    summaryNote = `Moderate variance (±${deviationSpread} AQI spread) across open-source feeds due to differing regional elevation grids and sensor calibration baselines.`;
+    summaryNote = `Moderate variance (±${deviationSpread} AQI spread) between ground sensor and regional atmospheric model.`;
   } else {
-    agreementLevel = 'Inversion Spread';
-    summaryNote = `Thermal Inversion variance detected (±${deviationSpread} AQI spread): Ground boundary lid is trapping particulates at human breathing height higher than high-altitude column models.`;
+    agreementLevel = 'High Divergence';
+    summaryNote = `Significant divergence (±${deviationSpread} AQI spread): ground-level concentrations differ substantially from regional model grid.`;
   }
 
   return {
-    primaryModel: 'Copernicus Atmosphere Monitoring Service (ECMWF CAMS)',
+    primaryModel: 'Open-Meteo Atmospheric Chemistry (ECMWF IFS)',
     weatherModel: 'NOAA Global Forecast System (GFS) & ECMWF IFS',
     consensusAqi,
     consensusPm25,
@@ -665,6 +673,7 @@ export function calculateMultiSourceConsensus(
     deviationSpread,
     feeds,
     summaryNote,
-    provenanceNote: 'Calculated from Open-Meteo High-Resolution Ensemble with official US-EPA and CPCB NAQI piecewise concentration breakpoints.',
+    provenanceNote: 'Calculated from genuine independent observation and model inputs; regulatory standards displayed for comparative context.',
+    isSingleModelActive: false,
   };
 }

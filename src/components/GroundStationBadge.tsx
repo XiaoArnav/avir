@@ -27,6 +27,14 @@ export function GroundStationBadge({
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
 
+  const isLiveObservation =
+    station?.stationState === 'live_observation' &&
+    typeof station.pm25 === 'number' &&
+    Number.isFinite(station.pm25);
+
+  const isRegistryOnly =
+    !isLiveObservation && (station?.stationState === 'registry_only' || station?.pm25 === null);
+
   return (
     <>
       <div className="flex flex-wrap items-center gap-2 pt-2 text-xs">
@@ -37,20 +45,26 @@ export function GroundStationBadge({
               onClick={() => setIsExpanded(!isExpanded)}
               className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/90 dark:bg-zinc-900/90 border border-stone-200 dark:border-zinc-800 text-ink dark:text-white shadow-sm hover:border-emerald-500/50 transition-all font-medium"
             >
-              <span className="flex h-2 w-2 relative">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-              </span>
+              {isLiveObservation ? (
+                <span className="flex h-2 w-2 relative">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                </span>
+              ) : (
+                <span className="flex h-2 w-2 rounded-full bg-stone-400 dark:bg-zinc-600" />
+              )}
 
               <span className="flex items-center gap-1 font-semibold">
                 {station.stationType === 'official_reference' ? (
-                  <ShieldCheck className="w-3.5 h-3.5 text-amber-500" />
+                  <ShieldCheck className={`w-3.5 h-3.5 ${isLiveObservation ? 'text-amber-500' : 'text-stone-400 dark:text-zinc-500'}`} />
                 ) : station.stationType === 'user_device' ? (
                   <Cpu className="w-3.5 h-3.5 text-cyan-500" />
                 ) : (
-                  <Radio className="w-3.5 h-3.5 text-emerald-500" />
+                  <Radio className={`w-3.5 h-3.5 ${isLiveObservation ? 'text-emerald-500' : 'text-stone-400 dark:text-zinc-500'}`} />
                 )}
-                <span>{station.stationName}</span>
+                <span>
+                  {isRegistryOnly ? `Nearest registered station: ${station.stationName}` : station.stationName}
+                </span>
               </span>
 
               <span className="font-mono text-[10px] text-ink-muted dark:text-zinc-400">
@@ -59,18 +73,26 @@ export function GroundStationBadge({
 
               <span
                 className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider ${
-                  station.stationType === 'official_reference'
+                  isRegistryOnly
+                    ? 'bg-stone-100 dark:bg-zinc-800 text-stone-600 dark:text-zinc-400 border border-stone-300 dark:border-zinc-700'
+                    : station.stationType === 'official_reference'
                     ? 'bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800'
                     : station.stationType === 'user_device'
                     ? 'bg-cyan-100 dark:bg-cyan-950/80 text-cyan-800 dark:text-cyan-300 border border-cyan-300 dark:border-cyan-800'
-                    : 'bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800'
+                    : station.isCalibrated
+                    ? 'bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800'
+                    : 'bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800'
                 }`}
               >
-                {station.stationType === 'official_reference'
+                {isRegistryOnly
+                  ? 'Live Readings Unavailable'
+                  : station.stationType === 'official_reference'
                   ? 'CPCB Ground Reference'
                   : station.stationType === 'user_device'
                   ? 'My Monitor'
-                  : 'Citizen Node (EPA Calibrated)'}
+                  : station.isCalibrated
+                  ? 'Citizen Node (EPA Calibrated)'
+                  : 'Citizen Node (Uncalibrated)'}
               </span>
 
               <ChevronDown className={`w-3.5 h-3.5 text-ink-muted dark:text-zinc-500 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
@@ -133,11 +155,11 @@ export function GroundStationBadge({
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 font-mono text-center">
             <div className="p-2 rounded-lg bg-stone-50 dark:bg-zinc-800/60 border border-stone-200/60 dark:border-zinc-700/60">
               <span className="text-[10px] text-ink-muted dark:text-zinc-400 block">Observed PM2.5</span>
-              <span className="text-sm font-bold text-ink dark:text-white">{station.pm25 ?? '--'} µg/m³</span>
+              <span className="text-sm font-bold text-ink dark:text-white">{station.pm25 !== null && station.pm25 !== undefined ? `${station.pm25} µg/m³` : 'Unavailable'}</span>
             </div>
             <div className="p-2 rounded-lg bg-stone-50 dark:bg-zinc-800/60 border border-stone-200/60 dark:border-zinc-700/60">
               <span className="text-[10px] text-ink-muted dark:text-zinc-400 block">Observed PM10</span>
-              <span className="text-sm font-bold text-ink dark:text-white">{station.pm10 ?? '--'} µg/m³</span>
+              <span className="text-sm font-bold text-ink dark:text-white">{station.pm10 !== null && station.pm10 !== undefined ? `${station.pm10} µg/m³` : 'Unavailable'}</span>
             </div>
             <div className="p-2 rounded-lg bg-stone-50 dark:bg-zinc-800/60 border border-stone-200/60 dark:border-zinc-700/60">
               <span className="text-[10px] text-ink-muted dark:text-zinc-400 block">Distance to User</span>
@@ -146,10 +168,16 @@ export function GroundStationBadge({
             <div className="p-2 rounded-lg bg-stone-50 dark:bg-zinc-800/60 border border-stone-200/60 dark:border-zinc-700/60">
               <span className="text-[10px] text-ink-muted dark:text-zinc-400 block">Sensor Type</span>
               <span className="text-sm font-bold text-ink dark:text-white">
-                {station.stationType === 'official_reference' ? 'BAM-1020' : 'Optical Laser'}
+                {station.stationType === 'official_reference' ? 'Regulatory Reference' : 'Optical Laser'}
               </span>
             </div>
           </div>
+
+          {isRegistryOnly && (
+            <div className="p-2 rounded-lg bg-stone-100 dark:bg-zinc-800/80 border border-stone-200 dark:border-zinc-700/60 text-[11px] text-ink-muted dark:text-zinc-400">
+              Station is registered in official CAAQMS directory. Live ground observations are currently unavailable for this station.
+            </div>
+          )}
 
           {delta && (
             <p className="text-[11px] text-ink-muted dark:text-zinc-400 pt-1 leading-relaxed">

@@ -109,48 +109,57 @@ export const MultiSourceInspectorModal: React.FC<MultiSourceInspectorModalProps>
             </div>
 
             <div className="flex items-center gap-2">
-              <span className="text-xs font-mono font-bold px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 flex items-center gap-1.5">
-                <ShieldCheck className="w-3.5 h-3.5" />
-                {confidenceScorePercent}% Model Agreement
-              </span>
+              {confidenceScorePercent !== null ? (
+                <span className="text-xs font-mono font-bold px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 flex items-center gap-1.5">
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  {confidenceScorePercent}% Model Agreement
+                </span>
+              ) : (
+                <span className="text-xs font-mono font-bold px-2.5 py-1 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 flex items-center gap-1.5">
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  Primary Atmospheric Model
+                </span>
+              )}
               <span className="text-xs font-mono font-bold px-2 py-1 rounded-full bg-stone-200 dark:bg-zinc-700 text-ink dark:text-white">
                 {agreementLevel}
               </span>
             </div>
           </div>
 
-          {/* Uncertainty Range Bar */}
-          <div className="pt-2 space-y-1.5">
-            <div className="flex justify-between text-xs font-mono text-ink-muted dark:text-zinc-400">
-              <span>Standard Comparison Range:</span>
-              <span className="font-bold text-ink dark:text-white">
-                {aqiMin} – {aqiMax} AQI (±{deviationSpread} spread)
-              </span>
+          {/* Uncertainty Range Bar (Only shown when genuine variation across independent sources exists) */}
+          {deviationSpread !== null && deviationSpread > 0 && aqiMin !== null && aqiMax !== null && (
+            <div className="pt-2 space-y-1.5">
+              <div className="flex justify-between text-xs font-mono text-ink-muted dark:text-zinc-400">
+                <span>Standard Comparison Range:</span>
+                <span className="font-bold text-ink dark:text-white">
+                  {aqiMin} – {aqiMax} AQI (±{deviationSpread} spread)
+                </span>
+              </div>
+              <div className="w-full h-3 rounded-full bg-stone-200 dark:bg-zinc-700 overflow-hidden relative">
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-emerald-500 via-amber-500 to-rose-500 transition-all duration-500"
+                  style={{ width: '100%' }}
+                />
+              </div>
+              <div className="flex justify-between text-[10px] font-mono text-ink-muted dark:text-zinc-400">
+                <span>Minimum Standard: {aqiMin} AQI</span>
+                <span>Model Median: {consensusAqi} AQI</span>
+                <span>Strictest Benchmark: {aqiMax} AQI</span>
+              </div>
             </div>
-            <div className="w-full h-3 rounded-full bg-stone-200 dark:bg-zinc-700 overflow-hidden relative">
-              <div
-                className="h-full rounded-full bg-gradient-to-r from-emerald-500 via-amber-500 to-rose-500 transition-all duration-500"
-                style={{ width: '100%' }}
-              />
-            </div>
-            <div className="flex justify-between text-[10px] font-mono text-ink-muted dark:text-zinc-400">
-              <span>Minimum Standard: {aqiMin} AQI</span>
-              <span>Model Median: {consensusAqi} AQI</span>
-              <span>Strictest Benchmark: {aqiMax} AQI</span>
-            </div>
-          </div>
+          )}
 
           <p className="text-xs text-ink-muted dark:text-zinc-300 pt-1 leading-relaxed">
             {summaryNote}
           </p>
         </div>
 
-        {/* 5 Feeds Breakdown */}
+        {/* Data Sources & Regulatory Standards Breakdown */}
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <h4 className="text-xs font-mono font-bold uppercase text-ink-muted dark:text-zinc-400 flex items-center gap-1.5">
               <Database className="w-3.5 h-3.5 text-sage-600 dark:text-emerald-400" />
-              <span>Models &amp; Regulatory Standards ({feeds.length})</span>
+              <span>Telemetry Feeds &amp; Regulatory Standards ({feeds.length})</span>
             </h4>
           </div>
 

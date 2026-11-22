@@ -47,6 +47,7 @@ export interface CpcbNaqiCalculationResult {
   monitoredPollutantCount: number;
   missingRequirements: string[];
   notes: string;
+  classification: 'statutory_compliant' | 'indicative_subindex' | 'unavailable';
 }
 
 // ---------------------------------------------------------------------------
@@ -214,6 +215,7 @@ export function calculateComprehensiveCpcbNaqi(input: PollutantInput): CpcbNaqiC
       monitoredPollutantCount: 0,
       missingRequirements: ['No valid pollutant concentrations available.'],
       notes: 'Insufficient telemetry to calculate National AQI.',
+      classification: 'unavailable',
     };
   }
 
@@ -228,6 +230,7 @@ export function calculateComprehensiveCpcbNaqi(input: PollutantInput): CpcbNaqiC
     isDataSufficient,
     monitoredPollutantCount: monitoredCount,
     missingRequirements,
+    classification: isDataSufficient ? 'statutory_compliant' : 'indicative_subindex',
     notes: isDataSufficient
       ? `Statutory CPCB NAQI compliant (${monitoredCount} pollutants; dominant: ${dominant}).`
       : `Indicative sub-index based on ${monitoredCount} available pollutants (${missingRequirements.join('; ')}).`,

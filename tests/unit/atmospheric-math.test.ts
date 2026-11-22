@@ -64,6 +64,23 @@ describe('Atmospheric Math & Exposure Toxicology Engine', () => {
       expect(getGrapStage(110).stage).toBe('Normal');
     });
 
+    it('30 & 31. High AQI threshold is clearly marked indicative and never claims verified statutory order', () => {
+      const stage4 = getGrapStage(480);
+      expect(stage4.stage).toBe('Stage IV');
+      expect(stage4.isStatutoryOrderVerified).toBe(false);
+      expect(stage4.benchmarkType).toBe('indicative_threshold');
+      expect(stage4.label).toContain('Indicative');
+      expect(stage4.advisory).toContain('CAQM');
+    });
+
+    it('33. Unavailable regulatory feed or missing AQI produces unverified-status state', () => {
+      const unavail = getGrapStage(null);
+      expect(unavail.stage).toBe('Unavailable');
+      expect(unavail.isStatutoryOrderVerified).toBe(false);
+      expect(unavail.benchmarkType).toBe('unverified');
+      expect(unavail.label).toContain('Unverified');
+    });
+
     it('calculates Berkeley Earth cigarette equivalence with single-decimal precision', () => {
       expect(calculateCigaretteEquivalence(220)).toBe(10.0);
       expect(calculateCigaretteEquivalence(44)).toBe(2.0);

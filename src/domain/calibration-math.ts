@@ -11,7 +11,7 @@
 export interface CalibrationResult {
   rawPm25: number;
   calibratedPm25: number;
-  rhPercent: number;
+  rhPercent: number | null;
   correctionFactor: number; // calibratedPm25 / rawPm25 ratio
   formulaName: string;
   applied: boolean;
@@ -26,8 +26,8 @@ export interface CalibrationResult {
  * PM2.5_corrected = 0.524 * PM2.5_raw - 0.0862 * RH + 5.75
  *
  * @param rawPm25 Raw particulate concentration in µg/m³
- * @param rhPercent Relative humidity in percent [0-100]
- * @returns Calibrated PM2.5 concentration in µg/m³
+ * @param rhPercent Relative humidity in percent [0-100]. Must be authentic measured humidity.
+ * @returns Calibrated PM2.5 concentration in µg/m³ or uncalibrated result when RH is unavailable.
  */
 export function applyEpaBarkjohnCalibration(
   rawPm25: number | null | undefined,
@@ -37,12 +37,14 @@ export function applyEpaBarkjohnCalibration(
     return null;
   }
 
+  const hasValidRh = rhPercent !== null && rhPercent !== undefined && Number.isFinite(rhPercent);
+
   // If concentration is 0 (clean air), calibrated is 0
   if (rawPm25 === 0) {
     return {
       rawPm25: 0,
       calibratedPm25: 0,
-      rhPercent: rhPercent ?? 50,
+      rhPercent: hasValidRh ? Math.min(100, Math.max(0, rhPercent!)) : null,
       correctionFactor: 1.0,
       formulaName: 'US EPA Barkjohn (Zero Baseline)',
       applied: true,
@@ -50,10 +52,21 @@ export function applyEpaBarkjohnCalibration(
     };
   }
 
-  // Default to 50% RH if ambient humidity is temporarily missing
-  const effectiveRh = (rhPercent !== null && rhPercent !== undefined && Number.isFinite(rhPercent))
-    ? Math.min(100, Math.max(0, rhPercent))
-    : 50;
+  // Never invent 50% RH if ambient humidity is missing.
+  // Barkjohn is strictly humidity-dependent: without measured RH, retain raw reading uncalibrated.
+  if (!hasValidRh) {
+    return {
+      rawPm25: Math.round(rawPm25 * 10) / 10,
+      calibratedPm25: Math.round(rawPm25 * 10) / 10,
+      rhPercent: null,
+      correctionFactor: 1.0,
+      formulaName: 'Uncalibrated (Missing Ambient RH)',
+      applied: false,
+      notes: 'EPA Barkjohn de-humidification suspended because ambient relative humidity is unavailable.',
+    };
+  }
+
+  const effectiveRh = Math.min(100, Math.max(0, rhPercent!));
 
   // Barkjohn equation
   let corrected = 0.524 * rawPm25 - 0.0862 * effectiveRh + 5.75;
@@ -83,13 +96,21 @@ export function calibrateCommunitySensorReading(
   rhPercent: number | null | undefined,
   sensorType: 'pms5003' | 'sds011' | 'sps30' | 'generic_opc' = 'generic_opc'
 ): { calibratedPm25: number | null; isCalibrated: boolean; formula: string } {
-  if (rawPm25 === null || rawPm25 === undefined) {
+  if (rawPm25 === null || rawPm25 === undefined || !Number.isFinite(rawPm25) || rawPm25 < 0) {
     return { calibratedPm25: null, isCalibrated: false, formula: 'none' };
   }
 
   const result = applyEpaBarkjohnCalibration(rawPm25, rhPercent);
   if (!result) {
     return { calibratedPm25: null, isCalibrated: false, formula: 'none' };
+  }
+
+  if (!result.applied) {
+    return {
+      calibratedPm25: result.rawPm25,
+      isCalibrated: false,
+      formula: 'Uncalibrated (RH unavailable)',
+    };
   }
 
   return {

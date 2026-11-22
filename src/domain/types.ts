@@ -60,6 +60,7 @@ export interface TelemetryCacheMetadata {
 }
 
 export type GroundStationType = 'official_reference' | 'community_optical' | 'user_device';
+export type GroundStationState = 'registry_only' | 'live_observation' | 'stale_observation' | 'measurement_unavailable';
 
 export interface GroundStationMetadata {
   stationId: string | number;
@@ -69,7 +70,10 @@ export interface GroundStationMetadata {
   longitude: number;
   provider: string; // e.g. "CPCB (Central Pollution Control Board)", "DPCC", "Sensor.Community", "AirGradient Local"
   stationType: GroundStationType;
+  stationState?: GroundStationState;
   lastUpdated: string;
+  observedAt?: string | null; // Genuine observation timestamp from source
+  retrievedAt?: string;       // Timestamp when client/server fetched the data
   pm25: number | null;
   pm10: number | null;
   rawPm25?: number | null;
@@ -165,6 +169,7 @@ export interface EnsembleConsensusAnalysis {
   summaryNote: string;
   provenanceNote: string;
   isUnavailable?: boolean;
+  isSingleModelActive?: boolean;
 }
 
 export interface MetricAvailability {
@@ -222,6 +227,7 @@ export interface AtmosphericMetrics {
 
   cpcbAqi?: number | null;
   cpcbCategory?: string | null;
+  cpcbStatus?: 'statutory_compliant' | 'indicative_subindex' | 'unavailable';
   sourceAttribution?: string;
   hourlyForecast?: HourlyAtmosphericPoint[];
   ensemble?: EnsembleConsensusAnalysis;
