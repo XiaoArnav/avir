@@ -32,6 +32,7 @@ import {
   getPhysicalStationDeduplicationKey,
   getActivePhysicalSources,
   evaluateMeasurementEligibility,
+  registerVerifiedStationMapping,
 } from '@/config/environmental-sources';
 import { EnvironmentalSourceRecord } from '@/domain/types';
 
@@ -336,6 +337,15 @@ describe('AVIR Step 4: Official CPCB/CAAQMS Provider & NAQI Engine', () => {
         provenance: { licenseOrAttribution: 'US EPA AirNow', isModel: false, limitations: [] },
       };
 
+      // Before registration: distinct provider namespaces do not merge
+      expect(getPhysicalStationDeduplicationKey(openAqRecord)).toBe('provider:openaq:5001');
+      expect(getPhysicalStationDeduplicationKey(airNowRecord)).toBe('provider:airnow:chanakyapuri');
+      expect(getPhysicalStationDeduplicationKey(openAqRecord)).not.toBe(getPhysicalStationDeduplicationKey(airNowRecord));
+
+      // After registration of authoritative verified link
+      registerVerifiedStationMapping('openaq:5001', 'us_embassy_chanakyapuri');
+      registerVerifiedStationMapping('airnow:chanakyapuri', 'us_embassy_chanakyapuri');
+
       const key1 = getPhysicalStationDeduplicationKey(openAqRecord);
       const key2 = getPhysicalStationDeduplicationKey(airNowRecord);
 
@@ -392,7 +402,7 @@ describe('AVIR Step 4: Official CPCB/CAAQMS Provider & NAQI Engine', () => {
       expect(calculateSubIndex('pb', 1.5)).toBe(145);
       expect(calculateSubIndex('pb', 2.5)).toBe(245);
       expect(calculateSubIndex('pb', 3.3)).toBe(350);
-      expect(calculateSubIndex('pb', 4.25)).toBe(451);
+      expect(calculateSubIndex('pb', 4.25)).toBe(447);
     });
 
     it('22. Enforces explicit CO units and rejects magnitude-based guessing', () => {
@@ -441,7 +451,7 @@ describe('AVIR Step 4: Official CPCB/CAAQMS Provider & NAQI Engine', () => {
       });
       expect(snapshotResult.isDataSufficient).toBe(true);
       expect(snapshotResult.classification).toBe('indicative_snapshot');
-      expect(snapshotResult.notes).toContain('instantaneous/hourly rather than statutory 24-hr average');
+      expect(snapshotResult.notes).toContain('instantaneous/hourly snapshot rather than verified statutory 24-hr/8-hr averages');
     });
 
     it('25. CPCB category mapping adheres strictly to official color/severity bands', () => {

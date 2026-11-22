@@ -90,7 +90,9 @@ export type OfficialProviderStatus =
   | 'stale'
   | 'upstream_error'
   | 'schema_changed'
-  | 'unavailable';
+  | 'unavailable'
+  | 'partial'
+  | 'untimed';
 
 export interface OfficialGroundProviderResult {
   providerId: string;
@@ -102,6 +104,9 @@ export interface OfficialGroundProviderResult {
   activePm25Count: number;
   activePm10Count: number;
   availableStationCount?: number;
+  isPartial?: boolean;
+  totalReported?: number;
+  totalFetched?: number;
   errorCode?: string;
   errorMessage?: string;
 }
@@ -208,6 +213,8 @@ export interface SourceMeasurement {
   rawUncalibratedValue?: number | null;
   calibrationApplied?: string | null;
   qualityFlag?: 'valid' | 'suspect' | 'calibrated' | 'raw' | 'rejected';
+  min?: number | null;
+  max?: number | null;
 }
 
 export interface EnvironmentalSourceRecord {

@@ -26,10 +26,13 @@ describe('Statutory CPCB NAQI 8-Pollutant Calculation Engine', () => {
       expect(calculateSubIndex('pm10', 250)).toBe(200);
     });
 
-    it('auto-converts CO from ug/m3 to mg/m3 when values > 50', () => {
-      // 2000 ug/m3 = 2.0 mg/m3 -> Satisfactory (100)
-      const subIdx = calculateSubIndex('co', 2000);
-      expect(subIdx).toBe(100);
+    it('calculates CO with explicit units and strictly rejects untyped CO without unit', () => {
+      // With explicit unit 'ug/m3': 2000 ug/m3 = 2.0 mg/m3 -> Satisfactory (100)
+      expect(calculateSubIndex('co', 2000, 'ug/m3')).toBe(100);
+      expect(calculateSubIndex('co', 2.0, 'mg/m3')).toBe(100);
+      // Strict invariant: CO without unit must be rejected (return null)
+      expect(calculateSubIndex('co', 2000)).toBeNull();
+      expect(calculateSubIndex('co', 2.0)).toBeNull();
     });
 
     it('returns null for negative or non-finite inputs', () => {
@@ -39,11 +42,12 @@ describe('Statutory CPCB NAQI 8-Pollutant Calculation Engine', () => {
   });
 
   describe('Official Data Sufficiency Criteria (MoEFCC / CPCB Rules)', () => {
-    it('approves statutory compliance when at least 3 pollutants are present including PM2.5', () => {
+    it('approves statutory compliance when at least 3 pollutants are present including PM2.5 with verified averaging', () => {
       const result = calculateComprehensiveCpcbNaqi({
         pm25: 110, // Sub-index: ~266 (Poor)
         no2: 45,   // Sub-index: ~58 (Satisfactory)
         so2: 25,   // Sub-index: ~31 (Good)
+        is24HourAveraged: true,
       });
 
       expect(result.isDataSufficient).toBe(true);
@@ -52,17 +56,21 @@ describe('Statutory CPCB NAQI 8-Pollutant Calculation Engine', () => {
       expect(result.dominantPollutant).toBe('PM2.5');
       expect(result.aqi).toBeGreaterThanOrEqual(250);
       expect(result.category).toBe('Poor');
+      expect(result.classification).toBe('statutory_compliant');
     });
 
-    it('approves statutory compliance when PM10 is monitored with 2 other pollutants', () => {
+    it('approves statutory compliance when PM10 is monitored with 2 other pollutants with verified averaging', () => {
       const result = calculateComprehensiveCpcbNaqi({
         pm10: 280, // Poor
         no2: 30,
         co: 800,
+        coUnit: 'ug/m3',
+        is24HourAveraged: true,
       });
 
       expect(result.isDataSufficient).toBe(true);
       expect(result.dominantPollutant).toBe('PM10');
+      expect(result.classification).toBe('statutory_compliant');
     });
 
     it('flags data insufficiency when fewer than 3 pollutants are available', () => {
@@ -85,6 +93,7 @@ describe('Statutory CPCB NAQI 8-Pollutant Calculation Engine', () => {
         no2: 50,
         so2: 30,
         co: 1200,
+        coUnit: 'ug/m3',
         // No PM2.5 and no PM10!
       });
 
@@ -108,7 +117,7 @@ describe('Statutory CPCB NAQI 8-Pollutant Calculation Engine', () => {
     });
 
     it('37 & 38. Valid pollutant zeros remain valid and are not treated as missing', () => {
-      const result = calculateComprehensiveCpcbNaqi({ pm25: 0, no2: 0, so2: 0 });
+      const result = calculateComprehensiveCpcbNaqi({ pm25: 0, no2: 0, so2: 0, is24HourAveraged: true });
       expect(result.isDataSufficient).toBe(true);
       expect(result.aqi).toBe(0);
       expect(result.category).toBe('Good');

@@ -226,16 +226,12 @@ export function evaluateMeasurementEligibility(
 }
 
 /**
- * Verified Cross-Provider Physical Station Mappings.
- * Maps provider-scoped station keys (e.g. "openaq:5001") to a canonical physical station ID.
- * Cross-provider records are merged ONLY when present in this verified mapping or when
- * they share identical verified upstream provenance (upstreamProviderId + stationId).
+ * Verified Cross-Provider Physical Station Mappings (Defect 8).
+ * Maps provider-scoped station keys (e.g. "provider:stationId") to a canonical physical station ID.
+ * Unverified hardcoded mappings have been eliminated to prevent false cross-provider collation.
+ * Mappings must be registered with verified authoritative documentary evidence.
  */
-export const VERIFIED_CROSS_PROVIDER_STATION_MAP: Record<string, string> = {
-  // Verified collocation: OpenAQ location 5001 is US Department of State / AirNow reference monitor at Chanakyapuri, New Delhi
-  'openaq:5001': 'us_embassy_chanakyapuri',
-  'airnow:chanakyapuri': 'us_embassy_chanakyapuri',
-};
+export const VERIFIED_CROSS_PROVIDER_STATION_MAP: Record<string, string> = {};
 
 /**
  * Register a verified cross-provider station mapping at runtime.

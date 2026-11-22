@@ -10,7 +10,7 @@
 - **Baseline Commit**: `7e308a817581e542ae8686bb86ba20f758082f46`
 - **Implementation Branch**: `feat/avir-04-official-ground-station-integration`
 - **Recommended PR Title**: `feat(telemetry): implement verified CPCB/CAAQMS ground-station ingestion`
-- **Status**: Code Complete & Verified (28 Test Files, 440/440 Passing Tests). Operational live data retrieval is awaiting server environment configuration of `DATA_GOV_IN_API_KEY`.
+- **Status**: Code Complete & Verified (29 Test Files, 506/506 Passing Tests, Zero TypeScript Errors, Clean Next.js Build). Operational live data retrieval is awaiting server environment configuration of `DATA_GOV_IN_API_KEY`.
 
 ---
 
@@ -138,20 +138,73 @@ Two primary candidate sources were audited for programmatic CPCB/CAAQMS ground o
 - Displays `"No Station in Range"` message when no regulatory reference monitor exists within 35 km.
 - CPCB NAQI card clearly displays classification: `Statutory Compliant (24-hr)`, `Indicative Snapshot`, or `Indicative Sub-Index`.
 
+### H. Critical Corrective Hotfix: 10 Data-Integrity Gaps Closed
+
+1. **Statistical Integrity (Zero Fabricated Averages)**:
+   - Eliminated fallback from `pollutant_avg` to `pollutant_max` or `pollutant_min`. An extreme peak is never reported as an average.
+   - If `pollutant_avg` is missing/null, no valid average measurement is synthesized. Valid zero concentrations (`0`) are preserved.
+   - Preserved `pollutant_min` and `pollutant_max` in typed fields (`min?: number | null; max?: number | null;`).
+
+2. **Measurement Freshness & Untimed Reading Classification**:
+   - Removed default `'fresh'` status and removed logic that marked untimed readings as `'fresh'`.
+   - Any observation without a valid timestamp is classified as `'unavailable'` (never `'fresh'`).
+   - PM10 timestamp does not qualify PM2.5 freshness.
+
+3. **Strict Scientific Units & CO Magnitude Heuristic Elimination**:
+   - Completely removed legacy magnitude guessing (`if (!unit && conc > 50) conc /= 1000`).
+   - Requires explicit unit `'mg/m3'` or `'ug/m3'` for CO calculation; untyped CO returns `null`.
+   - Unsupported or unknown units are excluded from valid measurements.
+
+4. **Affirmative Evidence for Statutory CPCB NAQI Compliance**:
+   - Eliminated default assuming 24-hr averaging (`const is24HrVerified = input.is24HourAveraged !== false`).
+   - Missing boolean now strictly defaults to `false` (no affirmative evidence).
+   - Affirmative evidence requires explicit `input.is24HourAveraged === true` or explicit statutory averaging periods (1440 min for 24-hr criteria pollutants, 480 min for 8-hr CO/O3).
+   - Genuinely sufficient measurements without 24-hr verification are classified as `indicative_snapshot`.
+   - Discrete statutory tiers for Lead (Pb) enforced: Good (0-0.5), Satisfactory (0.6-1.0), Moderate (1.1-2.0), Poor (2.1-3.0), Very Poor (3.1-3.5), Severe (3.6-5.0), eliminating overlapping boundary at 3.5.
+
+5. **Strict IST Calendar Validation**:
+   - Implemented `isValidCalendarDate()` and `isValidTime()`.
+   - Rejects impossible dates (e.g., Feb 30, non-leap Feb 29, month 13, day 32, hour 25, minute 75).
+   - Format A (`DD-MM-YYYY HH:mm:ss`) strictly parsed to UTC with explicit `+05:30`.
+   - Format B (`YYYY-MM-DD HH:mm:ss`) without offset defaults to IST (+05:30).
+   - Format C/D (`YYYY-MM-DDTHH:mm:ssZ` / `+05:30`) respects the explicit offset without double-offsetting.
+   - Eliminated permissive fallback to `Date.parse()`.
+
+6. **Bounded Pagination & Deduplication**:
+   - Implemented bounded pagination loop with `limit=500`, `maxPages=5` (up to 2,500 records).
+   - Deduplicates records across page boundaries.
+   - Preserves partial records on late-page rate limits or timeouts, marking `isPartial: true` and `status: 'partial'`. Never labels an incomplete query as definitive `no_coverage`.
+
+7. **Composite Cancellation & Safe Timeouts**:
+   - Implemented `createCombinedAbortSignal()` composing external caller signals with internal 8-second timeout.
+   - Cleanly cleans up timer handles to prevent event loop leaks.
+
+8. **Station Identity & Provenance Cleanup**:
+   - Cleared unverified hardcoded mappings from `VERIFIED_CROSS_PROVIDER_STATION_MAP`. Mappings now require runtime registration via `registerVerifiedStationMapping()` backed by authoritative documentation.
+   - Constructed city-scoped record IDs (`cpcb-${stateSlug}-${citySlug}-${stationSlug}`) preventing collisions between identically named stations across cities.
+   - Operating agency extracted only from verified station suffixes (DPCC, UPPCB, HSPCB, etc.); unknown agency is preserved as unknown, never defaulted to CPCB.
+   - Hardcoded instrument claims (BAM/TEOM) replaced with neutral CAAQMS continuous stream wording.
+
+9. **Provider Result Semantics & ObservedThrough Calculation**:
+   - `observedThrough` computed from the maximum valid observation timestamp among all retrieved measurements (not from `sources[0]`).
+   - `activePm25Count` and `activePm10Count` strictly derived using `getActivePhysicalSources`.
+   - Sanitized all error messages and codes so `api-key` is never leaked.
+
 ---
 
 ## 5. Verification & Test Evidence
 
 ### Automated Test Suite
-- **Total Test Files**: 28 passed (28)
-- **Total Tests**: 440 passed (440)
+- **Total Test Files**: 29 passed (29)
+- **Total Tests**: 506 passed (506)
 - **New Test Files Added**:
   1. `tests/unit/cpcb-provider.test.ts` (25 tests covering Groups A, B, C, D)
   2. `tests/integration/step4-official-ground-stations.test.tsx` (9 tests covering Group E, API route, and UI modal)
+  3. `tests/integration/step4-corrective-hotfix.test.ts` (66 comprehensive regression tests covering Groups A-H)
 
 ### Production Build & Compiler
 - `npx tsc --noEmit`: Exited 0 (zero type errors).
-- `npm run build`: Compiled 7/7 routes successfully (including new dynamic route `/api/telemetry/cpcb`).
+- `npm run build`: Compiled 7/7 routes successfully (including new dynamic routes).
 
 ### Genuine Live-Source Testing Probe
 - **Target Endpoint**: `https://api.data.gov.in/resource/3b01bcb8-0b14-4abf-b6f2-c1bfd384ba69`
@@ -167,8 +220,8 @@ Two primary candidate sources were audited for programmatic CPCB/CAAQMS ground o
 - [x] Dedicated official data adapter implemented (`src/services/providers/cpcb-provider.ts`).
 - [x] Selected source and access method documented (`data.gov.in` resource `3b01bcb8-0b14-4abf-b6f2-c1bfd384ba69`).
 - [x] Authenticated data retrieval implemented when credentials are present.
-- [x] Original measurement values and units preserved.
-- [x] Original observation timestamps preserved with strict IST parsing.
+- [x] Original measurement values and units preserved without synthetic averages.
+- [x] Original observation timestamps preserved with strict IST parsing and calendar validation.
 - [x] Unknown averaging periods remain `null`.
 - [x] Official station identifiers separated from internal Avir IDs.
 - [x] Unverified cross-provider mappings removed.
@@ -179,21 +232,22 @@ Two primary candidate sources were audited for programmatic CPCB/CAAQMS ground o
 - [x] Provider failure does not crash the dashboard.
 - [x] Official observations and model predictions remain distinct.
 - [x] Mode A / B / C comparison safeguards active.
+- [x] Bounded pagination and composite cancellation implemented.
 
 ### Regulatory and Scientific Integrity
 - [x] CPCB breakpoints verified against official MoEFCC documentation.
 - [x] Explicit CO unit handling enforced; magnitude guessing eliminated.
-- [x] Full Lead (Pb) support implemented across all 6 regulatory bands.
-- [x] Averaging-period eligibility enforced (`indicative_snapshot` for instantaneous/hourly readings).
+- [x] Full Lead (Pb) support implemented across all 6 regulatory bands without overlapping boundaries.
+- [x] Averaging-period eligibility enforced (`indicative_snapshot` for instantaneous/hourly readings; requires affirmative 24-hr evidence for statutory compliance).
 - [x] Data sufficiency enforced ($\ge 3$ pollutants including $\text{PM}_{2.5}$ or $\text{PM}_{10}$).
 - [x] Officially published and Avir-derived AQI distinguished.
 - [x] Unsupported causal ground-model interpretations replaced with neutral physical descriptions.
 
 ### Quality and Release
-- [x] All 406 previous automated tests pass without regression.
-- [x] 34 new Step 4 tests pass (Total: 440 passing tests).
+- [x] All 440 previous automated tests pass without regression.
+- [x] 66 new corrective hotfix regression tests pass (Total: 506 passing tests across 29 test files).
 - [x] TypeScript compiler passes with zero errors.
-- [x] Production build passes cleanly.
+- [x] Production build passes cleanly (7/7 routes).
 - [x] Zero secrets committed to Git.
-- [x] Dedicated implementation documentation created.
-- [x] Reviewable PR opened against `main`.
+- [x] Dedicated implementation documentation created and updated.
+- [x] Reviewable PR #11 updated with verified hotfix commit.
