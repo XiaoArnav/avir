@@ -45,7 +45,7 @@ describe('AtmosphereHero Zero-Fabrication & Timeline Integrity', () => {
   });
 
   it('maps AQI categories with null fallback to conservative alert without crashing', () => {
-    expect(getAQICategory(null)).toBe('Hazardous');
+    expect(getAQICategory(null)).toBe('Unavailable');
     expect(getAQICategory(25)).toBe('Good');
     expect(getAQICategory(75)).toBe('Moderate');
     expect(getAQICategory(125)).toBe('UnhealthySensitive');

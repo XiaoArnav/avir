@@ -5,17 +5,20 @@ import {
   calculateCommuteExposure,
   CommuteTransitMode,
 } from '@/domain/advanced-air-math';
-import { Navigation, Train, Car, Bus, Bike, ShieldCheck, Cigarette } from 'lucide-react';
+import { Navigation, Train, Car, Bus, Bike, ShieldCheck, Cigarette, AlertTriangle } from 'lucide-react';
 
 interface CommuteCalculatorProps {
-  ambientPm25: number;
+  ambientPm25: number | null;
 }
 
 export const CommuteCalculator: React.FC<CommuteCalculatorProps> = ({ ambientPm25 }) => {
   const [duration, setDuration] = useState<number>(45);
   const [mode, setMode] = useState<CommuteTransitMode>('metro');
 
-  if (ambientPm25 <= 0) {
+  // Strict check: 0 is valid clean air, null/undefined/NaN/<0 is unavailable
+  const isAvailable = typeof ambientPm25 === 'number' && Number.isFinite(ambientPm25) && ambientPm25 >= 0;
+
+  if (!isAvailable) {
     return (
       <div className="bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl p-5 sm:p-6 shadow-sm space-y-3">
         <div className="flex items-center gap-2.5">
@@ -27,7 +30,7 @@ export const CommuteCalculator: React.FC<CommuteCalculatorProps> = ({ ambientPm2
               Commute Smog Calculator
             </h3>
             <p className="text-xs text-ink-muted dark:text-zinc-400">
-              Awaiting live particulate readings to calculate commute inhalation dose across transit modes.
+              Awaiting live particulate readings to calculate commute inhalation dose across transit modes. Zero synthetic data is substituted.
             </p>
           </div>
         </div>
@@ -35,7 +38,8 @@ export const CommuteCalculator: React.FC<CommuteCalculatorProps> = ({ ambientPm2
     );
   }
 
-  const estimate = calculateCommuteExposure(ambientPm25, duration, mode);
+  const validPm25 = ambientPm25!;
+  const estimate = calculateCommuteExposure(validPm25, duration, mode);
 
   const transitOptions: { id: CommuteTransitMode; label: string; icon: React.ReactNode }[] = [
     { id: 'metro', label: 'Metro / Subway', icon: <Train className="w-4 h-4" /> },
@@ -58,7 +62,7 @@ export const CommuteCalculator: React.FC<CommuteCalculatorProps> = ({ ambientPm2
               Commute Smog Calculator
             </h3>
             <p className="text-xs text-ink-muted dark:text-zinc-400">
-              See how much smog you inhale across Metro, AC Car, Bus, or Bike in {ambientPm25} µg/m³ air
+              Inhalation dose model across transit modes in {validPm25} µg/m³ ambient air
             </p>
           </div>
         </div>
@@ -117,23 +121,23 @@ export const CommuteCalculator: React.FC<CommuteCalculatorProps> = ({ ambientPm2
 
         {/* Protection Efficiency */}
         <div className="p-4 rounded-xl bg-stone-50 dark:bg-zinc-800/60 border border-stone-200 dark:border-zinc-800">
-          <div className="text-xs text-ink-muted dark:text-zinc-400">Smog Blocked</div>
+          <div className="text-xs text-ink-muted dark:text-zinc-400">Relative Attenuation</div>
           <div className="mt-1 flex items-baseline gap-1.5">
             <span className="text-2xl font-mono font-bold text-emerald-500">
               -{estimate.reductionPercentage}%
             </span>
-            <span className="text-xs font-mono text-ink-muted dark:text-zinc-400">vs outside air</span>
+            <span className="text-xs font-mono text-ink-muted dark:text-zinc-400">vs open air</span>
           </div>
           <p className="mt-1 text-[11px] text-ink-muted dark:text-zinc-400">
             {estimate.reductionPercentage >= 70
-              ? 'AC filter blocks most smoke'
-              : 'Direct open air breathing risk'}
+              ? 'Enclosed cabin / filtration active'
+              : 'Direct open air exposure risk'}
           </p>
         </div>
 
         {/* Cigarette Fraction Equivalent */}
         <div className="p-4 rounded-xl bg-stone-50 dark:bg-zinc-800/60 border border-stone-200 dark:border-zinc-800">
-          <div className="text-xs text-ink-muted dark:text-zinc-400">Smoking Burden</div>
+          <div className="text-xs text-ink-muted dark:text-zinc-400">Inhaled Cigarette Equivalent</div>
           <div className="mt-1 flex items-center gap-2">
             <Cigarette className="w-5 h-5 text-rose-500 shrink-0" />
             <span className="text-2xl font-mono font-bold text-rose-500">
@@ -142,20 +146,23 @@ export const CommuteCalculator: React.FC<CommuteCalculatorProps> = ({ ambientPm2
             <span className="text-xs font-mono text-ink-muted dark:text-zinc-400">cigs</span>
           </div>
           <p className="mt-1 text-[11px] text-ink-muted dark:text-zinc-400">
-            Cigarette smoke equivalent inhaled on this route
+            Calculated at Berkeley Earth 22 µg/day = 1 cigarette
           </p>
         </div>
       </div>
 
-      {/* Recommended Survival Protocol */}
+      {/* Recommended Protocol & Scientific Disclaimer */}
       <div className="p-4 rounded-xl bg-blue-500/5 dark:bg-blue-950/20 border border-blue-500/20 flex items-start gap-3">
         <ShieldCheck className="w-5 h-5 text-blue-500 shrink-0 mt-0.5" />
         <div className="text-xs space-y-1">
           <div className="font-bold text-ink dark:text-white">
-            Safe Commute Tip ({estimate.modeLabel})
+            Commute Exposure Note ({estimate.modeLabel})
           </div>
           <p className="text-ink-muted dark:text-zinc-300">
             {estimate.protocolRecommendation}
+          </p>
+          <p className="text-[10px] text-stone-500 dark:text-zinc-500 pt-1">
+            * Modeled estimate based on standard adult minute-ventilation (~12 L/min). Real personal exposure varies with respirator fit and cabin airtightness.
           </p>
         </div>
       </div>

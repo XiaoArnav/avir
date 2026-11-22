@@ -8,8 +8,8 @@ interface SchoolSafetyAdvisoryModalProps {
   isOpen: boolean;
   onClose: () => void;
   cityName: string;
-  usAqi: number;
-  pm25: number;
+  usAqi: number | null;
+  pm25: number | null;
 }
 
 export const SchoolSafetyAdvisoryModal: React.FC<SchoolSafetyAdvisoryModalProps> = ({
@@ -23,34 +23,66 @@ export const SchoolSafetyAdvisoryModal: React.FC<SchoolSafetyAdvisoryModalProps>
 
   if (!isOpen) return null;
 
-  if (usAqi <= 0 || pm25 <= 0) {
+  // Strict check: 0 is valid clean air, null/undefined/NaN/<0 is unavailable
+  const hasAqi = typeof usAqi === 'number' && Number.isFinite(usAqi) && usAqi >= 0;
+  const hasPm25 = typeof pm25 === 'number' && Number.isFinite(pm25) && pm25 >= 0;
+  const isAvailable = hasAqi && hasPm25;
+
+  if (!isAvailable) {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+      <div 
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="school-modal-title"
+        className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
+      >
         <div className="bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4">
           <div className="flex items-center justify-between pb-3 border-b border-stone-200 dark:border-zinc-800">
-            <h3 className="text-lg font-bold text-ink dark:text-white">School Sports Advisory</h3>
-            <button onClick={onClose} className="p-1.5 rounded-lg text-ink-muted hover:text-ink dark:text-zinc-400 dark:hover:text-white" aria-label="Close modal">
+            <div className="flex items-center gap-2">
+              <GraduationCap className="w-5 h-5 text-amber-500" />
+              <h3 id="school-modal-title" className="text-lg font-bold text-ink dark:text-white">
+                School Sports Advisory
+              </h3>
+            </div>
+            <button 
+              onClick={onClose} 
+              className="p-1.5 rounded-lg text-ink-muted hover:text-ink dark:text-zinc-400 dark:hover:text-white" 
+              aria-label="Close modal"
+            >
               <X className="w-5 h-5" />
             </button>
           </div>
-          <p className="text-xs text-ink-muted dark:text-zinc-400 leading-relaxed">
-            Atmospheric telemetry is currently unavailable for {cityName}. School health circulars require verified live PM2.5 readings to calculate safety recommendations.
-          </p>
+          <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-800 dark:text-amber-300 text-xs flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5 text-amber-500" />
+            <p className="leading-relaxed">
+              Atmospheric telemetry is currently unavailable for {cityName}. School health circulars require verified live PM2.5 readings to calculate safety recommendations. Zero synthetic data is substituted.
+            </p>
+          </div>
+          <div className="flex justify-end pt-2">
+            <button
+              onClick={onClose}
+              className="px-4 py-2 rounded-xl bg-stone-100 hover:bg-stone-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-ink dark:text-white text-xs font-semibold"
+            >
+              Close
+            </button>
+          </div>
         </div>
       </div>
     );
   }
 
-  const advisory = getSchoolSportsAdvisory(usAqi, pm25);
+  const validAqi = usAqi!;
+  const validPm25 = pm25!;
+  const advisory = getSchoolSportsAdvisory(validAqi, validPm25);
 
   const copyNotice = () => {
-    const text = `URGENT SCHOOL HEALTH CIRCULAR — ${cityName.toUpperCase()}
+    const text = `SCHOOL HEALTH CIRCULAR — ${cityName.toUpperCase()}
 Date: ${new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
-Status: ${advisory.statusLabel.toUpperCase()}
+Risk Level: ${advisory.statusLabel.toUpperCase()}
 
-Live Telemetry: ${usAqi} US AQI (${pm25} µg/m³ PM2.5)
+Verified Telemetry: ${validAqi} US AQI (${validPm25} µg/m³ PM2.5)
 
-MANDATORY CAMPUS PROTOCOLS:
+RECOMMENDED CAMPUS HEALTH PROTOCOLS:
 1. Outdoor Morning Assembly: ${advisory.morningAssemblyAction}
 2. Physical Education & Athletics: ${advisory.highExertionSportsAction}
 3. Recess & Outdoor Play: ${advisory.recessAction}
@@ -58,7 +90,8 @@ MANDATORY CAMPUS PROTOCOLS:
 PEDIATRIC HEALTH ADVISORY:
 ${advisory.pediatricVulnerabilityNote}
 
-Issued via Avir Urban Air Quality Defense System: https://avir-blue.vercel.app`;
+Note: Advisories reflect pediatric respiratory guidelines. Official school operational changes are governed by statutory administrative notifications.
+Issued via Avir: https://avir-blue.vercel.app`;
 
     navigator.clipboard.writeText(text);
     setCopied(true);
@@ -66,7 +99,12 @@ Issued via Avir Urban Air Quality Defense System: https://avir-blue.vercel.app`;
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+    <div 
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="school-modal-title"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
+    >
       <div className="bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl max-w-xl w-full p-6 shadow-2xl space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between pb-3 border-b border-stone-200 dark:border-zinc-800">
@@ -75,7 +113,7 @@ Issued via Avir Urban Air Quality Defense System: https://avir-blue.vercel.app`;
               <GraduationCap className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-lg font-bold text-ink dark:text-white">
+              <h3 id="school-modal-title" className="text-lg font-bold text-ink dark:text-white">
                 School &amp; Child Outdoor Sports Advisory
               </h3>
               <p className="text-xs text-ink-muted dark:text-zinc-400">
@@ -109,7 +147,7 @@ Issued via Avir Urban Air Quality Defense System: https://avir-blue.vercel.app`;
             <AlertTriangle className="w-6 h-6 shrink-0" />
           )}
           <div>
-            <div className="text-xs font-mono uppercase font-bold">Campus Risk Level</div>
+            <div className="text-xs font-mono uppercase font-bold">Campus Guidance Level</div>
             <div className="text-sm font-bold">{advisory.statusLabel}</div>
           </div>
         </div>
@@ -149,7 +187,7 @@ Issued via Avir Urban Air Quality Defense System: https://avir-blue.vercel.app`;
           <HeartPulse className="w-5 h-5 text-rose-500 shrink-0 mt-0.5" />
           <div className="text-xs space-y-1">
             <div className="font-bold text-ink dark:text-white">
-              Pediatric Respiratory Vulnerability
+              Pediatric Respiratory Guidance
             </div>
             <p className="text-ink-muted dark:text-zinc-300 leading-relaxed">
               {advisory.pediatricVulnerabilityNote}
@@ -160,12 +198,12 @@ Issued via Avir Urban Air Quality Defense System: https://avir-blue.vercel.app`;
         {/* Actions */}
         <div className="flex items-center justify-between gap-3 pt-2">
           <p className="text-[11px] text-ink-muted dark:text-zinc-400">
-            Grounded in WHO Child Air Quality Guidelines
+            Pediatric guidelines • Zero synthetic data policy
           </p>
 
           <button
             onClick={copyNotice}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-stone-900 hover:bg-stone-800 text-white dark:bg-white dark:hover:bg-stone-100 dark:text-black font-semibold text-xs transition-colors shadow-sm"
+            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-stone-900 hover:bg-stone-800 text-white dark:bg-white dark:hover:bg-stone-100 dark:text-black font-semibold text-xs transition-colors shadow-sm cursor-pointer"
           >
             {copied ? (
               <>

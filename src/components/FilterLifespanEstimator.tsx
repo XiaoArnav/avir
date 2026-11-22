@@ -9,7 +9,7 @@ import {
 import { Shield, Sparkles, Wind, AlertCircle } from 'lucide-react';
 
 interface FilterLifespanEstimatorProps {
-  ambientPm25: number;
+  ambientPm25: number | null;
 }
 
 export const FilterLifespanEstimator: React.FC<FilterLifespanEstimatorProps> = ({
@@ -19,7 +19,10 @@ export const FilterLifespanEstimator: React.FC<FilterLifespanEstimatorProps> = (
   const [outdoorHours, setOutdoorHours] = useState<number>(2);
   const [purifierRunningHours, setPurifierRunningHours] = useState<number>(16);
 
-  if (ambientPm25 <= 0) {
+  // Strict check: 0 is valid clean air, null/undefined/NaN/<0 is unavailable
+  const isAvailable = typeof ambientPm25 === 'number' && Number.isFinite(ambientPm25) && ambientPm25 >= 0;
+
+  if (!isAvailable) {
     return (
       <div className="bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl p-5 sm:p-6 shadow-sm space-y-3">
         <div className="flex items-center gap-2.5">
@@ -31,7 +34,7 @@ export const FilterLifespanEstimator: React.FC<FilterLifespanEstimatorProps> = (
               Mask &amp; Filter Lifespan Checker
             </h3>
             <p className="text-xs text-ink-muted dark:text-zinc-400">
-              Awaiting live particulate readings to calculate accurate mask and HEPA filter saturation lifespans.
+              Awaiting live particulate readings to calculate accurate mask and HEPA filter saturation lifespans. Zero synthetic data is substituted.
             </p>
           </div>
         </div>
@@ -39,8 +42,9 @@ export const FilterLifespanEstimator: React.FC<FilterLifespanEstimatorProps> = (
     );
   }
 
-  const maskEstimate = estimateMaskLifespan(ambientPm25, outdoorHours, maskType);
-  const hepaEstimate = estimateHepaLifespan(ambientPm25, purifierRunningHours);
+  const validPm25 = ambientPm25!;
+  const maskEstimate = estimateMaskLifespan(validPm25, outdoorHours, maskType);
+  const hepaEstimate = estimateHepaLifespan(validPm25, purifierRunningHours);
 
   const maskOptions: { id: MaskStandard; label: string }[] = [
     { id: 'n95', label: 'N95 / FFP2' },
@@ -62,7 +66,7 @@ export const FilterLifespanEstimator: React.FC<FilterLifespanEstimatorProps> = (
               Mask &amp; Filter Lifespan Checker
             </h3>
             <p className="text-xs text-ink-muted dark:text-zinc-400">
-              Find out when to replace your face mask and air purifier filter under {ambientPm25} µg/m³ air
+              Estimated replacement cycles based on {validPm25} µg/m³ ambient particulate load
             </p>
           </div>
         </div>
@@ -216,6 +220,9 @@ export const FilterLifespanEstimator: React.FC<FilterLifespanEstimatorProps> = (
           </p>
         </div>
       </div>
+      <p className="text-[10px] text-stone-500 dark:text-zinc-500 text-center">
+        * Model estimates based on standard filter saturation rates. Actual lifespan depends on pre-filter cleaning frequency and indoor humidity.
+      </p>
     </div>
   );
 };

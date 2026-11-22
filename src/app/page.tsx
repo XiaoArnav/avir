@@ -93,8 +93,8 @@ export default function Home() {
         );
         if (isMounted) {
           setMetrics(data);
-          // Only generate plan if data is available and not in error
-          if (data.status !== 'error') {
+          // Only generate plan if data is available and not in error, and required measurements exist
+          if (data.status !== 'error' && data.usAqi !== null && data.pm25 !== null) {
             const initialPlan = await generateAirQualityPlan({
               city: selectedCity.name,
               metrics: data,
@@ -104,6 +104,8 @@ export default function Home() {
               geminiApiKey,
             });
             if (isMounted) setPlan(initialPlan);
+          } else {
+            if (isMounted) setPlan(null);
           }
         }
       } catch (err: any) {
@@ -127,6 +129,7 @@ export default function Home() {
     if (loc.id === selectedCity.id && loc.name === selectedCity.name) return;
     setIsTelemetryLoading(true);
     setMetrics(null); // Clear stale city metrics immediately
+    setPlan(null); // Clear stale previous city plan immediately
     setSelectedCity(loc);
   };
 
@@ -140,7 +143,7 @@ export default function Home() {
         { forceRefresh: true, cityName: selectedCity.name }
       );
       setMetrics(data);
-      if (data.status !== 'error') {
+      if (data.status !== 'error' && data.usAqi !== null && data.pm25 !== null) {
         const updatedPlan = await generateAirQualityPlan({
           city: selectedCity.name,
           metrics: data,
@@ -150,6 +153,8 @@ export default function Home() {
           geminiApiKey,
         });
         setPlan(updatedPlan);
+      } else {
+        setPlan(null);
       }
     } catch (err) {
       console.error('Failed to reload telemetry:', err);
@@ -160,7 +165,7 @@ export default function Home() {
 
   // Handle manual plan regeneration
   const handleGeneratePlan = async () => {
-    if (!metrics) return;
+    if (!metrics || metrics.status === 'error' || metrics.usAqi === null || metrics.pm25 === null) return;
     setIsPlanGenerating(true);
     try {
       const updatedPlan = await generateAirQualityPlan({
@@ -181,7 +186,7 @@ export default function Home() {
     }
   };
 
-  const aqiCategory = metrics ? getAQICategory(metrics.usAqi) : 'Hazardous';
+  const aqiCategory = metrics?.usAqi !== null && metrics?.usAqi !== undefined ? getAQICategory(metrics.usAqi) : 'Unavailable';
 
   const reductionPercentage =
     plan?.impactMetrics?.totalInhaledBaselineUg !== null &&
@@ -269,14 +274,15 @@ export default function Home() {
             {/* 3. City vs City Smog Shootout */}
             <CityShootout
               currentCityName={selectedCity.name}
-              currentAqi={metrics?.usAqi ?? 0}
-              currentPm25={metrics?.pm25 ?? 0}
+              currentAqi={metrics?.usAqi ?? null}
+              currentPm25={metrics?.pm25 ?? null}
+              currentCountry={selectedCity.country}
             />
 
             {/* 4 & 5. Commute Exposure & Mask/Filter Lifespan Calculators */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <CommuteCalculator ambientPm25={metrics?.pm25 ?? 0} />
-              <FilterLifespanEstimator ambientPm25={metrics?.pm25 ?? 0} />
+              <CommuteCalculator ambientPm25={metrics?.pm25 ?? null} />
+              <FilterLifespanEstimator ambientPm25={metrics?.pm25 ?? null} />
             </div>
 
             {/* Location Search & Health Profile */}
@@ -430,8 +436,8 @@ export default function Home() {
         isOpen={isSchoolModalOpen}
         onClose={() => setIsSchoolModalOpen(false)}
         cityName={selectedCity.name}
-        usAqi={metrics?.usAqi ?? 0}
-        pm25={metrics?.pm25 ?? 0}
+        usAqi={metrics?.usAqi ?? null}
+        pm25={metrics?.pm25 ?? null}
       />
 
       {/* 7. Instant WhatsApp & Telegram Smog Bulletin Modal */}
@@ -439,9 +445,16 @@ export default function Home() {
         isOpen={isShareModalOpen}
         onClose={() => setIsShareModalOpen(false)}
         cityName={selectedCity.name}
-        usAqi={metrics?.usAqi ?? 0}
-        pm25={metrics?.pm25 ?? 0}
-        cigarettes={metrics?.pm25 !== null && metrics?.pm25 !== undefined && metrics.pm25 > 0 ? Math.round((metrics.pm25 / 22) * 10) / 10 : 0}
+        usAqi={metrics?.usAqi ?? null}
+        pm25={metrics?.pm25 ?? null}
+        cigarettes={
+          metrics?.pm25 !== null && metrics?.pm25 !== undefined && Number.isFinite(metrics.pm25) && metrics.pm25 >= 0
+            ? Math.round((metrics.pm25 / 22) * 10) / 10
+            : null
+        }
+        sourceAttribution={metrics?.sourceAttribution}
+        provenance={metrics?.provenance}
+        timestamp={metrics?.timestamp}
       />
 
       {/* 8. Multi-Source Atmospheric Telemetry Consensus & Uncertainty Inspector */}

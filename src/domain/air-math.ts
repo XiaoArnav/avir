@@ -99,9 +99,10 @@ export function calculateAQIFromPM25(pm25: number): number {
 
 /**
  * Maps numerical AQI to clinical and public health advisory categories.
+ * Strictly preserves genuine unavailability: missing or invalid AQI returns 'Unavailable' rather than 'Hazardous'.
  */
 export function getAQICategory(aqi?: number | null): AQICategory {
-  if (aqi === null || aqi === undefined) return 'Hazardous';
+  if (aqi === null || aqi === undefined || !Number.isFinite(aqi) || aqi < 0) return 'Unavailable';
   if (aqi <= 50) return 'Good';
   if (aqi <= 100) return 'Moderate';
   if (aqi <= 150) return 'UnhealthySensitive';

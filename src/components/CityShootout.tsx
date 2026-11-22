@@ -1,37 +1,135 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { calculateCityComparison } from '@/domain/advanced-air-math';
-import { WORLD_METROS } from '@/services/world-telemetry-service';
-import { Swords, ArrowRightLeft, Cigarette, Flame, CheckCircle2 } from 'lucide-react';
+import { Swords, ArrowRightLeft, Cigarette, Flame, CheckCircle2, AlertTriangle, Loader2 } from 'lucide-react';
+
+export interface ComparisonTargetDef {
+  name: string;
+  country: string;
+  latitude: number;
+  longitude: number;
+}
+
+// Preset metro locations — configuration and geographic coordinates ONLY (Zero synthetic pollution data)
+export const COMPARISON_TARGETS: ComparisonTargetDef[] = [
+  { name: 'Tokyo', country: 'Japan', latitude: 35.6762, longitude: 139.6503 },
+  { name: 'Beijing', country: 'China', latitude: 39.9042, longitude: 116.4074 },
+  { name: 'London', country: 'United Kingdom', latitude: 51.5074, longitude: -0.1278 },
+  { name: 'New York', country: 'United States', latitude: 40.7128, longitude: -74.0060 },
+  { name: 'Lahore', country: 'Pakistan', latitude: 31.5204, longitude: 74.3587 },
+  { name: 'Bangkok', country: 'Thailand', latitude: 13.7563, longitude: 100.5018 },
+  { name: 'Sydney', country: 'Australia', latitude: -33.8688, longitude: 151.2093 },
+  { name: 'Paris', country: 'France', latitude: 48.8566, longitude: 2.3522 },
+];
 
 interface CityShootoutProps {
   currentCityName: string;
-  currentAqi: number;
-  currentPm25: number;
+  currentAqi: number | null;
+  currentPm25: number | null;
+  currentCountry?: string;
+  initialTarget?: ComparisonTargetDef;
+  comparisonTargetData?: { aqi: number | null; pm25: number | null } | null;
 }
 
 export const CityShootout: React.FC<CityShootoutProps> = ({
   currentCityName,
   currentAqi,
   currentPm25,
+  currentCountry = 'India',
+  initialTarget = COMPARISON_TARGETS[0],
+  comparisonTargetData,
 }) => {
-  // Preset comparison targets
-  const presets = [
-    { name: 'Tokyo', country: 'Japan', aqi: 26, pm25: 7.2 },
-    { name: 'Beijing', country: 'China', aqi: 88, pm25: 29.5 },
-    { name: 'London', country: 'United Kingdom', aqi: 35, pm25: 9.8 },
-    { name: 'New York', country: 'United States', aqi: 42, pm25: 11.0 },
-    { name: 'Lahore', country: 'Pakistan', aqi: 310, pm25: 260.0 },
-    { name: 'Bangkok', country: 'Thailand', aqi: 125, pm25: 45.0 },
-    { name: 'Sydney', country: 'Australia', aqi: 18, pm25: 4.5 },
-    { name: 'Paris', country: 'France', aqi: 38, pm25: 10.5 },
-  ];
-
-  const [selectedTarget, setSelectedTarget] = useState(presets[0]);
+  const [selectedTarget, setSelectedTarget] = useState<ComparisonTargetDef>(initialTarget);
   const [isSwapped, setIsSwapped] = useState(false);
+  const [targetMetrics, setTargetMetrics] = useState<{ aqi: number; pm25: number } | null>(() => {
+    if (
+      comparisonTargetData &&
+      typeof comparisonTargetData.aqi === 'number' &&
+      Number.isFinite(comparisonTargetData.aqi) &&
+      comparisonTargetData.aqi >= 0 &&
+      typeof comparisonTargetData.pm25 === 'number' &&
+      Number.isFinite(comparisonTargetData.pm25) &&
+      comparisonTargetData.pm25 >= 0
+    ) {
+      return { aqi: comparisonTargetData.aqi, pm25: comparisonTargetData.pm25 };
+    }
+    return null;
+  });
+  const [isLoadingTarget, setIsLoadingTarget] = useState(false);
+  const [targetError, setTargetError] = useState(false);
 
-  if (currentAqi <= 0 || currentPm25 <= 0) {
+  // Synchronize target telemetry when comparisonTargetData is provided via props
+  useEffect(() => {
+    if (comparisonTargetData !== undefined) {
+      if (
+        comparisonTargetData !== null &&
+        typeof comparisonTargetData.aqi === 'number' &&
+        Number.isFinite(comparisonTargetData.aqi) &&
+        comparisonTargetData.aqi >= 0 &&
+        typeof comparisonTargetData.pm25 === 'number' &&
+        Number.isFinite(comparisonTargetData.pm25) &&
+        comparisonTargetData.pm25 >= 0
+      ) {
+        setTargetMetrics({ aqi: comparisonTargetData.aqi, pm25: comparisonTargetData.pm25 });
+        setTargetError(false);
+      } else {
+        setTargetMetrics(null);
+        setTargetError(false);
+      }
+      return;
+    }
+
+    // Otherwise, fetch genuine live telemetry for target city from Open-Meteo
+    let isMounted = true;
+    const controller = new AbortController();
+
+    async function fetchTargetTelemetry() {
+      setIsLoadingTarget(true);
+      setTargetError(false);
+      try {
+        const url = `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${selectedTarget.latitude}&longitude=${selectedTarget.longitude}&current=us_aqi,pm2_5`;
+        const res = await fetch(url, { signal: controller.signal });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        const current = data?.current;
+
+        const validAqi = typeof current?.us_aqi === 'number' && Number.isFinite(current.us_aqi) && current.us_aqi >= 0;
+        const validPm25 = typeof current?.pm2_5 === 'number' && Number.isFinite(current.pm2_5) && current.pm2_5 >= 0;
+
+        if (validAqi && validPm25 && isMounted) {
+          setTargetMetrics({
+            aqi: current.us_aqi,
+            pm25: Math.round(current.pm2_5 * 10) / 10,
+          });
+        } else if (isMounted) {
+          setTargetMetrics(null);
+          setTargetError(true);
+        }
+      } catch (err: any) {
+        if (err?.name !== 'AbortError' && isMounted) {
+          setTargetError(true);
+          setTargetMetrics(null);
+        }
+      } finally {
+        if (isMounted) setIsLoadingTarget(false);
+      }
+    }
+
+    fetchTargetTelemetry();
+
+    return () => {
+      isMounted = false;
+      controller.abort();
+    };
+  }, [selectedTarget, comparisonTargetData]);
+
+  // Strict check on current city's readings (0 is valid clean air!)
+  const hasCurrentAqi = typeof currentAqi === 'number' && Number.isFinite(currentAqi) && currentAqi >= 0;
+  const hasCurrentPm25 = typeof currentPm25 === 'number' && Number.isFinite(currentPm25) && currentPm25 >= 0;
+  const isCurrentAvailable = hasCurrentAqi && hasCurrentPm25;
+
+  if (!isCurrentAvailable) {
     return (
       <div className="bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl p-5 sm:p-6 shadow-sm space-y-3">
         <div className="flex items-center gap-2.5">
@@ -51,19 +149,25 @@ export const CityShootout: React.FC<CityShootoutProps> = ({
     );
   }
 
-  const cityPrimary = isSwapped
-    ? selectedTarget
-    : { name: currentCityName, country: 'India', aqi: currentAqi, pm25: currentPm25 };
+  const currentCityData = {
+    name: currentCityName,
+    country: currentCountry,
+    aqi: currentAqi!,
+    pm25: currentPm25!,
+  };
 
-  const citySecondary = isSwapped
-    ? { name: currentCityName, country: 'India', aqi: currentAqi, pm25: currentPm25 }
-    : selectedTarget;
-
-  const comparison = calculateCityComparison(cityPrimary, citySecondary);
+  const targetCityData = targetMetrics
+    ? {
+        name: selectedTarget.name,
+        country: selectedTarget.country,
+        aqi: targetMetrics.aqi,
+        pm25: targetMetrics.pm25,
+      }
+    : null;
 
   return (
     <div className="bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl p-5 sm:p-6 shadow-sm space-y-6">
-      {/* Header */}
+      {/* Header & Target Selector */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex items-center gap-2.5">
           <div className="p-2 rounded-xl bg-rose-500/10 text-rose-500 border border-rose-500/20">
@@ -88,12 +192,12 @@ export const CityShootout: React.FC<CityShootoutProps> = ({
             id="shootout-target"
             value={selectedTarget.name}
             onChange={(e) => {
-              const found = presets.find((p) => p.name === e.target.value);
+              const found = COMPARISON_TARGETS.find((p) => p.name === e.target.value);
               if (found) setSelectedTarget(found);
             }}
             className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-stone-100 dark:bg-zinc-800 border border-stone-300 dark:border-zinc-700 text-ink dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
           >
-            {presets.map((p) => (
+            {COMPARISON_TARGETS.map((p) => (
               <option key={p.name} value={p.name}>
                 {p.name} ({p.country})
               </option>
@@ -102,7 +206,8 @@ export const CityShootout: React.FC<CityShootoutProps> = ({
 
           <button
             onClick={() => setIsSwapped(!isSwapped)}
-            className="p-1.5 rounded-lg bg-stone-100 dark:bg-zinc-800 hover:bg-stone-200 dark:hover:bg-zinc-700 text-ink dark:text-white transition-colors"
+            disabled={!targetCityData}
+            className="p-1.5 rounded-lg bg-stone-100 dark:bg-zinc-800 hover:bg-stone-200 dark:hover:bg-zinc-700 text-ink dark:text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             title="Swap cities"
             aria-label="Swap comparison order"
           >
@@ -111,135 +216,165 @@ export const CityShootout: React.FC<CityShootoutProps> = ({
         </div>
       </div>
 
-      {/* Side-by-Side Comparison Arena */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* City A Card */}
-        <div
-          className={`p-4 rounded-xl border transition-all ${
-            cityPrimary.aqi > citySecondary.aqi
-              ? 'bg-rose-500/5 dark:bg-rose-950/20 border-rose-500/30'
-              : 'bg-emerald-500/5 dark:bg-emerald-950/20 border-emerald-500/30'
-          }`}
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-mono font-bold text-ink-muted dark:text-zinc-400 uppercase">
-              Primary City
-            </span>
-            {cityPrimary.aqi > citySecondary.aqi ? (
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/10 text-rose-500 border border-rose-500/20 flex items-center gap-1">
-                <Flame className="w-3 h-3" /> More Polluted
-              </span>
-            ) : (
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 flex items-center gap-1">
-                <CheckCircle2 className="w-3 h-3" /> Cleaner
-              </span>
-            )}
-          </div>
-
-          <h4 className="mt-2 text-xl font-bold text-ink dark:text-white">
-            {cityPrimary.name}
-          </h4>
-          <p className="text-xs text-ink-muted dark:text-zinc-400">{cityPrimary.country}</p>
-
-          <div className="mt-4 grid grid-cols-3 gap-2 text-center">
-            <div className="p-2 rounded-lg bg-white/60 dark:bg-zinc-900/60 border border-stone-200 dark:border-zinc-800">
-              <div className="text-[10px] text-ink-muted dark:text-zinc-400">US AQI</div>
-              <div className="text-lg font-mono font-bold text-ink dark:text-white">
-                {cityPrimary.aqi}
-              </div>
-            </div>
-            <div className="p-2 rounded-lg bg-white/60 dark:bg-zinc-900/60 border border-stone-200 dark:border-zinc-800">
-              <div className="text-[10px] text-ink-muted dark:text-zinc-400">PM2.5</div>
-              <div className="text-lg font-mono font-bold text-ink dark:text-white">
-                {cityPrimary.pm25}
-              </div>
-            </div>
-            <div className="p-2 rounded-lg bg-white/60 dark:bg-zinc-900/60 border border-stone-200 dark:border-zinc-800">
-              <div className="text-[10px] text-ink-muted dark:text-zinc-400">Cigarettes</div>
-              <div className="text-lg font-mono font-bold text-rose-500">
-                ~{comparison.cityA.cigarettes}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* City B Card */}
-        <div
-          className={`p-4 rounded-xl border transition-all ${
-            citySecondary.aqi > cityPrimary.aqi
-              ? 'bg-rose-500/5 dark:bg-rose-950/20 border-rose-500/30'
-              : 'bg-emerald-500/5 dark:bg-emerald-950/20 border-emerald-500/30'
-          }`}
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-mono font-bold text-ink-muted dark:text-zinc-400 uppercase">
-              Benchmark Capital
-            </span>
-            {citySecondary.aqi > cityPrimary.aqi ? (
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/10 text-rose-500 border border-rose-500/20 flex items-center gap-1">
-                <Flame className="w-3 h-3" /> More Polluted
-              </span>
-            ) : (
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 flex items-center gap-1">
-                <CheckCircle2 className="w-3 h-3" /> Cleaner
-              </span>
-            )}
-          </div>
-
-          <h4 className="mt-2 text-xl font-bold text-ink dark:text-white">
-            {citySecondary.name}
-          </h4>
-          <p className="text-xs text-ink-muted dark:text-zinc-400">{citySecondary.country}</p>
-
-          <div className="mt-4 grid grid-cols-3 gap-2 text-center">
-            <div className="p-2 rounded-lg bg-white/60 dark:bg-zinc-900/60 border border-stone-200 dark:border-zinc-800">
-              <div className="text-[10px] text-ink-muted dark:text-zinc-400">US AQI</div>
-              <div className="text-lg font-mono font-bold text-ink dark:text-white">
-                {citySecondary.aqi}
-              </div>
-            </div>
-            <div className="p-2 rounded-lg bg-white/60 dark:bg-zinc-900/60 border border-stone-200 dark:border-zinc-800">
-              <div className="text-[10px] text-ink-muted dark:text-zinc-400">PM2.5</div>
-              <div className="text-lg font-mono font-bold text-ink dark:text-white">
-                {citySecondary.pm25}
-              </div>
-            </div>
-            <div className="p-2 rounded-lg bg-white/60 dark:bg-zinc-900/60 border border-stone-200 dark:border-zinc-800">
-              <div className="text-[10px] text-ink-muted dark:text-zinc-400">Cigarettes</div>
-              <div className="text-lg font-mono font-bold text-emerald-500">
-                ~{comparison.cityB.cigarettes}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Analytical Verdict & Differential Gauge */}
-      <div className="p-4 rounded-xl bg-stone-50 dark:bg-zinc-800/60 border border-stone-200 dark:border-zinc-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <span className="font-bold text-sm text-ink dark:text-white">
-              Comparison Summary
-            </span>
-            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-500 font-bold">
-              {comparison.toxicityMultiplier}× Difference
-            </span>
-          </div>
-          <p className="text-xs text-ink-muted dark:text-zinc-400">
-            {comparison.verdict}
+      {/* Target Data Loading / Unavailable State */}
+      {isLoadingTarget ? (
+        <div className="p-8 text-center rounded-xl bg-stone-50 dark:bg-zinc-800/40 border border-stone-200 dark:border-zinc-800 space-y-2">
+          <Loader2 className="w-6 h-6 mx-auto animate-spin text-emerald-500" />
+          <p className="text-xs text-ink-muted dark:text-zinc-400 font-mono">
+            Fetching verified telemetry for {selectedTarget.name} ({selectedTarget.country})...
           </p>
         </div>
-
-        <div className="flex items-center gap-3 shrink-0 p-2.5 rounded-lg bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-xs">
-          <Cigarette className="w-4 h-4 text-rose-500 shrink-0" />
-          <div>
-            <div className="text-[10px] text-ink-muted dark:text-zinc-400">Smoking Difference</div>
-            <div className="font-mono font-bold text-ink dark:text-white">
-              +{comparison.cigaretteDifferential} cigs/day
-            </div>
+      ) : !targetCityData ? (
+        <div className="p-6 rounded-xl bg-stone-50 dark:bg-zinc-800/40 border border-stone-200 dark:border-zinc-800 text-center space-y-2">
+          <div className="w-10 h-10 mx-auto rounded-full bg-amber-500/10 text-amber-500 flex items-center justify-center">
+            <AlertTriangle className="w-5 h-5" />
           </div>
+          <h4 className="text-sm font-bold text-ink dark:text-white">
+            Comparison data unavailable for {selectedTarget.name}
+          </h4>
+          <p className="text-xs text-ink-muted dark:text-zinc-400 max-w-md mx-auto leading-relaxed">
+            Live atmospheric telemetry for {selectedTarget.name} ({selectedTarget.country}) could not be retrieved. Avir never uses predetermined or static readings for live city comparisons.
+          </p>
         </div>
-      </div>
+      ) : (() => {
+          const cityPrimary = isSwapped ? targetCityData : currentCityData;
+          const citySecondary = isSwapped ? currentCityData : targetCityData;
+          const comparison = calculateCityComparison(cityPrimary, citySecondary);
+
+          return (
+            <>
+              {/* Side-by-Side Comparison Arena */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* City A Card */}
+                <div
+                  className={`p-4 rounded-xl border transition-all ${
+                    cityPrimary.aqi > citySecondary.aqi
+                      ? 'bg-rose-500/5 dark:bg-rose-950/20 border-rose-500/30'
+                      : 'bg-emerald-500/5 dark:bg-emerald-950/20 border-emerald-500/30'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-mono font-bold text-ink-muted dark:text-zinc-400 uppercase">
+                      Primary City
+                    </span>
+                    {cityPrimary.aqi > citySecondary.aqi ? (
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/10 text-rose-500 border border-rose-500/20 flex items-center gap-1">
+                        <Flame className="w-3 h-3" /> More Polluted
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 flex items-center gap-1">
+                        <CheckCircle2 className="w-3 h-3" /> Cleaner
+                      </span>
+                    )}
+                  </div>
+
+                  <h4 className="mt-2 text-xl font-bold text-ink dark:text-white">
+                    {cityPrimary.name}
+                  </h4>
+                  <p className="text-xs text-ink-muted dark:text-zinc-400">{cityPrimary.country}</p>
+
+                  <div className="mt-4 grid grid-cols-3 gap-2 text-center">
+                    <div className="p-2 rounded-lg bg-white/60 dark:bg-zinc-900/60 border border-stone-200 dark:border-zinc-800">
+                      <div className="text-[10px] text-ink-muted dark:text-zinc-400">US AQI</div>
+                      <div className="text-lg font-mono font-bold text-ink dark:text-white">
+                        {cityPrimary.aqi}
+                      </div>
+                    </div>
+                    <div className="p-2 rounded-lg bg-white/60 dark:bg-zinc-900/60 border border-stone-200 dark:border-zinc-800">
+                      <div className="text-[10px] text-ink-muted dark:text-zinc-400">PM2.5</div>
+                      <div className="text-lg font-mono font-bold text-ink dark:text-white">
+                        {cityPrimary.pm25}
+                      </div>
+                    </div>
+                    <div className="p-2 rounded-lg bg-white/60 dark:bg-zinc-900/60 border border-stone-200 dark:border-zinc-800">
+                      <div className="text-[10px] text-ink-muted dark:text-zinc-400">Cigarettes</div>
+                      <div className="text-lg font-mono font-bold text-rose-500">
+                        ~{comparison.cityA.cigarettes}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* City B Card */}
+                <div
+                  className={`p-4 rounded-xl border transition-all ${
+                    citySecondary.aqi > cityPrimary.aqi
+                      ? 'bg-rose-500/5 dark:bg-rose-950/20 border-rose-500/30'
+                      : 'bg-emerald-500/5 dark:bg-emerald-950/20 border-emerald-500/30'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-mono font-bold text-ink-muted dark:text-zinc-400 uppercase">
+                      Comparison Metro
+                    </span>
+                    {citySecondary.aqi > cityPrimary.aqi ? (
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/10 text-rose-500 border border-rose-500/20 flex items-center gap-1">
+                        <Flame className="w-3 h-3" /> More Polluted
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 flex items-center gap-1">
+                        <CheckCircle2 className="w-3 h-3" /> Cleaner
+                      </span>
+                    )}
+                  </div>
+
+                  <h4 className="mt-2 text-xl font-bold text-ink dark:text-white">
+                    {citySecondary.name}
+                  </h4>
+                  <p className="text-xs text-ink-muted dark:text-zinc-400">{citySecondary.country}</p>
+
+                  <div className="mt-4 grid grid-cols-3 gap-2 text-center">
+                    <div className="p-2 rounded-lg bg-white/60 dark:bg-zinc-900/60 border border-stone-200 dark:border-zinc-800">
+                      <div className="text-[10px] text-ink-muted dark:text-zinc-400">US AQI</div>
+                      <div className="text-lg font-mono font-bold text-ink dark:text-white">
+                        {citySecondary.aqi}
+                      </div>
+                    </div>
+                    <div className="p-2 rounded-lg bg-white/60 dark:bg-zinc-900/60 border border-stone-200 dark:border-zinc-800">
+                      <div className="text-[10px] text-ink-muted dark:text-zinc-400">PM2.5</div>
+                      <div className="text-lg font-mono font-bold text-ink dark:text-white">
+                        {citySecondary.pm25}
+                      </div>
+                    </div>
+                    <div className="p-2 rounded-lg bg-white/60 dark:bg-zinc-900/60 border border-stone-200 dark:border-zinc-800">
+                      <div className="text-[10px] text-ink-muted dark:text-zinc-400">Cigarettes</div>
+                      <div className="text-lg font-mono font-bold text-emerald-500">
+                        ~{comparison.cityB.cigarettes}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Analytical Verdict & Differential Gauge */}
+              <div className="p-4 rounded-xl bg-stone-50 dark:bg-zinc-800/60 border border-stone-200 dark:border-zinc-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-sm text-ink dark:text-white">
+                      Comparison Summary
+                    </span>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-500 font-bold">
+                      {comparison.toxicityMultiplier}× Difference
+                    </span>
+                  </div>
+                  <p className="text-xs text-ink-muted dark:text-zinc-400">
+                    {comparison.verdict}
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-3 shrink-0 p-2.5 rounded-lg bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-xs">
+                  <Cigarette className="w-4 h-4 text-rose-500 shrink-0" />
+                  <div>
+                    <div className="text-[10px] text-ink-muted dark:text-zinc-400">Smoking Difference</div>
+                    <div className="font-mono font-bold text-ink dark:text-white">
+                      +{comparison.cigaretteDifferential} cigs/day
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </>
+          );
+        })()}
     </div>
   );
 };
