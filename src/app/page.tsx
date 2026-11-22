@@ -16,6 +16,7 @@ import { CityShootout } from '@/components/CityShootout';
 import { CommuteCalculator } from '@/components/CommuteCalculator';
 import { FilterLifespanEstimator } from '@/components/FilterLifespanEstimator';
 import { WindVectorGauge } from '@/components/WindVectorGauge';
+import { WindDispersionVisualizer } from '@/components/WindDispersionVisualizer';
 import { SchoolSafetyAdvisoryModal } from '@/components/SchoolSafetyAdvisoryModal';
 import { ShareBulletinModal } from '@/components/ShareBulletinModal';
 import { SettingsModal } from '@/components/SettingsModal';
@@ -250,12 +251,20 @@ export default function Home() {
               cityName={selectedCity.name}
             />
 
-            {/* 2. Meteorological Wind Vector & Smoke Transport Gauge */}
-            <WindVectorGauge
-              windDirection={metrics?.windDirection}
-              windSpeed={metrics?.windSpeed}
-              cityName={selectedCity.name}
-            />
+            {/* 2. Meteorological Wind Vector & Smoke Transport Gauge with Animated Particle Stream */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <WindVectorGauge
+                windDirection={metrics?.windDirection}
+                windSpeed={metrics?.windSpeed}
+                cityName={selectedCity.name}
+              />
+              <WindDispersionVisualizer
+                windSpeed={metrics?.windSpeed ?? null}
+                windDirection={metrics?.windDirection ?? null}
+                boundaryLayerHeight={metrics?.boundaryLayerHeight ?? null}
+                isThermalInversion={metrics?.isThermalInversionActive ?? false}
+              />
+            </div>
 
             {/* 3. City vs City Smog Shootout */}
             <CityShootout

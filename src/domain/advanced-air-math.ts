@@ -4,7 +4,8 @@
  * Filter Lifespan, Wind Vectors, School Advisories, and Social Bulletins.
  */
 
-import { HourlyAtmosphericPoint, MultiSourceTelemetryFeed, EnsembleConsensusAnalysis } from './types';
+import { HourlyAtmosphericPoint, MultiSourceTelemetryFeed, EnsembleConsensusAnalysis, GroundStationMetadata } from './types';
+import { calculateAQIFromPM25 } from './air-math';
 
 // ---------------------------------------------------------------------------
 // 1. DIURNAL SAFE HOURS FORECAST LOGIC
@@ -482,8 +483,9 @@ export function buildMultiSourceFeeds(params: {
   cpcbAqi?: number | null;
   boundaryLayerHeight: number;
   isThermalInversion: boolean;
+  groundStation?: GroundStationMetadata | null;
 }): MultiSourceTelemetryFeed[] {
-  const { pm25, usAqi, cpcbAqi } = params;
+  const { pm25, usAqi, cpcbAqi, groundStation } = params;
 
   // 1. Copernicus Atmosphere Monitoring Service (ECMWF CAMS)
   const camsPm25 = pm25;
@@ -499,9 +501,39 @@ export function buildMultiSourceFeeds(params: {
   // 4. US EPA AirNow Standard (2024 Breakpoint Revision)
   const epaAqi = usAqi;
 
-  // 5. Calibrated Ground Micro-Station Reference Network (OpenAQ)
-  const groundPm25 = pm25;
-  const groundAqi = usAqi;
+  // 5. Ground Truth Monitoring Station (CPCB CAAQMS / Sensor.Community / User BYOD)
+  let groundFeed: MultiSourceTelemetryFeed;
+  if (groundStation && groundStation.pm25 !== null && Number.isFinite(groundStation.pm25)) {
+    const groundPm25 = groundStation.pm25;
+    const groundAqi = calculateAQIFromPM25(groundPm25);
+    const stationLabel = `${groundStation.stationName} (${groundStation.distanceKm}km)`;
+
+    groundFeed = {
+      id: `ground-${groundStation.stationId}`,
+      sourceName: stationLabel,
+      provider: groundStation.provider,
+      aqi: groundAqi,
+      pm25: groundPm25,
+      confidence: groundStation.stationType === 'official_reference' ? 'High' : 'Calibrated',
+      standard: groundStation.stationType === 'official_reference' ? 'CPCB-NAQI' : 'US-EPA',
+      description: groundStation.isCalibrated
+        ? `Optical laser monitor with ${groundStation.calibrationFormula || 'US EPA Barkjohn'} de-humidification.`
+        : 'Physical regulatory ground monitor at human breathing height.',
+      provenance: 'observed',
+    };
+  } else {
+    groundFeed = {
+      id: 'openaq-surface',
+      sourceName: 'Surface Sensor Mesh (OpenAQ)',
+      provider: 'Regional Surface Calibration Network',
+      aqi: usAqi,
+      pm25,
+      confidence: 'Calibrated',
+      standard: 'US-EPA',
+      description: 'Regional surface model estimation (no physical ground station within 30 km).',
+      provenance: 'modeled_forecast',
+    };
+  }
 
   return [
     {
@@ -548,17 +580,7 @@ export function buildMultiSourceFeeds(params: {
       description: 'Revised 2024 fine particulate exposure health benchmark.',
       provenance: 'derived_calculation',
     },
-    {
-      id: 'openaq-surface',
-      sourceName: 'Surface Sensor Mesh (OpenAQ)',
-      provider: 'Calibrated Ground Micro-Station Network',
-      aqi: groundAqi,
-      pm25: groundPm25,
-      confidence: 'Calibrated',
-      standard: 'US-EPA',
-      description: 'Boundary layer surface-calibrated monitoring at human breathing height (1.5m - 3m).',
-      provenance: 'observed',
-    },
+    groundFeed,
   ];
 }
 

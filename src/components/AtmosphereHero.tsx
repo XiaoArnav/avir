@@ -8,6 +8,7 @@ import {
   getGrapStage,
 } from '@/domain/air-math';
 import { CityPanoramicBackdrop } from './CityPanoramicBackdrop';
+import { GroundStationBadge } from './GroundStationBadge';
 import {
   AlertTriangle,
   CloudFog,
@@ -424,6 +425,15 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
             )}
           </div>
         </div>
+      </div>
+
+      {/* Real Ground Truth Station & Multi-Source Transparency Bar */}
+      <div className="relative z-10 pt-3">
+        <GroundStationBadge
+          station={metrics.groundStation}
+          delta={metrics.groundModelDelta}
+          onRefresh={onRefresh}
+        />
       </div>
 
       {/* Main Atmospheric Scoreboard */}
