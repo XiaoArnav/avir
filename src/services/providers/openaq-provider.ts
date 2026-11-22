@@ -13,9 +13,26 @@
 import {
   EnvironmentalSourceRecord,
   EnvironmentalSourceStatus,
+  EnvironmentalSourceKind,
   SourceMeasurement,
 } from '@/domain/types';
 import { calculateDistanceKm } from '@/services/ground-station-service';
+
+export const OPENAQ_MIN_RADIUS_KM = 1;
+export const OPENAQ_MAX_RADIUS_KM = 25; // Official OpenAQ v3 API supported maximum radius is 25km (25,000m)
+
+export interface OpenAqSensorParameter {
+  id: number;
+  name: string;
+  units: string;
+  displayName?: string;
+}
+
+export interface OpenAqSensorMetadata {
+  id: number;
+  name?: string;
+  parameter?: OpenAqSensorParameter;
+}
 
 export interface OpenAqLocationResult {
   id: number;
@@ -25,23 +42,36 @@ export interface OpenAqLocationResult {
   country?: { code?: string; name?: string };
   owner?: { name?: string };
   provider?: { id?: number; name?: string };
+  isMonitor?: boolean;
+  isMobile?: boolean;
   coordinates?: { latitude: number; longitude: number };
-  sensors?: Array<{
-    id: number;
-    name: string;
-    parameter: { id: number; name: string; units: string; displayName?: string };
-  }>;
+  sensors?: OpenAqSensorMetadata[];
   datetimeFirst?: { utc: string; local: string };
   datetimeLast?: { utc: string; local: string };
+  latest?: OpenAqLatestMeasurementItem[];
 }
 
 export interface OpenAqLatestMeasurementItem {
-  sensorId?: number;
-  parameter?: { name: string; units: string };
+  sensorsId?: number; // Official OpenAQ v3 field
+  sensorId?: number;  // Fallback alias
+  locationsId?: number;
   value?: number | null;
-  period?: { datetimeTo?: { utc: string; local: string } };
-  datetime?: { utc: string; local: string } | string;
-  coordinates?: { latitude: number; longitude: number };
+  coordinates?: {
+    latitude: number | null;
+    longitude: number | null;
+  };
+  period?: {
+    datetimeTo?: { utc: string; local?: string };
+    interval?: string; // e.g. "01:00:00"
+  };
+  datetime?: {
+    utc: string;
+    local?: string;
+  } | string;
+  parameter?: {
+    name: string;
+    units: string;
+  }; // Legacy / mocked fallback
 }
 
 interface OpenAqCacheEntry {
@@ -59,13 +89,20 @@ export function clearOpenAqCache(): void {
 
 /**
  * Validates and normalizes pollutant concentration measurement.
+ * Never defaults unit to ug/m3 when missing.
+ * Only assigns averagingPeriodMinutes when explicitly established from metadata.
  */
 export function validateMeasurementValue(
   rawVal: any,
-  parameterName: string,
-  rawUnit: string,
-  observedTimeStr?: string | null
+  parameterName?: string | null,
+  rawUnit?: string | null,
+  observedTimeStr?: string | null,
+  averagingPeriodMinutes?: number | null
 ): SourceMeasurement | null {
+  if (!parameterName || !rawUnit) {
+    return null;
+  }
+
   const pollutantLower = parameterName.toLowerCase().replace(/[\.\s_-]/g, '');
   let pollutant: 'pm25' | 'pm10' | 'o3' | 'no2' | 'so2' | 'co' | 'nh3' | null = null;
 
@@ -89,7 +126,7 @@ export function validateMeasurementValue(
   // Preserve valid zero (zero is not missing!)
   const value = Math.round(parsed * 10) / 10;
 
-  // Unit validation (do not silently misinterpret ppm as ug/m3)
+  // Unit validation (do not silently misinterpret ppm as ug/m3, and do not default to ug/m3)
   const normUnit = rawUnit.toLowerCase().trim();
   let standardizedUnit = rawUnit;
   let isSupportedConcentrationUnit = false;
@@ -102,12 +139,16 @@ export function validateMeasurementValue(
     isSupportedConcentrationUnit = true;
   }
 
-  // If unit is unrecognized for mass concentration, keep raw unit with suspect flag
+  // Averaging period: only assign if known from metadata, otherwise null
+  const period = typeof averagingPeriodMinutes === 'number' && averagingPeriodMinutes > 0
+    ? averagingPeriodMinutes
+    : null;
+
   return {
     pollutant,
     value,
     unit: standardizedUnit,
-    averagingPeriodMinutes: 60, // standard OpenAQ hourly reporting period
+    averagingPeriodMinutes: period,
     observedAt: observedTimeStr || null,
     qualityFlag: isSupportedConcentrationUnit ? 'valid' : 'suspect',
   };
@@ -197,6 +238,9 @@ export function buildUnconfiguredOpenAqRecord(): EnvironmentalSourceRecord {
 
 /**
  * Parses OpenAQ v3 location & sensor response into normalized EnvironmentalSourceRecord.
+ * Correctly maps sensorsId to location.sensors metadata to extract parameter and units.
+ * Never defaults missing units to ug/m3.
+ * Correctly classifies based on monitor metadata rather than assuming all stations are official reference monitors.
  */
 export function parseOpenAqLocation(
   loc: OpenAqLocationResult,
@@ -214,21 +258,47 @@ export function parseOpenAqLocation(
     distanceKm = calculateDistanceKm(targetLat, targetLon, locLat, locLon);
   }
 
+  // Build sensor lookup table keyed by sensor ID
+  const sensorById = new Map<number, OpenAqSensorMetadata>(
+    loc.sensors?.map((s) => [s.id, s]) ?? []
+  );
+
   const measurements: SourceMeasurement[] = [];
   let latestObservedAt: string | null = null;
 
   // Process measurement items
   for (const m of latestMeasurements) {
-    const paramName = m.parameter?.name || '';
+    const sId = m.sensorsId ?? m.sensorId;
+    const sensor = sId != null ? sensorById.get(sId) : undefined;
+
+    // Parameter name and units MUST come from sensor metadata or m.parameter
+    const paramName = sensor?.parameter?.name || m.parameter?.name;
+    const rawUnit = sensor?.parameter?.units || m.parameter?.units;
+
+    if (!paramName || !rawUnit) {
+      // Unmatched sensor ID or missing parameter/unit metadata: do not invent values
+      continue;
+    }
+
     const rawVal = m.value;
-    const rawUnit = m.parameter?.units || 'ug/m3';
     let obsTime: string | null = null;
 
     if (typeof m.datetime === 'string') obsTime = m.datetime;
     else if (m.datetime?.utc) obsTime = m.datetime.utc;
     else if (m.period?.datetimeTo?.utc) obsTime = m.period.datetimeTo.utc;
 
-    const validated = validateMeasurementValue(rawVal, paramName, rawUnit, obsTime);
+    // Check if period interval is specified (e.g. "01:00:00" = 60m)
+    let avgPeriodMinutes: number | null = null;
+    if (m.period?.interval) {
+      const match = m.period.interval.match(/(\d+):(\d+):(\d+)/);
+      if (match) {
+        const hours = parseInt(match[1], 10);
+        const mins = parseInt(match[2], 10);
+        avgPeriodMinutes = hours * 60 + mins;
+      }
+    }
+
+    const validated = validateMeasurementValue(rawVal, paramName, rawUnit, obsTime, avgPeriodMinutes);
     if (validated) {
       measurements.push(validated);
       if (obsTime && (!latestObservedAt || Date.parse(obsTime) > Date.parse(latestObservedAt))) {
@@ -246,6 +316,18 @@ export function parseOpenAqLocation(
   const now = new Date().toISOString();
   const upstreamProvider = loc.provider?.name || loc.owner?.name || 'Local Environmental Agency';
 
+  // Classification: check isMonitor to separate official reference grade from citizen optical
+  let sourceKind: EnvironmentalSourceKind = 'physical_observation';
+  let providerKind: EnvironmentalSourceKind = 'physical_observation';
+
+  if (loc.isMonitor === true) {
+    sourceKind = 'official_ground_station';
+    providerKind = 'official_ground_station';
+  } else if (loc.isMonitor === false) {
+    sourceKind = 'community_optical';
+    providerKind = 'community_optical';
+  }
+
   return {
     id: `openaq-${loc.id}`,
     providerId: 'openaq',
@@ -255,8 +337,8 @@ export function parseOpenAqLocation(
     sourceName: `${loc.name} (OpenAQ)`,
     name: loc.name,
     provider: `OpenAQ (${upstreamProvider})`,
-    sourceKind: 'physical_observation',
-    providerKind: 'official_ground_station',
+    sourceKind,
+    providerKind,
     status: measurements.length === 0 ? 'unavailable' : freshness.status,
     latitude: locLat ?? null,
     longitude: locLon ?? null,
@@ -264,6 +346,7 @@ export function parseOpenAqLocation(
     coordinates: locLat != null && locLon != null ? { latitude: locLat, longitude: locLon, distanceKm } : null,
     observedAt: latestObservedAt,
     measuredAt: latestObservedAt,
+    validAt: null, // Physical observations have observedAt, not model validAt
     retrievedAt: now,
     ingestedAt: now,
     measurements,
@@ -276,7 +359,11 @@ export function parseOpenAqLocation(
       reportingLatencyMinutes: latestObservedAt ? Math.round((Date.now() - Date.parse(latestObservedAt)) / 60000) : undefined,
       isModel: false,
       limitations: [
-        'Direct in-situ physical ground observation aggregated via OpenAQ',
+        loc.isMonitor === true
+          ? 'Regulatory reference-grade monitor aggregated via OpenAQ'
+          : loc.isMonitor === false
+          ? 'Low-cost / community sensor aggregated via OpenAQ'
+          : 'Direct in-situ physical ground observation aggregated via OpenAQ',
         'Reporting latency and calibration depend on the originating environmental agency',
       ],
     },
@@ -286,6 +373,7 @@ export function parseOpenAqLocation(
 /**
  * Fetches OpenAQ v3 sources for given coordinates.
  * Server-side entry point.
+ * Enforces official OpenAQ v3 maximum search radius of 25km.
  */
 export async function fetchOpenAqSources(params: {
   latitude: number;
@@ -295,7 +383,7 @@ export async function fetchOpenAqSources(params: {
   signal?: AbortSignal;
   bypassCache?: boolean;
 }): Promise<EnvironmentalSourceRecord[]> {
-  const { latitude, longitude, radiusKm = 35, apiKey = process.env.OPENAQ_API_KEY, signal, bypassCache = false } = params;
+  const { latitude, longitude, radiusKm = OPENAQ_MAX_RADIUS_KM, apiKey = process.env.OPENAQ_API_KEY, signal, bypassCache = false } = params;
 
   // Validate coordinates
   if (
@@ -316,7 +404,9 @@ export async function fetchOpenAqSources(params: {
     return [buildUnconfiguredOpenAqRecord()];
   }
 
-  const radiusMeters = Math.min(100000, Math.max(1000, Math.round(radiusKm * 1000)));
+  // Official OpenAQ v3 API supports maximum 25km (25,000 meters) radius
+  const effectiveRadiusKm = Math.min(OPENAQ_MAX_RADIUS_KM, Math.max(OPENAQ_MIN_RADIUS_KM, radiusKm));
+  const radiusMeters = Math.round(effectiveRadiusKm * 1000);
   const cacheKey = `${latitude.toFixed(2)},${longitude.toFixed(2)},${radiusMeters}`;
 
   if (!bypassCache) {

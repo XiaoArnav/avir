@@ -92,17 +92,29 @@ export function deduplicateEnvironmentalSources(
 
 /**
  * Normalizes Open-Meteo numerical atmospheric chemistry model into an EnvironmentalSourceRecord.
+ * Strictly separates model valid time (validAt) from model initialization time (modelRunAt).
+ * Never labels model forecast outputs as physical observations.
  */
 export function createOpenMeteoModelRecord(params: {
   pm25: number | null;
   pm10?: number | null;
-  timestamp: string;
+  timestamp: string; // forecast or current condition valid time
   latitude: number;
   longitude: number;
   cityName?: string;
   retrievedAt?: string;
+  modelRunAt?: string | null;
 }): EnvironmentalSourceRecord {
-  const { pm25, pm10, timestamp, latitude, longitude, cityName, retrievedAt = new Date().toISOString() } = params;
+  const {
+    pm25,
+    pm10,
+    timestamp,
+    latitude,
+    longitude,
+    cityName,
+    retrievedAt = new Date().toISOString(),
+    modelRunAt = null,
+  } = params;
 
   const measurements: SourceMeasurement[] = [];
   if (pm25 !== null && Number.isFinite(pm25) && pm25 >= 0) {
@@ -110,8 +122,9 @@ export function createOpenMeteoModelRecord(params: {
       pollutant: 'pm25',
       value: Math.round(pm25 * 10) / 10,
       unit: 'ug/m3',
-      averagingPeriodMinutes: 60,
-      observedAt: timestamp,
+      averagingPeriodMinutes: 60, // hourly simulation grid average
+      observedAt: null, // Numerical model output is NOT an in-situ physical observation
+      validAt: timestamp,
       qualityFlag: 'valid',
     });
   }
@@ -122,7 +135,8 @@ export function createOpenMeteoModelRecord(params: {
       value: Math.round(pm10 * 10) / 10,
       unit: 'ug/m3',
       averagingPeriodMinutes: 60,
-      observedAt: timestamp,
+      observedAt: null,
+      validAt: timestamp,
       qualityFlag: 'valid',
     });
   }
@@ -145,11 +159,12 @@ export function createOpenMeteoModelRecord(params: {
     longitude,
     distanceKm: 0,
     coordinates: { latitude, longitude, distanceKm: 0 },
-    observedAt: timestamp,
-    measuredAt: timestamp,
+    observedAt: null, // Model output has no physical observation timestamp
+    measuredAt: null,
+    validAt: timestamp, // Forecast / model valid time
+    modelRunAt: modelRunAt ?? null, // Model run/initialization timestamp is null unless authentic init time is known
     retrievedAt,
     ingestedAt: retrievedAt,
-    modelRunAt: timestamp,
     measurements,
     attribution: 'Open-Meteo (CC BY 4.0) / ECMWF / Copernicus Atmosphere Monitoring Service',
     explanation: 'Regional numerical atmospheric dispersion and aerosol chemistry grid model (~11km resolution).',
@@ -167,8 +182,40 @@ export function createOpenMeteoModelRecord(params: {
 }
 
 /**
+ * Resolves observation timestamp or forecast valid time for comparison eligibility checks.
+ * Rejects future-dated observations (>10 min clock skew) and unparseable date strings.
+ */
+export function getSourceTimestamp(
+  source: EnvironmentalSourceRecord,
+  measurement?: SourceMeasurement | null
+): { timeStr: string | null; timestamp: number | null; error?: string } {
+  const isModel = source.sourceKind === 'atmospheric_model';
+  const timeStr = isModel
+    ? source.validAt || measurement?.validAt || null
+    : measurement?.observedAt || source.observedAt || null;
+
+  if (!timeStr) {
+    return { timeStr: null, timestamp: null, error: 'Missing measurement timestamp or valid time' };
+  }
+
+  const parsed = Date.parse(timeStr);
+  if (isNaN(parsed)) {
+    return { timeStr, timestamp: null, error: 'Unparseable or invalid timestamp' };
+  }
+
+  const now = Date.now();
+  // Check future clock skew allowance (10 min) for physical observations
+  if (!isModel && parsed > now + 10 * 60 * 1000) {
+    return { timeStr, timestamp: parsed, error: 'Future-dated physical observation timestamp rejected' };
+  }
+
+  return { timeStr, timestamp: parsed };
+}
+
+/**
  * Compares environmental sources for a target pollutant (default PM2.5).
  * Implements Mode A (Single source), Mode B (Multiple incompatible), and Mode C (Comparable).
+ * Enforces strict scientific parity: matching units, equal averaging periods, spatial (<=35km) and temporal (<=120m) parity.
  */
 export function compareEnvironmentalSources(
   rawSources: EnvironmentalSourceRecord[],
@@ -187,10 +234,17 @@ export function compareEnvironmentalSources(
   const reasons: string[] = [];
 
   for (const src of sources) {
-    if (src.status === 'not_configured' || src.status === 'registry_only' || src.status === 'unavailable' || src.status === 'stale') {
+    if (
+      src.status === 'not_configured' ||
+      src.status === 'registry_only' ||
+      src.status === 'unavailable' ||
+      src.status === 'stale'
+    ) {
       excludedSourceIds.push(src.id);
       if (src.status === 'stale') {
-        reasons.push(`${src.sourceName || src.name}: observation is stale (>24h old) and excluded from current comparison.`);
+        reasons.push(
+          `${src.sourceName || src.name}: observation is stale (>24h old) and excluded from current comparison.`
+        );
       }
       continue;
     }
@@ -198,31 +252,37 @@ export function compareEnvironmentalSources(
     const measurement = extractPollutantMeasurement(src, targetPollutant);
     if (!measurement) {
       excludedSourceIds.push(src.id);
-      reasons.push(`${src.sourceName || src.name}: does not report valid ${targetPollutant.toUpperCase()} measurement.`);
+      reasons.push(
+        `${src.sourceName || src.name}: does not report valid ${targetPollutant.toUpperCase()} measurement.`
+      );
       continue;
     }
 
     candidates.push({ source: src, measurement });
   }
 
-  // MODE A: Exactly 1 source available
+  // Helper to map candidates into ComparedSourceItem
+  const mapToComparedItem = (c: {
+    source: EnvironmentalSourceRecord;
+    measurement: SourceMeasurement;
+  }): ComparedSourceItem => ({
+    sourceId: c.source.id,
+    provider: c.source.providerName || c.source.provider || 'Environmental Provider',
+    name: c.source.sourceName || c.source.name || 'Source',
+    value: c.measurement.value!,
+    unit: c.measurement.unit,
+    measuredAt: c.measurement.observedAt || c.source.observedAt || null,
+    validAt: c.measurement.validAt || c.source.validAt || null,
+    distanceKm: c.source.distanceKm ?? null,
+    averagingPeriodMinutes: c.measurement.averagingPeriodMinutes ?? null,
+    kind: c.source.sourceKind,
+    isModel: c.source.sourceKind === 'atmospheric_model',
+  });
+
+  // MODE A: Exactly 0 or 1 source available
   if (candidates.length <= 1) {
     const single = candidates[0];
-    const compared: ComparedSourceItem[] = single
-      ? [
-          {
-            sourceId: single.source.id,
-            provider: single.source.providerName || single.source.provider || 'Environmental Provider',
-            name: single.source.sourceName || single.source.name || 'Primary Source',
-            value: single.measurement.value!,
-            unit: single.measurement.unit,
-            measuredAt: single.measurement.observedAt || single.source.observedAt || new Date().toISOString(),
-            distanceKm: single.source.distanceKm,
-            averagingPeriodMinutes: single.measurement.averagingPeriodMinutes,
-            kind: single.source.sourceKind,
-          },
-        ]
-      : [];
+    const compared: ComparedSourceItem[] = single ? [mapToComparedItem(single)] : [];
 
     return {
       targetPollutant,
@@ -231,9 +291,10 @@ export function compareEnvironmentalSources(
       sourcesCompared: compared,
       eligibleSourceIds: single ? [single.source.id] : [],
       excludedSourceIds,
-      reasons: candidates.length === 0
-        ? ['No active environmental sources reporting valid measurements.']
-        : ['Independent multi-source comparison unavailable. Exactly 1 primary environmental dataset is currently available.'],
+      reasons:
+        candidates.length === 0
+          ? ['No active environmental sources reporting valid measurements.']
+          : ['Independent multi-source comparison unavailable. Exactly 1 primary environmental dataset is currently available.'],
       incompatibilityReasons: [],
       absoluteDifferenceUgM3: null,
       absoluteDifference: null,
@@ -256,10 +317,40 @@ export function compareEnvironmentalSources(
 
   // Anchor to the primary model or closest ground station
   const anchor = candidates[0];
-  const anchorTime = anchor.measurement.observedAt || anchor.source.observedAt;
-  const anchorTimestamp = anchorTime ? Date.parse(anchorTime) : NaN;
+  const anchorTiming = getSourceTimestamp(anchor.source, anchor.measurement);
 
-  eligibleCandidates.push(anchor);
+  let anchorValid = true;
+  if (anchorTiming.error || anchorTiming.timestamp === null) {
+    anchorValid = false;
+    incompatibilityReasons.push(
+      `${anchor.source.sourceName || anchor.source.name}: ${anchorTiming.error || 'Missing measurement timestamp'}.`
+    );
+  }
+
+  if (anchor.measurement.averagingPeriodMinutes == null) {
+    anchorValid = false;
+    incompatibilityReasons.push(
+      `Missing averaging period: ${anchor.source.sourceName || anchor.source.name} does not specify an averaging interval.`
+    );
+  }
+
+  if (anchor.source.distanceKm == null || !Number.isFinite(anchor.source.distanceKm)) {
+    anchorValid = false;
+    incompatibilityReasons.push(
+      `Unknown station location: ${anchor.source.sourceName || anchor.source.name} coordinates or distance are unavailable.`
+    );
+  } else if (anchor.source.distanceKm > MAX_COMPARISON_DISTANCE_KM) {
+    anchorValid = false;
+    incompatibilityReasons.push(
+      `Station distance exceeds comparison limit: ${anchor.source.sourceName || anchor.source.name} is ${anchor.source.distanceKm}km away (limit: ${MAX_COMPARISON_DISTANCE_KM}km).`
+    );
+  }
+
+  if (anchorValid) {
+    eligibleCandidates.push(anchor);
+  } else {
+    excludedSourceIds.push(anchor.source.id);
+  }
 
   for (let i = 1; i < candidates.length; i++) {
     const c = candidates[i];
@@ -268,38 +359,50 @@ export function compareEnvironmentalSources(
     // 1. Unit compatibility
     const anchorUnit = anchor.measurement.unit.toLowerCase().trim();
     const currUnit = c.measurement.unit.toLowerCase().trim();
-    if (anchorUnit !== currUnit) {
+    if (anchorUnit !== currUnit || (currUnit !== 'ug/m3' && currUnit !== 'µg/m³')) {
       isCompatible = false;
       incompatibilityReasons.push(
-        `Incompatible units: ${anchor.source.sourceName} reports in ${anchor.measurement.unit}, while ${c.source.sourceName} reports in ${c.measurement.unit}.`
+        `Incompatible units: ${anchor.source.sourceName || anchor.source.name} reports in ${anchor.measurement.unit}, while ${c.source.sourceName || c.source.name} reports in ${c.measurement.unit}.`
       );
     }
 
     // 2. Averaging period compatibility
-    const anchorAvg = anchor.measurement.averagingPeriodMinutes ?? 60;
-    const currAvg = c.measurement.averagingPeriodMinutes ?? 60;
-    if (Math.abs(anchorAvg - currAvg) > 60 && (anchorAvg >= 1440 || currAvg >= 1440)) {
+    const anchorAvg = anchor.measurement.averagingPeriodMinutes;
+    const currAvg = c.measurement.averagingPeriodMinutes;
+    if (anchorAvg == null || currAvg == null) {
       isCompatible = false;
       incompatibilityReasons.push(
-        `Incompatible averaging periods: ${anchor.source.sourceName} (${anchorAvg}m) vs ${c.source.sourceName} (${currAvg}m).`
+        `Missing averaging period: ${anchorAvg == null ? (anchor.source.sourceName || anchor.source.name) : (c.source.sourceName || c.source.name)} does not specify an averaging interval.`
+      );
+    } else if (anchorAvg !== currAvg) {
+      isCompatible = false;
+      incompatibilityReasons.push(
+        `Incompatible averaging periods: ${anchor.source.sourceName || anchor.source.name} (${anchorAvg}m) vs ${c.source.sourceName || c.source.name} (${currAvg}m).`
       );
     }
 
     // 3. Geographic proximity limit (<= 35km)
-    const dist = c.source.distanceKm ?? 0;
-    if (dist > MAX_COMPARISON_DISTANCE_KM) {
+    if (c.source.distanceKm == null || !Number.isFinite(c.source.distanceKm)) {
       isCompatible = false;
       incompatibilityReasons.push(
-        `Station distance exceeds comparison limit: ${c.source.sourceName} is ${dist}km away (limit: ${MAX_COMPARISON_DISTANCE_KM}km).`
+        `Unknown station location: ${c.source.sourceName || c.source.name} coordinates or distance are unavailable.`
+      );
+    } else if (c.source.distanceKm > MAX_COMPARISON_DISTANCE_KM) {
+      isCompatible = false;
+      incompatibilityReasons.push(
+        `Station distance exceeds comparison limit: ${c.source.sourceName || c.source.name} is ${c.source.distanceKm}km away (limit: ${MAX_COMPARISON_DISTANCE_KM}km).`
       );
     }
 
     // 4. Temporal freshness & delta (<= 120 minutes)
-    const cTime = c.measurement.observedAt || c.source.observedAt;
-    const cTimestamp = cTime ? Date.parse(cTime) : NaN;
-
-    if (!isNaN(anchorTimestamp) && !isNaN(cTimestamp)) {
-      const timeDiffMinutes = Math.abs(anchorTimestamp - cTimestamp) / (60 * 1000);
+    const cTiming = getSourceTimestamp(c.source, c.measurement);
+    if (cTiming.error || cTiming.timestamp === null) {
+      isCompatible = false;
+      incompatibilityReasons.push(
+        `${c.source.sourceName || c.source.name}: ${cTiming.error || 'Missing measurement timestamp'}.`
+      );
+    } else if (anchorTiming.timestamp !== null) {
+      const timeDiffMinutes = Math.abs(anchorTiming.timestamp - cTiming.timestamp) / (60 * 1000);
       if (timeDiffMinutes > MAX_COMPARISON_TIME_DIFF_MINUTES) {
         isCompatible = false;
         incompatibilityReasons.push(
@@ -307,16 +410,16 @@ export function compareEnvironmentalSources(
         );
       }
 
-      const ageHours = (now - cTimestamp) / (3600 * 1000);
+      const ageHours = (now - cTiming.timestamp) / (3600 * 1000);
       if (ageHours > MAX_OBSERVATION_AGE_HOURS) {
         isCompatible = false;
         incompatibilityReasons.push(
-          `${c.source.sourceName} observation is ${Math.round(ageHours)} hours old (> 24h stale threshold).`
+          `${c.source.sourceName || c.source.name} observation is ${Math.round(ageHours)} hours old (> 24h stale threshold).`
         );
       }
     }
 
-    if (isCompatible) {
+    if (isCompatible && anchorValid) {
       eligibleCandidates.push(c);
     } else {
       excludedSourceIds.push(c.source.id);
@@ -325,17 +428,7 @@ export function compareEnvironmentalSources(
 
   // MODE B: Multiple sources available, but incompatible
   if (eligibleCandidates.length < 2) {
-    const compared: ComparedSourceItem[] = candidates.map((c) => ({
-      sourceId: c.source.id,
-      provider: c.source.providerName || c.source.provider || 'Environmental Provider',
-      name: c.source.sourceName || c.source.name || 'Source',
-      value: c.measurement.value!,
-      unit: c.measurement.unit,
-      measuredAt: c.measurement.observedAt || c.source.observedAt || new Date().toISOString(),
-      distanceKm: c.source.distanceKm,
-      averagingPeriodMinutes: c.measurement.averagingPeriodMinutes,
-      kind: c.source.sourceKind,
-    }));
+    const compared: ComparedSourceItem[] = candidates.map(mapToComparedItem);
 
     return {
       targetPollutant,
@@ -343,7 +436,7 @@ export function compareEnvironmentalSources(
       status: 'incompatible',
       sourcesCompared: compared,
       eligibleSourceIds: eligibleCandidates.map((c) => c.source.id),
-      excludedSourceIds,
+      excludedSourceIds: Array.from(new Set(excludedSourceIds)),
       reasons: incompatibilityReasons,
       incompatibilityReasons,
       absoluteDifferenceUgM3: null,
@@ -365,17 +458,7 @@ export function compareEnvironmentalSources(
   const mean = values.reduce((sum, v) => sum + v, 0) / values.length;
   const relativeDifferencePercent = mean > 0 ? Math.round((absoluteDifferenceUgM3 / mean) * 100) : 0;
 
-  const compared: ComparedSourceItem[] = eligibleCandidates.map((c) => ({
-    sourceId: c.source.id,
-    provider: c.source.providerName || c.source.provider || 'Environmental Provider',
-    name: c.source.sourceName || c.source.name || 'Source',
-    value: c.measurement.value!,
-    unit: c.measurement.unit,
-    measuredAt: c.measurement.observedAt || c.source.observedAt || new Date().toISOString(),
-    distanceKm: c.source.distanceKm,
-    averagingPeriodMinutes: c.measurement.averagingPeriodMinutes,
-    kind: c.source.sourceKind,
-  }));
+  const compared: ComparedSourceItem[] = eligibleCandidates.map(mapToComparedItem);
 
   let divergenceReason: string | null = null;
   if (relativeDifferencePercent >= 35) {
@@ -394,7 +477,7 @@ export function compareEnvironmentalSources(
     status: 'comparable',
     sourcesCompared: compared,
     eligibleSourceIds: eligibleCandidates.map((c) => c.source.id),
-    excludedSourceIds,
+    excludedSourceIds: Array.from(new Set(excludedSourceIds)),
     reasons: [],
     incompatibilityReasons: [],
     absoluteDifferenceUgM3,

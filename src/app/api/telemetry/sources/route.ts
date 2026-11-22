@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { fetchOpenAqSources } from '@/services/providers/openaq-provider';
+import {
+  fetchOpenAqSources,
+  OPENAQ_MIN_RADIUS_KM,
+  OPENAQ_MAX_RADIUS_KM,
+} from '@/services/providers/openaq-provider';
 
 export async function GET(req: NextRequest) {
   try {
@@ -17,7 +21,7 @@ export async function GET(req: NextRequest) {
 
     const lat = parseFloat(latParam);
     const lon = parseFloat(lonParam);
-    const radius = radiusParam ? parseFloat(radiusParam) : 35;
+    const radius = radiusParam ? parseFloat(radiusParam) : OPENAQ_MAX_RADIUS_KM;
 
     // Strict boundary and numeric validation
     if (isNaN(lat) || !Number.isFinite(lat) || lat < -90 || lat > 90) {
@@ -34,9 +38,16 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    if (isNaN(radius) || !Number.isFinite(radius) || radius < 1 || radius > 100) {
+    if (
+      isNaN(radius) ||
+      !Number.isFinite(radius) ||
+      radius < OPENAQ_MIN_RADIUS_KM ||
+      radius > OPENAQ_MAX_RADIUS_KM
+    ) {
       return NextResponse.json(
-        { error: 'Invalid radius: must be a finite number between 1 and 100 kilometers.' },
+        {
+          error: `Invalid radius: must be a finite number between ${OPENAQ_MIN_RADIUS_KM} and ${OPENAQ_MAX_RADIUS_KM} kilometers (OpenAQ API v3 maximum supported search radius is 25 km).`,
+        },
         { status: 400 }
       );
     }
@@ -57,9 +68,10 @@ export async function GET(req: NextRequest) {
     // Cache-Control headers: 5 min edge cache, 10 min stale-while-revalidate
     response.headers.set('Cache-Control', 'public, s-maxage=300, stale-while-revalidate=600');
     return response;
-  } catch (err: any) {
+  } catch {
+    // Sanitize 500 responses: never expose internal stack traces or secrets
     return NextResponse.json(
-      { error: 'Internal server error while resolving environmental sources.', message: err?.message },
+      { error: 'Internal server error while resolving environmental sources.' },
       { status: 500 }
     );
   }

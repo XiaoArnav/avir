@@ -10,8 +10,12 @@ import {
   GroundModelDelta,
   EnvironmentalSourceRecord,
   SourceMeasurement,
+  GroundStationState,
+  GroundStationType,
 } from '@/domain/types';
 import { calibrateCommunitySensorReading } from '@/domain/calibration-math';
+
+export type { GroundStationMetadata, GroundStationState, GroundStationType, GroundModelDelta };
 
 /**
  * Calculates Great-Circle distance in kilometers between two geographic coordinates
