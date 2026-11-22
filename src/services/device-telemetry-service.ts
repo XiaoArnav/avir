@@ -6,11 +6,21 @@
  * - CanAirIO (WebSerial / BLE)
  *
  * Provides two connection paths:
- * 1. WebSerial API: Direct USB connection via browser (Chrome/Edge) with zero drivers.
+ * 1. WebSerial API: Direct USB connection via browser (Chrome/Edge/Opera) with zero drivers.
  * 2. Local Wi-Fi API: HTTP fetch to AirGradient Webserver / ESPHome local endpoint.
  */
 
 import { GroundStationMetadata } from '@/domain/types';
+
+export type DeviceConnectionState =
+  | 'unsupported'           // Browser lacks WebSerial or is in an insecure context
+  | 'idle'                  // Not connected, ready for connection attempt
+  | 'requesting_permission' // Native permission dialog open (awaiting user selection)
+  | 'opening_connection'   // Port chosen, opening serial connection at baud rate
+  | 'connected_awaiting_data' // Port open, serial read loop active, awaiting first packet
+  | 'receiving_data'        // Actively receiving valid packets
+  | 'disconnected'          // Cleanly disconnected
+  | 'error';                // Connection or read error
 
 export interface DeviceTelemetryPacket {
   pm25: number | null;
@@ -19,61 +29,138 @@ export interface DeviceTelemetryPacket {
   temperature?: number | null;
   humidity?: number | null;
   rawJson?: any;
-  timestamp: string;
+  observedAt: string | null;  // Authentic device-reported observation timestamp
+  receivedAt: string;         // Local system reception timestamp
+  timestamp: string;          // Backward-compatible alias (observedAt || receivedAt)
   source: 'webserial' | 'local_wifi';
 }
 
-type DevicePacketListener = (packet: DeviceTelemetryPacket) => void;
+export type DevicePacketListener = (packet: DeviceTelemetryPacket) => void;
+export type DeviceStatusListener = (state: DeviceConnectionState, error?: string | null) => void;
 
-class HardwareDeviceService {
+export class HardwareDeviceService {
   private activePort: any = null;
   private reader: any = null;
   private isReading = false;
-  private listeners: Set<DevicePacketListener> = new Set();
+  private connectionState: DeviceConnectionState = 'idle';
+  private lastErrorMessage: string | null = null;
+  private packetListeners: Set<DevicePacketListener> = new Set();
+  private statusListeners: Set<DeviceStatusListener> = new Set();
   private lastPacket: DeviceTelemetryPacket | null = null;
+  private activeSource: 'webserial' | 'local_wifi' | null = null;
 
   /**
    * Checks whether the current browser supports the WebSerial API.
+   * Requires both navigator.serial support and a secure context (HTTPS / localhost).
    */
   isWebSerialSupported(): boolean {
-    return typeof navigator !== 'undefined' && 'serial' in navigator;
+    if (typeof navigator === 'undefined' || typeof window === 'undefined') return false;
+    const hasSerial = 'serial' in navigator && typeof (navigator as any).serial?.requestPort === 'function';
+    const isSecure = window.isSecureContext !== false;
+    return hasSerial && isSecure;
+  }
+
+  /**
+   * Returns current hardware connection state.
+   */
+  getConnectionState(): DeviceConnectionState {
+    if (!this.isWebSerialSupported() && this.activeSource === 'webserial') {
+      return 'unsupported';
+    }
+    return this.connectionState;
+  }
+
+  /**
+   * Returns whether a device is actively connected.
+   */
+  isConnected(): boolean {
+    return this.connectionState === 'receiving_data' || this.connectionState === 'connected_awaiting_data';
+  }
+
+  /**
+   * Returns the latest received packet, if any.
+   */
+  getLastPacket(): DeviceTelemetryPacket | null {
+    return this.lastPacket;
+  }
+
+  /**
+   * Returns the active source type, if any.
+   */
+  getActiveSource(): 'webserial' | 'local_wifi' | null {
+    return this.activeSource;
   }
 
   /**
    * Connects to an ESP32 monitor via WebSerial over USB.
+   * Triggered strictly upon explicit user interaction (click).
    */
-  async connectUsbDevice(baudRate = 115200): Promise<boolean> {
+  async connectUsbDevice(baudRate = 115200): Promise<{ success: boolean; cancelled?: boolean; error?: string }> {
     if (!this.isWebSerialSupported()) {
-      throw new Error('WebSerial is not supported in this browser. Please use Chrome, Edge, or Opera.');
+      const err = 'WebSerial is not supported in this browser or context. Please use Chrome, Edge, or Opera over HTTPS.';
+      this.setConnectionState('unsupported', err);
+      return { success: false, error: err };
     }
+
+    // Clean up any existing connection first
+    if (this.isReading || this.activePort) {
+      await this.disconnectUsbDevice();
+    }
+
+    this.lastErrorMessage = null;
+    this.setConnectionState('requesting_permission');
 
     try {
       const nav = navigator as any;
-      this.activePort = await nav.serial.requestPort();
+      const port = await nav.serial.requestPort();
+      this.activePort = port;
+
+      this.setConnectionState('opening_connection');
       await this.activePort.open({ baudRate });
 
+      this.activeSource = 'webserial';
       this.isReading = true;
+      this.setConnectionState('connected_awaiting_data');
       this.startSerialReadLoop();
-      return true;
+      return { success: true };
     } catch (err: any) {
-      console.warn('WebSerial connection failed or was cancelled by user:', err?.message || err);
-      return false;
+      const errorName = err?.name || '';
+      const errorMsg = err?.message || String(err);
+
+      // Check if user cancelled port selection (not a fatal error)
+      if (errorName === 'NotFoundError' || errorMsg.includes('No port selected') || errorMsg.includes('User cancelled')) {
+        this.setConnectionState('idle');
+        return { success: false, cancelled: true };
+      }
+
+      this.setConnectionState('error', errorMsg);
+      console.warn('WebSerial connection error:', errorMsg);
+      return { success: false, error: errorMsg };
     }
   }
 
   /**
-   * Disconnects active USB serial monitor.
+   * Disconnects active USB serial monitor and safely closes streams.
    */
   async disconnectUsbDevice(): Promise<void> {
     this.isReading = false;
+
     if (this.reader) {
       try {
         await this.reader.cancel();
       } catch {
-        // Reader release
+        // Safe reader cancellation
+      }
+      try {
+        if (typeof this.reader.releaseLock === 'function') {
+          this.reader.releaseLock();
+        }
+      } catch {
+        // Safe release
       }
       this.reader = null;
     }
+
     if (this.activePort) {
       try {
         await this.activePort.close();
@@ -82,35 +169,111 @@ class HardwareDeviceService {
       }
       this.activePort = null;
     }
+
+    if (this.activeSource === 'webserial') {
+      this.activeSource = null;
+      this.lastPacket = null;
+    }
+
+    this.setConnectionState('disconnected');
+  }
+
+  /**
+   * Universal disconnect for any active connection (USB or Wi-Fi).
+   */
+  async disconnect(): Promise<void> {
+    await this.disconnectUsbDevice();
+    this.activeSource = null;
+    this.lastPacket = null;
+    this.setConnectionState('disconnected');
+  }
+
+  /**
+   * Validates local device IP or hostname format.
+   */
+  validateDeviceAddress(address: string): { valid: boolean; cleanAddress: string; error?: string } {
+    const trimmed = address.trim().replace(/^https?:\/\//i, '').replace(/\/.*$/, '');
+    if (!trimmed) {
+      return { valid: false, cleanAddress: '', error: 'Device address cannot be empty.' };
+    }
+
+    // IPv4 check: e.g. 192.168.1.50 or 10.0.0.5 with optional port
+    const ipv4Regex = /^([0-9]{1,3}\.){3}[0-9]{1,3}(:[0-9]{1,5})?$/;
+    // Local hostname check: e.g. airgradient.local, esp32.local with optional port
+    const localHostRegex = /^[a-zA-Z0-9_\-]+\.local(:[0-9]{1,5})?$/i;
+
+    if (!ipv4Regex.test(trimmed) && !localHostRegex.test(trimmed)) {
+      return {
+        valid: false,
+        cleanAddress: trimmed,
+        error: 'Invalid device address format. Enter a valid IPv4 address (e.g. 192.168.1.50) or .local hostname (e.g. airgradient.local).',
+      };
+    }
+
+    return { valid: true, cleanAddress: trimmed };
   }
 
   /**
    * Reads from an AirGradient Webserver or ESPHome node over local Wi-Fi.
    * Format: http://<ip-address>/measures/current
    */
-  async fetchLocalWifiDevice(ipAddress: string, signal?: AbortSignal): Promise<DeviceTelemetryPacket | null> {
-    const cleanIp = ipAddress.trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
-    const url = `http://${cleanIp}/measures/current`;
+  async fetchLocalWifiDevice(
+    ipAddress: string,
+    signal?: AbortSignal
+  ): Promise<{ packet: DeviceTelemetryPacket | null; error?: string }> {
+    const validation = this.validateDeviceAddress(ipAddress);
+    if (!validation.valid) {
+      this.setConnectionState('error', validation.error);
+      return { packet: null, error: validation.error };
+    }
+
+    const cleanHost = validation.cleanAddress;
+    const url = `http://${cleanHost}/measures/current`;
+
+    this.setConnectionState('opening_connection');
 
     try {
       const res = await fetch(url, { signal });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) {
+        const errorMsg = `Air monitor returned HTTP ${res.status} (${res.statusText || 'Error'}).`;
+        this.setConnectionState('error', errorMsg);
+        return { packet: null, error: errorMsg };
+      }
 
       const data = await res.json();
       const packet = this.parseTelemetryPayload(data, 'local_wifi');
-      if (packet) {
-        this.lastPacket = packet;
-        this.notifyListeners(packet);
+
+      if (!packet) {
+        const errorMsg = 'Response from device did not contain valid air quality measurements.';
+        this.setConnectionState('error', errorMsg);
+        return { packet: null, error: errorMsg };
       }
-      return packet;
+
+      this.lastPacket = packet;
+      this.activeSource = 'local_wifi';
+      this.setConnectionState('receiving_data');
+      this.notifyPacketListeners(packet);
+      return { packet };
     } catch (err: any) {
-      console.warn(`Local Wi-Fi air monitor fetch failed for ${cleanIp}:`, err?.message || err);
-      return null;
+      const isHttps = typeof window !== 'undefined' && window.location.protocol === 'https:';
+      const isFailedFetch = err?.name === 'TypeError' || err?.message?.includes('Failed to fetch');
+      let friendlyError = err?.message || 'Connection failed.';
+
+      if (isHttps && isFailedFetch) {
+        friendlyError = `Direct browser request to http://${cleanHost} was blocked. Because Avir is served over HTTPS, modern browsers restrict mixed HTTP requests to local networks (CORS / Mixed Content). Connect via USB WebSerial for instant zero-friction connectivity.`;
+      } else if (err?.name === 'AbortError') {
+        friendlyError = 'Request timed out or was cancelled.';
+      }
+
+      this.setConnectionState('error', friendlyError);
+      console.warn(`Local Wi-Fi air monitor fetch failed for ${cleanHost}:`, friendlyError);
+      return { packet: null, error: friendlyError };
     }
   }
 
   /**
    * Normalizes heterogeneous JSON telemetry payloads from AirGradient, Vaayu, and CanAirIO.
+   * Enforces strict physical bounds and zero-fabrication validation.
    */
   parseTelemetryPayload(data: any, source: 'webserial' | 'local_wifi'): DeviceTelemetryPacket | null {
     if (!data || typeof data !== 'object') return null;
@@ -125,13 +288,51 @@ class HardwareDeviceService {
     const tempRaw = data.atmp ?? data.temp ?? data.temperature;
     const humRaw = data.rhum ?? data.hum ?? data.humidity;
 
-    const pm25 = typeof pm25Raw === 'number' && Number.isFinite(pm25Raw) ? Math.round(pm25Raw * 10) / 10 : null;
-    const pm10 = typeof pm10Raw === 'number' && Number.isFinite(pm10Raw) ? Math.round(pm10Raw * 10) / 10 : null;
-    const co2 = typeof co2Raw === 'number' && Number.isFinite(co2Raw) ? Math.round(co2Raw) : null;
-    const temperature = typeof tempRaw === 'number' && Number.isFinite(tempRaw) ? Math.round(tempRaw * 10) / 10 : null;
-    const humidity = typeof humRaw === 'number' && Number.isFinite(humRaw) ? Math.round(humRaw) : null;
+    // Strict non-negative physical validation for PM2.5 (0 to 2000 µg/m³)
+    const pm25 =
+      typeof pm25Raw === 'number' && Number.isFinite(pm25Raw) && pm25Raw >= 0 && pm25Raw <= 2000
+        ? Math.round(pm25Raw * 10) / 10
+        : null;
 
+    // Strict non-negative physical validation for PM10 (0 to 5000 µg/m³)
+    // CRITICAL: PM10 is never replaced with PM2.5 when missing
+    const pm10 =
+      typeof pm10Raw === 'number' && Number.isFinite(pm10Raw) && pm10Raw >= 0 && pm10Raw <= 5000
+        ? Math.round(pm10Raw * 10) / 10
+        : null;
+
+    // CO2 range check (300 to 10000 ppm)
+    const co2 =
+      typeof co2Raw === 'number' && Number.isFinite(co2Raw) && co2Raw >= 300 && co2Raw <= 10000
+        ? Math.round(co2Raw)
+        : null;
+
+    // Plausible ambient temperature range (-40°C to 85°C)
+    const temperature =
+      typeof tempRaw === 'number' && Number.isFinite(tempRaw) && tempRaw >= -40 && tempRaw <= 85
+        ? Math.round(tempRaw * 10) / 10
+        : null;
+
+    // Relative humidity range (0 to 100%)
+    const humidity =
+      typeof humRaw === 'number' && Number.isFinite(humRaw) && humRaw >= 0 && humRaw <= 100
+        ? Math.round(humRaw)
+        : null;
+
+    // If no valid primary air metrics exist, reject packet
     if (pm25 === null && pm10 === null && co2 === null) return null;
+
+    // Determine authentic device timestamp vs system reception time
+    let observedAt: string | null = null;
+    const rawTime = data.timestamp ?? data.time ?? data.datetime;
+    if (rawTime && (typeof rawTime === 'string' || typeof rawTime === 'number')) {
+      const parsed = new Date(rawTime);
+      if (!isNaN(parsed.getTime()) && parsed.getFullYear() >= 2020) {
+        observedAt = parsed.toISOString();
+      }
+    }
+
+    const receivedAt = new Date().toISOString();
 
     return {
       pm25,
@@ -140,40 +341,76 @@ class HardwareDeviceService {
       temperature,
       humidity,
       rawJson: data,
-      timestamp: new Date().toISOString(),
+      observedAt,
+      receivedAt,
+      timestamp: observedAt || receivedAt,
       source,
     };
   }
 
   /**
    * Converts the latest connected hardware packet into Avir's GroundStationMetadata format.
+   * Returns null if not actively connected.
    */
   getAsGroundStationMetadata(): GroundStationMetadata | null {
-    if (!this.lastPacket) return null;
+    if (!this.lastPacket || !this.isConnected()) return null;
 
     return {
       stationId: `user-dev-${this.lastPacket.source}`,
-      stationName: this.lastPacket.source === 'webserial' ? 'My Connected USB Monitor (ESP32)' : 'My Local AirGradient Monitor',
+      stationName:
+        this.lastPacket.source === 'webserial'
+          ? 'My Connected USB Monitor (ESP32)'
+          : 'My Local AirGradient Monitor',
       distanceKm: 0.0, // Colocated with user
       latitude: 0,
       longitude: 0,
       provider: 'User Hardware Monitor (BYOD)',
       stationType: 'user_device',
-      lastUpdated: this.lastPacket.timestamp,
+      lastUpdated: this.lastPacket.receivedAt,
       pm25: this.lastPacket.pm25,
       pm10: this.lastPacket.pm10,
       isCalibrated: false,
+      stationState: 'live_observation',
+      observedAt: this.lastPacket.observedAt,
+      retrievedAt: this.lastPacket.receivedAt,
     };
   }
 
+  /**
+   * Subscribes to device telemetry packets.
+   * Only dispatches immediately if a device is actively connected.
+   */
   subscribe(listener: DevicePacketListener): () => void {
-    this.listeners.add(listener);
-    if (this.lastPacket) listener(this.lastPacket);
-    return () => this.listeners.delete(listener);
+    this.packetListeners.add(listener);
+    if (this.lastPacket && this.isConnected()) {
+      listener(this.lastPacket);
+    }
+    return () => this.packetListeners.delete(listener);
   }
 
-  private notifyListeners(packet: DeviceTelemetryPacket): void {
-    for (const listener of this.listeners) {
+  /**
+   * Subscribes to device connection state changes.
+   */
+  subscribeStatus(listener: DeviceStatusListener): () => void {
+    this.statusListeners.add(listener);
+    listener(this.getConnectionState(), this.lastErrorMessage);
+    return () => this.statusListeners.delete(listener);
+  }
+
+  private setConnectionState(state: DeviceConnectionState, error: string | null = null): void {
+    this.connectionState = state;
+    this.lastErrorMessage = error;
+    for (const listener of this.statusListeners) {
+      try {
+        listener(state, error);
+      } catch (err) {
+        console.error('Error in device status listener:', err);
+      }
+    }
+  }
+
+  private notifyPacketListeners(packet: DeviceTelemetryPacket): void {
+    for (const listener of this.packetListeners) {
       try {
         listener(packet);
       } catch (err) {
@@ -207,7 +444,8 @@ class HardwareDeviceService {
                 const packet = this.parseTelemetryPayload(parsed, 'webserial');
                 if (packet) {
                   this.lastPacket = packet;
-                  this.notifyListeners(packet);
+                  this.setConnectionState('receiving_data');
+                  this.notifyPacketListeners(packet);
                 }
               } catch {
                 // Ignore partial JSON chunks
@@ -216,8 +454,15 @@ class HardwareDeviceService {
           }
         }
       }
-    } catch (err) {
-      console.warn('WebSerial stream closed or encountered error:', err);
+    } catch (err: any) {
+      console.warn('WebSerial stream closed or encountered error:', err?.message || err);
+      if (this.isReading) {
+        this.setConnectionState('error', err?.message || 'Device stream interrupted');
+      }
+    } finally {
+      if (this.activeSource === 'webserial' && !this.isReading) {
+        this.setConnectionState('disconnected');
+      }
     }
   }
 }

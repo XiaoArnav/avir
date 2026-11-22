@@ -1,8 +1,12 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { GroundStationMetadata, GroundModelDelta } from '@/domain/types';
 import { DeviceConnectorModal } from '@/components/DeviceConnectorModal';
+import {
+  hardwareDeviceService,
+  DeviceTelemetryPacket,
+} from '@/services/device-telemetry-service';
 import {
   MapPin,
   Cpu,
@@ -26,6 +30,32 @@ export function GroundStationBadge({
 }: GroundStationBadgeProps) {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
+  const [localDevice, setLocalDevice] = useState<DeviceTelemetryPacket | null>(null);
+  const [isDeviceConnected, setIsDeviceConnected] = useState<boolean>(false);
+
+  // Subscribe to live client-side hardware monitor telemetry
+  useEffect(() => {
+    setIsDeviceConnected(hardwareDeviceService.isConnected());
+    setLocalDevice(hardwareDeviceService.getLastPacket());
+
+    const unsubPacket = hardwareDeviceService.subscribe((packet) => {
+      setLocalDevice(packet);
+      setIsDeviceConnected(true);
+    });
+
+    const unsubStatus = hardwareDeviceService.subscribeStatus((state) => {
+      const connected = state === 'receiving_data' || state === 'connected_awaiting_data';
+      setIsDeviceConnected(connected);
+      if (!connected) {
+        setLocalDevice(null);
+      }
+    });
+
+    return () => {
+      unsubPacket();
+      unsubStatus();
+    };
+  }, []);
 
   const isLiveObservation =
     station?.stationState === 'live_observation' &&
@@ -38,7 +68,7 @@ export function GroundStationBadge({
   return (
     <>
       <div className="flex flex-wrap items-center gap-2 pt-2 text-xs">
-        {/* Physical Ground Station Pill */}
+        {/* Physical Ground Station Pill (Official / Citizen Station) */}
         {station ? (
           <div className="relative group">
             <button
@@ -105,6 +135,27 @@ export function GroundStationBadge({
           </div>
         )}
 
+        {/* Live Client-Side Connected Hardware Monitor Pill (When Active) */}
+        {isDeviceConnected && localDevice && (
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-cyan-50 dark:bg-cyan-950/70 border border-cyan-200 dark:border-cyan-800 text-ink dark:text-white shadow-sm font-medium animate-in fade-in">
+            <span className="flex h-2 w-2 relative">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-500 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-cyan-500"></span>
+            </span>
+            <span className="flex items-center gap-1 font-semibold text-cyan-800 dark:text-cyan-300">
+              <Cpu className="w-3.5 h-3.5" />
+              <span>{localDevice.source === 'webserial' ? 'My USB Monitor' : 'My Wi-Fi Monitor'}</span>
+            </span>
+            <span className="font-mono text-[10px] text-cyan-700 dark:text-cyan-400">
+              PM2.5: {localDevice.pm25 !== null ? `${localDevice.pm25} µg/m³` : '--'}
+              {localDevice.pm10 !== null ? ` · PM10: ${localDevice.pm10} µg/m³` : ''}
+            </span>
+            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider bg-cyan-200 dark:bg-cyan-900 text-cyan-900 dark:text-cyan-200">
+              Local Live
+            </span>
+          </div>
+        )}
+
         {/* Ground-Model Divergence Delta Badge */}
         {delta && delta.divergenceType !== 'aligned' && (
           <div
@@ -122,13 +173,17 @@ export function GroundStationBadge({
           </div>
         )}
 
-        {/* Connect Hardware Button */}
+        {/* Connect / Manage Hardware Button */}
         <button
           onClick={() => setIsModalOpen(true)}
-          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-stone-100 hover:bg-stone-200 dark:bg-zinc-800/80 dark:hover:bg-zinc-700 text-ink dark:text-white border border-stone-200 dark:border-zinc-700 font-medium transition-colors text-xs ml-auto"
+          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl font-medium transition-colors text-xs ml-auto border ${
+            isDeviceConnected
+              ? 'bg-cyan-50 hover:bg-cyan-100 dark:bg-cyan-950/50 dark:hover:bg-cyan-900/60 text-cyan-800 dark:text-cyan-300 border-cyan-300 dark:border-cyan-800'
+              : 'bg-stone-100 hover:bg-stone-200 dark:bg-zinc-800/80 dark:hover:bg-zinc-700 text-ink dark:text-white border-stone-200 dark:border-zinc-700'
+          }`}
         >
-          <Cpu className="w-3.5 h-3.5 text-emerald-500" />
-          <span>Connect My Monitor</span>
+          <Cpu className={`w-3.5 h-3.5 ${isDeviceConnected ? 'text-cyan-500' : 'text-emerald-500'}`} />
+          <span>{isDeviceConnected ? 'Manage My Monitor' : 'Connect My Monitor'}</span>
         </button>
       </div>
 

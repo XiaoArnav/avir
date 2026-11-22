@@ -1,19 +1,22 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import {
   hardwareDeviceService,
   DeviceTelemetryPacket,
+  DeviceConnectionState,
 } from '@/services/device-telemetry-service';
 import {
   Usb,
   Wifi,
   X,
-  Activity,
   CheckCircle,
   AlertCircle,
   Cpu,
   RefreshCw,
+  Info,
+  Clock,
 } from 'lucide-react';
 
 interface DeviceConnectorModalProps {
@@ -27,53 +30,158 @@ export function DeviceConnectorModal({
   onClose,
   onDeviceConnected,
 }: DeviceConnectorModalProps) {
+  const [mounted, setMounted] = useState(false);
   const [activeTab, setActiveTab] = useState<'usb' | 'wifi'>('usb');
-  const [ipAddress, setIpAddress] = useState('192.168.1.150');
+  const [ipAddress, setIpAddress] = useState('');
   const [isConnecting, setIsConnecting] = useState(false);
-  const [isConnected, setIsConnected] = useState(false);
+  const [connectionState, setConnectionState] = useState<DeviceConnectionState>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [infoMessage, setInfoMessage] = useState<string | null>(null);
   const [latestPacket, setLatestPacket] = useState<DeviceTelemetryPacket | null>(null);
 
-  const isWebSerialSupported = hardwareDeviceService.isWebSerialSupported();
+  const modalRef = useRef<HTMLDivElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+  const onConnectedRef = useRef(onDeviceConnected);
 
+  // Keep latest callback ref to prevent resubscription churn
   useEffect(() => {
-    const unsubscribe = hardwareDeviceService.subscribe((packet) => {
+    onConnectedRef.current = onDeviceConnected;
+  }, [onDeviceConnected]);
+
+  // Client-side hydration guard for createPortal
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // Sync state and packets from service
+  useEffect(() => {
+    if (!isOpen) return;
+
+    // Initialize with current service state
+    setConnectionState(hardwareDeviceService.getConnectionState());
+    setLatestPacket(hardwareDeviceService.getLastPacket());
+
+    const unsubPacket = hardwareDeviceService.subscribe((packet) => {
       setLatestPacket(packet);
-      setIsConnected(true);
-      if (onDeviceConnected) {
-        onDeviceConnected(packet);
+      if (onConnectedRef.current) {
+        onConnectedRef.current(packet);
       }
     });
 
-    return () => unsubscribe();
-  }, [onDeviceConnected]);
+    const unsubStatus = hardwareDeviceService.subscribeStatus((state, error) => {
+      setConnectionState(state);
+      if (error) {
+        setErrorMessage(error);
+      }
+    });
 
-  if (!isOpen) return null;
+    return () => {
+      unsubPacket();
+      unsubStatus();
+    };
+  }, [isOpen]);
+
+  // Focus management and body scroll locking
+  useEffect(() => {
+    if (!isOpen || !mounted) return;
+
+    // Save previous active element for restoration
+    previousFocusRef.current = document.activeElement as HTMLElement;
+
+    // Lock body scroll
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    // Move initial focus into dialog
+    const focusTimer = requestAnimationFrame(() => {
+      closeButtonRef.current?.focus();
+    });
+
+    return () => {
+      cancelAnimationFrame(focusTimer);
+      document.body.style.overflow = originalOverflow;
+      // Restore focus on close
+      if (previousFocusRef.current && typeof previousFocusRef.current.focus === 'function') {
+        previousFocusRef.current.focus();
+      }
+    };
+  }, [isOpen, mounted]);
+
+  // Keyboard navigation: Escape to close and Tab focus trap
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      handleClose();
+      return;
+    }
+
+    if (e.key === 'Tab') {
+      if (!modalRef.current) return;
+      const focusable = modalRef.current.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      );
+      if (focusable.length === 0) return;
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+
+      if (e.shiftKey) {
+        if (document.activeElement === first) {
+          e.preventDefault();
+          last.focus();
+        }
+      } else {
+        if (document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    }
+  };
+
+  const handleClose = () => {
+    setErrorMessage(null);
+    setInfoMessage(null);
+    onClose();
+  };
+
+  const isWebSerialSupported = hardwareDeviceService.isWebSerialSupported();
+  const isConnected = hardwareDeviceService.isConnected() || connectionState === 'receiving_data';
 
   const handleConnectUsb = async () => {
     setIsConnecting(true);
     setErrorMessage(null);
+    setInfoMessage(null);
+
     try {
-      const ok = await hardwareDeviceService.connectUsbDevice(115200);
-      if (!ok) {
-        setErrorMessage('Connection cancelled or no device selected.');
+      const result = await hardwareDeviceService.connectUsbDevice(115200);
+      if (result.cancelled) {
+        setInfoMessage('Port selection was cancelled.');
+      } else if (!result.success && result.error) {
+        setErrorMessage(result.error);
       }
     } catch (err: any) {
-      setErrorMessage(err?.message || 'USB connection failed.');
+      setErrorMessage(err?.message || 'USB serial connection failed.');
     } finally {
       setIsConnecting(false);
     }
   };
 
   const handleConnectWifi = async () => {
+    if (!ipAddress.trim()) {
+      setErrorMessage('Please enter your monitor IP address or .local hostname.');
+      return;
+    }
+
     setIsConnecting(true);
     setErrorMessage(null);
+    setInfoMessage(null);
+
     try {
-      const packet = await hardwareDeviceService.fetchLocalWifiDevice(ipAddress);
-      if (packet) {
-        setIsConnected(true);
-      } else {
-        setErrorMessage(`Unable to reach air monitor at ${ipAddress}. Ensure you are on the same Wi-Fi network.`);
+      const result = await hardwareDeviceService.fetchLocalWifiDevice(ipAddress);
+      if (result.error) {
+        setErrorMessage(result.error);
       }
     } catch (err: any) {
       setErrorMessage(err?.message || 'Wi-Fi connection failed.');
@@ -83,21 +191,38 @@ export function DeviceConnectorModal({
   };
 
   const handleDisconnect = async () => {
-    await hardwareDeviceService.disconnectUsbDevice();
-    setIsConnected(false);
+    await hardwareDeviceService.disconnect();
     setLatestPacket(null);
+    setErrorMessage(null);
+    setInfoMessage('Device disconnected.');
   };
 
-  return (
+  if (!isOpen || !mounted) return null;
+
+  return createPortal(
     <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="device-connector-title"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
+      className="fixed inset-0 z-[1000] flex items-center justify-center p-4 sm:p-6 overflow-y-auto"
+      onKeyDown={handleKeyDown}
     >
-      <div className="relative w-full max-w-lg overflow-hidden rounded-2xl glass-panel bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 shadow-2xl p-6 sm:p-7 text-ink dark:text-white">
+      {/* Dimmed backdrop overlay covering entire viewport */}
+      <div
+        className="fixed inset-0 bg-black/75 backdrop-blur-sm transition-opacity"
+        onClick={handleClose}
+        aria-hidden="true"
+      />
+
+      {/* High-contrast, solid dialog surface rendered outside dashboard */}
+      <div
+        ref={modalRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="device-connector-title"
+        aria-describedby="device-connector-desc"
+        className="relative w-full max-w-lg my-auto rounded-2xl bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 shadow-2xl p-6 sm:p-7 text-ink dark:text-white max-h-[90vh] flex flex-col z-10 animate-in fade-in zoom-in-95 duration-200"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Header */}
-        <div className="flex items-center justify-between pb-4 border-b border-stone-200 dark:border-zinc-800">
+        <div className="flex items-center justify-between pb-4 border-b border-stone-200 dark:border-zinc-800 shrink-0">
           <div className="flex items-center gap-2.5">
             <div className="w-9 h-9 rounded-xl bg-emerald-100 dark:bg-emerald-950/80 border border-emerald-300 dark:border-emerald-800 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
               <Cpu className="w-5 h-5" />
@@ -106,75 +231,88 @@ export function DeviceConnectorModal({
               <h2 id="device-connector-title" className="text-base font-bold text-ink dark:text-white">
                 Connect Hardware Air Monitor
               </h2>
-              <p className="text-xs text-ink-muted dark:text-zinc-400">
+              <p id="device-connector-desc" className="text-xs text-ink-muted dark:text-zinc-400">
                 AirGradient ONE, Project Vaayu, or CanAirIO (ESP32)
               </p>
             </div>
           </div>
           <button
-            onClick={onClose}
-            aria-label="Close modal"
-            className="p-1.5 rounded-lg text-ink-muted dark:text-zinc-400 hover:bg-stone-200 dark:hover:bg-zinc-800 transition-colors"
+            ref={closeButtonRef}
+            onClick={handleClose}
+            aria-label="Close dialog"
+            className="p-1.5 rounded-lg text-ink-muted dark:text-zinc-400 hover:bg-stone-100 dark:hover:bg-zinc-800 transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Tab Switcher */}
-        <div className="flex p-1 mt-5 rounded-xl bg-stone-200/80 dark:bg-zinc-800/80 border border-stone-300/50 dark:border-zinc-700/50 text-xs font-semibold">
+        <div className="flex p-1 mt-5 rounded-xl bg-stone-100 dark:bg-zinc-800/90 border border-stone-200 dark:border-zinc-700/60 text-xs font-semibold shrink-0">
           <button
             type="button"
-            onClick={() => setActiveTab('usb')}
-            className={`flex-1 py-2 rounded-lg flex items-center justify-center gap-2 transition-all ${
+            onClick={() => {
+              setActiveTab('usb');
+              setErrorMessage(null);
+              setInfoMessage(null);
+            }}
+            className={`flex-1 py-2 rounded-lg flex items-center justify-center gap-2 transition-all focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
               activeTab === 'usb'
-                ? 'bg-white dark:bg-zinc-900 text-ink dark:text-white shadow-sm'
+                ? 'bg-white dark:bg-zinc-900 text-ink dark:text-white shadow-sm border border-stone-200/80 dark:border-zinc-700'
                 : 'text-ink-muted dark:text-zinc-400 hover:text-ink dark:hover:text-white'
             }`}
           >
-            <Usb className="w-3.5 h-3.5" />
+            <Usb className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
             <span>USB WebSerial</span>
           </button>
           <button
             type="button"
-            onClick={() => setActiveTab('wifi')}
-            className={`flex-1 py-2 rounded-lg flex items-center justify-center gap-2 transition-all ${
+            onClick={() => {
+              setActiveTab('wifi');
+              setErrorMessage(null);
+              setInfoMessage(null);
+            }}
+            className={`flex-1 py-2 rounded-lg flex items-center justify-center gap-2 transition-all focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
               activeTab === 'wifi'
-                ? 'bg-white dark:bg-zinc-900 text-ink dark:text-white shadow-sm'
+                ? 'bg-white dark:bg-zinc-900 text-ink dark:text-white shadow-sm border border-stone-200/80 dark:border-zinc-700'
                 : 'text-ink-muted dark:text-zinc-400 hover:text-ink dark:hover:text-white'
             }`}
           >
-            <Wifi className="w-3.5 h-3.5" />
+            <Wifi className="w-3.5 h-3.5 text-cyan-600 dark:text-cyan-400" />
             <span>Local Wi-Fi Network</span>
           </button>
         </div>
 
-        {/* Tab Content */}
-        <div className="py-5 space-y-4">
+        {/* Scrollable Tab Content Body */}
+        <div className="py-4 space-y-4 overflow-y-auto flex-1">
           {activeTab === 'usb' ? (
             <div className="space-y-3">
-              <p className="text-xs text-ink-muted dark:text-zinc-400 leading-relaxed">
-                Connect your ESP32-based air quality monitor (AirGradient ONE, CanAirIO, or Project Vaayu) directly to your computer using a USB-C data cable.
+              <p className="text-xs text-ink-muted dark:text-zinc-300 leading-relaxed">
+                Connect your ESP32 monitor directly via USB-C. Reads standard newline-delimited JSON telemetry streams at 115200 baud with zero cloud telemetry.
               </p>
 
               {!isWebSerialSupported ? (
                 <div className="p-3.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 text-xs text-amber-800 dark:text-amber-300 flex items-start gap-2.5">
                   <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                  <span>
-                    WebSerial is currently supported in Chromium browsers (Google Chrome, Microsoft Edge, Opera). If you are on Firefox or Safari, use the <strong>Local Wi-Fi Network</strong> tab.
-                  </span>
+                  <div className="space-y-1">
+                    <p className="font-semibold">WebSerial Unsupported in This Browser</p>
+                    <p className="text-[11px] leading-relaxed text-amber-700 dark:text-amber-400">
+                      WebSerial requires a Chromium-based browser (Google Chrome, Microsoft Edge, Opera, Brave) in a secure context. If you are on Firefox or Safari, please use the <strong>Local Wi-Fi Network</strong> tab.
+                    </p>
+                  </div>
                 </div>
               ) : (
-                <div className="pt-2">
+                <div className="pt-1">
                   {!isConnected ? (
                     <button
+                      type="button"
                       onClick={handleConnectUsb}
                       disabled={isConnecting}
-                      className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs transition-all shadow-md active:scale-95 flex items-center justify-center gap-2 disabled:opacity-50"
+                      className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs transition-all shadow-md active:scale-95 flex items-center justify-center gap-2 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                     >
                       {isConnecting ? (
                         <>
                           <RefreshCw className="w-4 h-4 animate-spin" />
-                          <span>Requesting Port...</span>
+                          <span>Requesting Port in Browser...</span>
                         </>
                       ) : (
                         <>
@@ -185,8 +323,9 @@ export function DeviceConnectorModal({
                     </button>
                   ) : (
                     <button
+                      type="button"
                       onClick={handleDisconnect}
-                      className="w-full py-2.5 rounded-xl bg-red-100 dark:bg-red-950/60 hover:bg-red-200 text-red-700 dark:text-red-300 border border-red-300 dark:border-red-800 font-semibold text-xs transition-all flex items-center justify-center gap-2"
+                      className="w-full py-2.5 rounded-xl bg-red-50 dark:bg-red-950/60 hover:bg-red-100 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800 font-semibold text-xs transition-all flex items-center justify-center gap-2 focus:outline-none focus:ring-2 focus:ring-red-500"
                     >
                       <span>Disconnect USB Monitor</span>
                     </button>
@@ -196,95 +335,162 @@ export function DeviceConnectorModal({
             </div>
           ) : (
             <div className="space-y-3">
-              <p className="text-xs text-ink-muted dark:text-zinc-400 leading-relaxed">
-                Enter the local IP address of your AirGradient monitor hosting the built-in webserver firmware or ESPHome.
+              <p className="text-xs text-ink-muted dark:text-zinc-300 leading-relaxed">
+                Poll telemetry from an AirGradient monitor or ESPHome node running an embedded HTTP server on your local Wi-Fi.
               </p>
 
+              {/* HTTPS Mixed Content Notice */}
+              <div className="p-3 rounded-xl bg-blue-50/80 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/60 text-xs text-blue-800 dark:text-blue-300 flex items-start gap-2.5">
+                <Info className="w-4 h-4 shrink-0 mt-0.5 text-blue-600 dark:text-blue-400" />
+                <div className="space-y-0.5 text-[11px] leading-relaxed">
+                  <span className="font-semibold block">Browser HTTPS Notice:</span>
+                  <span>
+                    When visiting Avir over HTTPS, browsers restrict direct HTTP requests to local network devices (Mixed Content & Private Network Access). If blocked, use the USB WebSerial tab.
+                  </span>
+                </div>
+              </div>
+
               <div className="space-y-1.5">
-                <label className="text-[11px] font-mono uppercase tracking-wider text-ink-muted dark:text-zinc-400">
-                  Device Local IP Address
+                <label
+                  htmlFor="device-ip-input"
+                  className="text-[11px] font-mono uppercase tracking-wider text-ink-muted dark:text-zinc-400 font-medium"
+                >
+                  Device Local IP or Hostname
                 </label>
                 <div className="flex gap-2">
                   <input
+                    id="device-ip-input"
                     type="text"
                     value={ipAddress}
                     onChange={(e) => setIpAddress(e.target.value)}
-                    placeholder="192.168.1.150"
-                    className="flex-1 px-3.5 py-2.5 rounded-xl bg-white dark:bg-zinc-800 border border-stone-300 dark:border-zinc-700 text-xs font-mono text-ink dark:text-white placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    placeholder="e.g. 192.168.1.150 or airgradient.local"
+                    className="flex-1 px-3.5 py-2.5 rounded-xl bg-stone-50 dark:bg-zinc-800 border border-stone-300 dark:border-zinc-700 text-xs font-mono text-ink dark:text-white placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                   />
                   <button
+                    type="button"
                     onClick={handleConnectWifi}
-                    disabled={isConnecting || !ipAddress}
-                    className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs transition-all shadow-md active:scale-95 disabled:opacity-50 flex items-center gap-1.5"
+                    disabled={isConnecting || !ipAddress.trim()}
+                    className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs transition-all shadow-md active:scale-95 disabled:opacity-50 flex items-center gap-1.5 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                   >
-                    {isConnecting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Wifi className="w-3.5 h-3.5" />}
+                    {isConnecting ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Wifi className="w-3.5 h-3.5" />
+                    )}
                     <span>Fetch</span>
                   </button>
                 </div>
               </div>
+
+              {isConnected && (
+                <button
+                  type="button"
+                  onClick={handleDisconnect}
+                  className="w-full py-2 rounded-xl bg-stone-100 hover:bg-stone-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-ink dark:text-white font-semibold text-xs border border-stone-200 dark:border-zinc-700 transition-colors"
+                >
+                  Clear Device Session
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Info Notice (e.g. user cancelled selection) */}
+          {infoMessage && (
+            <div className="p-3 rounded-xl bg-stone-100 dark:bg-zinc-800/80 border border-stone-200 dark:border-zinc-700 text-xs text-ink-muted dark:text-zinc-300 flex items-center gap-2">
+              <Info className="w-4 h-4 shrink-0 text-stone-500" />
+              <span>{infoMessage}</span>
             </div>
           )}
 
           {/* Error Message */}
           {errorMessage && (
-            <div className="p-3 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800/60 text-xs text-red-700 dark:text-red-300 flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0" />
-              <span>{errorMessage}</span>
+            <div className="p-3 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800/60 text-xs text-red-700 dark:text-red-300 flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+              <span className="leading-relaxed">{errorMessage}</span>
             </div>
           )}
 
           {/* Live Streaming Packet Inspector */}
-          {latestPacket && (
-            <div className="p-4 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/60 space-y-2.5">
+          {latestPacket && isConnected && (
+            <div className="p-4 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/60 space-y-3">
               <div className="flex items-center justify-between text-xs">
                 <span className="font-semibold text-emerald-800 dark:text-emerald-300 flex items-center gap-1.5">
-                  <CheckCircle className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                  <CheckCircle className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
                   <span>Hardware Monitor Connected</span>
                 </span>
-                <span className="font-mono text-[10px] text-emerald-700 dark:text-emerald-400">
-                  {latestPacket.source === 'webserial' ? 'USB Stream' : 'Local Wi-Fi'}
+                <span className="font-mono text-[10px] px-2 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-300 font-bold uppercase tracking-wider">
+                  {latestPacket.source === 'webserial' ? 'USB WebSerial' : 'Local Wi-Fi'}
                 </span>
               </div>
 
-              <div className="grid grid-cols-4 gap-2 text-center pt-1 font-mono">
-                <div className="p-2 rounded-lg bg-white/80 dark:bg-zinc-900/80 border border-emerald-200/60 dark:border-emerald-800/40">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center pt-1 font-mono">
+                <div className="p-2 rounded-lg bg-white dark:bg-zinc-900 border border-emerald-200/60 dark:border-emerald-800/40">
                   <div className="text-[10px] text-ink-muted dark:text-zinc-400">PM2.5</div>
-                  <div className="text-sm font-bold text-ink dark:text-white">{latestPacket.pm25 ?? '--'}</div>
+                  <div className="text-sm font-bold text-ink dark:text-white">
+                    {latestPacket.pm25 !== null ? latestPacket.pm25 : '--'}
+                  </div>
                   <div className="text-[9px] text-stone-500">µg/m³</div>
                 </div>
-                <div className="p-2 rounded-lg bg-white/80 dark:bg-zinc-900/80 border border-emerald-200/60 dark:border-emerald-800/40">
+                <div className="p-2 rounded-lg bg-white dark:bg-zinc-900 border border-emerald-200/60 dark:border-emerald-800/40">
                   <div className="text-[10px] text-ink-muted dark:text-zinc-400">PM10</div>
-                  <div className="text-sm font-bold text-ink dark:text-white">{latestPacket.pm10 ?? '--'}</div>
+                  <div className="text-sm font-bold text-ink dark:text-white">
+                    {latestPacket.pm10 !== null ? latestPacket.pm10 : '--'}
+                  </div>
                   <div className="text-[9px] text-stone-500">µg/m³</div>
                 </div>
-                <div className="p-2 rounded-lg bg-white/80 dark:bg-zinc-900/80 border border-emerald-200/60 dark:border-emerald-800/40">
+                <div className="p-2 rounded-lg bg-white dark:bg-zinc-900 border border-emerald-200/60 dark:border-emerald-800/40">
                   <div className="text-[10px] text-ink-muted dark:text-zinc-400">CO2</div>
-                  <div className="text-sm font-bold text-ink dark:text-white">{latestPacket.co2 ?? '--'}</div>
+                  <div className="text-sm font-bold text-ink dark:text-white">
+                    {latestPacket.co2 !== null && latestPacket.co2 !== undefined ? latestPacket.co2 : '--'}
+                  </div>
                   <div className="text-[9px] text-stone-500">ppm</div>
                 </div>
-                <div className="p-2 rounded-lg bg-white/80 dark:bg-zinc-900/80 border border-emerald-200/60 dark:border-emerald-800/40">
+                <div className="p-2 rounded-lg bg-white dark:bg-zinc-900 border border-emerald-200/60 dark:border-emerald-800/40">
                   <div className="text-[10px] text-ink-muted dark:text-zinc-400">TEMP</div>
-                  <div className="text-sm font-bold text-ink dark:text-white">{latestPacket.temperature ?? '--'}°</div>
+                  <div className="text-sm font-bold text-ink dark:text-white">
+                    {latestPacket.temperature !== null && latestPacket.temperature !== undefined
+                      ? `${latestPacket.temperature}°`
+                      : '--'}
+                  </div>
                   <div className="text-[9px] text-stone-500">°C</div>
                 </div>
+              </div>
+
+              {/* Timestamp distinction: observation vs reception */}
+              <div className="text-[10px] text-emerald-800/90 dark:text-emerald-300/80 font-mono flex items-center justify-between pt-1 border-t border-emerald-200/50 dark:border-emerald-800/40">
+                <span className="flex items-center gap-1">
+                  <Clock className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                  <span>
+                    {latestPacket.observedAt ? 'Device Observed Time' : 'Reception Time'}:
+                  </span>
+                </span>
+                <span>
+                  {new Date(latestPacket.observedAt || latestPacket.receivedAt).toLocaleTimeString([], {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                  })}
+                </span>
               </div>
             </div>
           )}
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between pt-4 border-t border-stone-200 dark:border-zinc-800 text-xs">
-          <span className="font-mono text-[11px] text-ink-muted dark:text-zinc-500">
+        <div className="flex items-center justify-between pt-4 border-t border-stone-200 dark:border-zinc-800 text-xs shrink-0">
+          <span className="font-mono text-[11px] text-ink-muted dark:text-zinc-400">
             Zero cloud telemetry · 100% Client-side
           </span>
           <button
-            onClick={onClose}
-            className="px-4 py-2 rounded-xl bg-ink hover:bg-stone-800 text-white dark:bg-white dark:hover:bg-zinc-200 dark:text-black font-semibold text-xs transition-all shadow-sm"
+            type="button"
+            onClick={handleClose}
+            className="px-4 py-2 rounded-xl bg-ink hover:bg-stone-800 text-white dark:bg-white dark:hover:bg-zinc-200 dark:text-black font-semibold text-xs transition-all shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
           >
             Done
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
