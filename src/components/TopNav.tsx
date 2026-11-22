@@ -71,9 +71,6 @@ export const TopNav: React.FC<TopNavProps> = ({
           <div>
             <div className="flex items-center gap-2">
               <span className="text-lg font-bold tracking-tight text-ink dark:text-white">Avir</span>
-              <span className="text-xs font-semibold font-sans tracking-wide px-1.5 py-0.5 rounded bg-sage-100 dark:bg-zinc-800 text-sage-700 dark:text-emerald-400 border border-sage-200 dark:border-zinc-700/60" title="Hebrew: אֲוִיר (Air, Atmosphere & Pure Breath)">
-                אֲוִיר
-              </span>
             </div>
             <p className="text-[11px] text-ink-muted dark:text-zinc-400 hidden sm:block">
               Urban Air Quality &amp; Winter Smog Assistant
