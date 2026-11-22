@@ -299,8 +299,15 @@ Now, both use `getActivePhysicalSources(sources, 'pm25')`:
 - `availableStationCount`: Distinct physical stations registered within the search radius.
 All displayed counts in the UI header, card badges, and API JSON responses strictly agree.
 
-### 6. Deduplication Behavior
-Aggregator feeds exposing identical physical ground monitors (e.g. OpenAQ location `4022` and CPCB CAAQMS station `4022`) are deduplicated using `station:${src.stationId.trim().toLowerCase()}`. Distinct physical stations within the same region or network retain their unique identities.
+### 6. Provider-Scoped Deduplication and Verified Cross-Provider Identity
+Previously, `getPhysicalStationDeduplicationKey()` used `station:${src.stationId.trim().toLowerCase()}`, which risked collapsing two completely unrelated monitoring networks that happen to use the same numeric/string ID (such as OpenAQ location `#101`, Sensor.Community sensor `#101`, and CPCB CAAQMS station `#101`).
+
+**Corrective Implementation**:
+1. **Provider-Scoped by Default**: Stations are keyed by default with their provider / network scope (`provider:${provider}:${stationId}` or `upstream:${upstreamNet}:${stationId}`). This guarantees that unrelated networks sharing identical IDs are treated as distinct physical monitors.
+2. **Verified Upstream Lineage Merging**: When an aggregator (e.g., OpenAQ) explicitly records the originating upstream authority (`src.upstreamProviderId === 'cpcb_caaqms'`) alongside the physical station ID, and a direct agency feed reports the same upstream network and station ID, the shared lineage merges them into a single physical station (`upstream:cpcb:${stationId}`).
+3. **Explicit Cross-Provider Registry Mapping (`VERIFIED_CROSS_PROVIDER_STATION_MAP`)**: Cross-provider records are merged across disparate provider namespaces when registered in the verified cross-provider mapping dictionary (e.g., `openaq:5001` and `airnow:chanakyapuri` both map to `canonical:us_embassy_chanakyapuri`).
+4. **Uniformity Across Selectors and Domain Math**: `getPhysicalStationDeduplicationKey()` is directly shared by `getActivePhysicalSources()`, `getStalePhysicalSources()`, `deduplicateEnvironmentalSources()`, and `fetchOpenAqProviderResult()`.
+5. **Comprehensive Automated Tests**: Validated in `tests/integration/step3-pollutant-freshness-edge-cases.test.ts` (Group: Provider-Scoped Deduplication & Verified Cross-Provider Identity).
 
 ### 7. API Response Semantics
 The Next.js route `/api/telemetry/sources` returns:

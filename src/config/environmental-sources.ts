@@ -226,16 +226,76 @@ export function evaluateMeasurementEligibility(
 }
 
 /**
+ * Verified Cross-Provider Physical Station Mappings.
+ * Maps provider-scoped station keys (e.g. "openaq:5001") to a canonical physical station ID.
+ * Cross-provider records are merged ONLY when present in this verified mapping or when
+ * they share identical verified upstream provenance (upstreamProviderId + stationId).
+ */
+export const VERIFIED_CROSS_PROVIDER_STATION_MAP: Record<string, string> = {
+  // Verified collocation: OpenAQ location 5001 is US Embassy Chanakyapuri reference monitor
+  'openaq:5001': 'us_embassy_chanakyapuri',
+  'airnow:chanakyapuri': 'us_embassy_chanakyapuri',
+  'cpcb:us_embassy': 'us_embassy_chanakyapuri',
+};
+
+/**
+ * Register a verified cross-provider station mapping at runtime.
+ */
+export function registerVerifiedStationMapping(providerScopedKey: string, canonicalId: string): void {
+  VERIFIED_CROSS_PROVIDER_STATION_MAP[providerScopedKey.toLowerCase().trim()] = canonicalId.toLowerCase().trim();
+}
+
+/**
  * Deduplication key generator for physical observation stations.
- * Collapses records from multiple aggregators pointing to the same physical station ID.
+ * 
+ * Strict Invariants:
+ * 1. Provider-scoped by default: prevents unrelated networks using identical numeric/string IDs
+ *    (e.g., OpenAQ location #101 vs. Sensor.Community sensor #101) from colliding into one monitor.
+ * 2. Merges across providers ONLY when:
+ *    a) A verified mapping explicitly maps them to the same canonical physical station (VERIFIED_CROSS_PROVIDER_STATION_MAP).
+ *    b) Verified upstream lineage: both records originate from the same verified upstream authority
+ *       (e.g. both carry matching upstreamProviderId and matching stationId).
  */
 export function getPhysicalStationDeduplicationKey(src: EnvironmentalSourceRecord): string {
-  if (src.stationId && src.sourceKind !== 'atmospheric_model' && src.sourceKind !== 'derived_standard') {
-    return `station:${src.stationId.trim().toLowerCase()}`;
+  if (!src || !src.id) return '';
+
+  const provider = (src.providerId || src.provider || '').toLowerCase().trim();
+  const stationId = src.stationId ? String(src.stationId).trim().toLowerCase() : null;
+
+  // 1. Check verified cross-provider mapping table
+  if (provider && stationId) {
+    const crossKey = `${provider}:${stationId}`;
+    if (VERIFIED_CROSS_PROVIDER_STATION_MAP[crossKey]) {
+      return `canonical:${VERIFIED_CROSS_PROVIDER_STATION_MAP[crossKey]}`;
+    }
   }
-  if (src.upstreamProviderId && src.stationId) {
-    return `${src.upstreamProviderId.toLowerCase().trim()}:${src.stationId.trim()}`;
+
+  // Also check if src.id is directly mapped in the verified table
+  const normalizedId = src.id.toLowerCase().trim();
+  if (VERIFIED_CROSS_PROVIDER_STATION_MAP[normalizedId]) {
+    return `canonical:${VERIFIED_CROSS_PROVIDER_STATION_MAP[normalizedId]}`;
   }
+
+  // 2. Verified upstream lineage: aggregator records that explicitly preserve the upstream originating agency
+  // e.g., OpenAQ record ingesting CPCB with upstreamProviderId: 'cpcb_caaqms' and stationId: '4022'
+  if (src.upstreamProviderId && stationId) {
+    const upstreamNet = src.upstreamProviderId.toLowerCase().trim();
+    // Normalize known regulatory networks (e.g. cpcb_caaqms / cpcb)
+    const normalizedUpstream = upstreamNet.startsWith('cpcb') ? 'cpcb' : upstreamNet;
+    return `upstream:${normalizedUpstream}:${stationId}`;
+  }
+
+  // 3. Provider-scoped default (prevents two unrelated networks with the same station ID from colliding)
+  if (provider && stationId) {
+    return `provider:${provider}:${stationId}`;
+  }
+
+  // 4. StationId fallback if no provider metadata exists
+  if (stationId) {
+    return `station:${stationId}`;
+  }
+
+  // 5. Source ID fallback
   return src.id;
 }
 

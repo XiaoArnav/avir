@@ -26,6 +26,7 @@ import {
   MAX_OBSERVATION_AGE_HOURS,
   validateObservationTiming,
   getActivePhysicalSources,
+  getPhysicalStationDeduplicationKey,
 } from '@/config/environmental-sources';
 
 // Re-export constants for client/server shared consistency
@@ -668,7 +669,7 @@ export async function fetchOpenAqProviderResult(params: {
         r.status !== 'rejected' &&
         r.status !== 'error'
       ) {
-        const key = r.stationId ? `station:${r.stationId.trim().toLowerCase()}` : r.id;
+        const key = getPhysicalStationDeduplicationKey(r);
         distinctStationKeys.add(key);
       }
     }

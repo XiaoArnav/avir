@@ -29,6 +29,7 @@ import {
   MAX_COMPARISON_TIME_DIFF_MINUTES,
   MAX_OBSERVATION_AGE_HOURS,
   SKEW_ALLOWANCE_MINUTES,
+  getPhysicalStationDeduplicationKey,
 } from '@/config/environmental-sources';
 
 // Re-export constants for backwards compatibility
@@ -85,12 +86,10 @@ export function deduplicateEnvironmentalSources(
       continue;
     }
 
-    // Unique upstream identity key
-    const upstreamKey = src.stationId && src.sourceKind !== 'atmospheric_model'
-      ? `station:${src.stationId.trim().toLowerCase()}`
-      : src.upstreamProviderId && src.stationId
-      ? `${src.upstreamProviderId.toLowerCase().trim()}:${src.stationId.trim()}`
-      : src.id;
+    // Provider-scoped by default, merging only with verified lineage or cross-provider mapping
+    const upstreamKey = src.sourceKind === 'atmospheric_model'
+      ? src.id
+      : getPhysicalStationDeduplicationKey(src);
 
     if (seenKeys.has(upstreamKey)) {
       continue;
