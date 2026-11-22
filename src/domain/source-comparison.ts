@@ -86,7 +86,9 @@ export function deduplicateEnvironmentalSources(
     }
 
     // Unique upstream identity key
-    const upstreamKey = src.upstreamProviderId && src.stationId
+    const upstreamKey = src.stationId && src.sourceKind !== 'atmospheric_model'
+      ? `station:${src.stationId.trim().toLowerCase()}`
+      : src.upstreamProviderId && src.stationId
       ? `${src.upstreamProviderId.toLowerCase().trim()}:${src.stationId.trim()}`
       : src.id;
 

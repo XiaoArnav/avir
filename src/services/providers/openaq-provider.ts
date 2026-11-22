@@ -25,6 +25,7 @@ import {
   SKEW_ALLOWANCE_MINUTES,
   MAX_OBSERVATION_AGE_HOURS,
   validateObservationTiming,
+  getActivePhysicalSources,
 } from '@/config/environmental-sources';
 
 // Re-export constants for client/server shared consistency
@@ -45,6 +46,9 @@ export interface OpenAqProviderResult {
   retrievedAt: string;
   count: number;
   activeCount: number;
+  activePm25Count: number;
+  activePm10Count: number;
+  availableStationCount: number;
   errorCode?: string;
   errorMessage?: string;
 }
@@ -435,6 +439,9 @@ export async function fetchOpenAqProviderResult(params: {
       retrievedAt: now,
       count: 0,
       activeCount: 0,
+      activePm25Count: 0,
+      activePm10Count: 0,
+      availableStationCount: 0,
       errorCode: 'INVALID_COORDINATES',
       errorMessage: 'Invalid coordinates provided.',
     };
@@ -450,6 +457,9 @@ export async function fetchOpenAqProviderResult(params: {
       retrievedAt: now,
       count: 0,
       activeCount: 0,
+      activePm25Count: 0,
+      activePm10Count: 0,
+      availableStationCount: 0,
       errorCode: 'NOT_CONFIGURED',
       errorMessage: 'OPENAQ_API_KEY is not configured on the server.',
     };
@@ -495,6 +505,9 @@ export async function fetchOpenAqProviderResult(params: {
         retrievedAt: now,
         count: 0,
         activeCount: 0,
+        activePm25Count: 0,
+        activePm10Count: 0,
+        availableStationCount: 0,
         errorCode: 'UNAUTHORIZED',
         errorMessage: 'Invalid or expired OpenAQ API key.',
       };
@@ -517,6 +530,9 @@ export async function fetchOpenAqProviderResult(params: {
         retrievedAt: now,
         count: 0,
         activeCount: 0,
+        activePm25Count: 0,
+        activePm10Count: 0,
+        availableStationCount: 0,
         errorCode: 'RATE_LIMIT',
         errorMessage: 'OpenAQ API rate limit exceeded.',
       };
@@ -539,6 +555,9 @@ export async function fetchOpenAqProviderResult(params: {
         retrievedAt: now,
         count: 0,
         activeCount: 0,
+        activePm25Count: 0,
+        activePm10Count: 0,
+        availableStationCount: 0,
         errorCode: `HTTP_${res.status}`,
         errorMessage: `OpenAQ API returned HTTP ${res.status}.`,
       };
@@ -587,6 +606,9 @@ export async function fetchOpenAqProviderResult(params: {
         retrievedAt: now,
         count: 0,
         activeCount: 0,
+        activePm25Count: 0,
+        activePm10Count: 0,
+        availableStationCount: 0,
       };
       openAqCache.set(cacheKey, { result, cachedAt: Date.now() });
       return result;
@@ -632,9 +654,24 @@ export async function fetchOpenAqProviderResult(params: {
       if (record) records.push(record);
     }
 
-    const activeCount = records.filter(
-      (r) => r.status === 'fresh' || r.status === 'active'
-    ).length;
+    // Use canonical measurement eligibility selectors to unify monitor counts
+    const activePm25Sources = getActivePhysicalSources(records, 'pm25');
+    const activePm10Sources = getActivePhysicalSources(records, 'pm10');
+
+    // Distinct physical stations from records (excluding unconfigured/unavailable error placeholder records)
+    const distinctStationKeys = new Set<string>();
+    for (const r of records) {
+      if (
+        r.status !== 'not_configured' &&
+        r.status !== 'unavailable' &&
+        r.status !== 'unreachable' &&
+        r.status !== 'rejected' &&
+        r.status !== 'error'
+      ) {
+        const key = r.stationId ? `station:${r.stationId.trim().toLowerCase()}` : r.id;
+        distinctStationKeys.add(key);
+      }
+    }
 
     const result: OpenAqProviderResult = {
       provider: 'openaq',
@@ -642,7 +679,10 @@ export async function fetchOpenAqProviderResult(params: {
       sources: records,
       retrievedAt: now,
       count: records.length,
-      activeCount,
+      activeCount: activePm25Sources.length,
+      activePm25Count: activePm25Sources.length,
+      activePm10Count: activePm10Sources.length,
+      availableStationCount: distinctStationKeys.size,
     };
 
     if (records.length > 0) {
@@ -666,6 +706,9 @@ export async function fetchOpenAqProviderResult(params: {
       retrievedAt: now,
       count: 0,
       activeCount: 0,
+      activePm25Count: 0,
+      activePm10Count: 0,
+      availableStationCount: 0,
       errorCode: 'NETWORK_ERROR',
       errorMessage: err?.message || 'Failed to reach OpenAQ API.',
     };

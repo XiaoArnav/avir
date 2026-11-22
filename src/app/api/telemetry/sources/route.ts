@@ -87,6 +87,9 @@ export async function GET(req: NextRequest) {
       retrievedAt: providerResult.retrievedAt,
       count: providerResult.count,
       activeCount: providerResult.activeCount,
+      activePm25Count: providerResult.activePm25Count,
+      activePm10Count: providerResult.activePm10Count,
+      availableStationCount: providerResult.availableStationCount,
       errorCode: providerResult.errorCode,
     });
 

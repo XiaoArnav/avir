@@ -13,6 +13,8 @@ import {
   getRegistryOnlyStations,
   getAtmosphericModels,
   getUnconfiguredProviders,
+  evaluateMeasurementEligibility,
+  MeasurementEligibility,
 } from '@/config/environmental-sources';
 import {
   Layers,
@@ -68,9 +70,10 @@ export const MultiSourceInspectorModal: React.FC<MultiSourceInspectorModalProps>
     switch (kind) {
       case 'atmospheric_model':
         return { label: 'Atmospheric Model', color: 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20' };
-      case 'physical_observation':
       case 'official_ground_station':
-        return { label: 'Physical Reference Monitor', color: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20' };
+        return { label: 'Regulatory Reference Monitor', color: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20' };
+      case 'physical_observation':
+        return { label: 'Physical Ground Monitor', color: 'bg-stone-500/10 text-stone-600 dark:text-stone-400 border-stone-500/20' };
       case 'community_optical':
         return { label: 'Citizen Science Optical', color: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20' };
       case 'user_hardware':
@@ -96,6 +99,41 @@ export const MultiSourceInspectorModal: React.FC<MultiSourceInspectorModalProps>
       default:
         return { label: 'Readings Unavailable', color: 'text-stone-400 dark:text-zinc-500 bg-stone-100 dark:bg-zinc-800' };
     }
+  };
+
+  const getPhysicalStatusBadge = (sourceStatus: string, eligibility?: MeasurementEligibility) => {
+    if (sourceStatus === 'not_configured') {
+      return { label: 'API Key Unconfigured', color: 'text-stone-400 dark:text-zinc-500 bg-stone-100 dark:bg-zinc-800' };
+    }
+    if (sourceStatus === 'registry_only') {
+      return { label: 'Registry Verified', color: 'text-stone-500 dark:text-zinc-400 bg-stone-200 dark:bg-zinc-800' };
+    }
+    if (sourceStatus === 'unavailable' || sourceStatus === 'unreachable' || sourceStatus === 'rejected' || sourceStatus === 'error') {
+      return { label: 'Readings Unavailable', color: 'text-stone-400 dark:text-zinc-500 bg-stone-100 dark:bg-zinc-800' };
+    }
+
+    if (eligibility) {
+      if (eligibility.eligible) {
+        return { label: 'Active & Fresh', color: 'text-emerald-600 dark:text-emerald-400 bg-emerald-500/10' };
+      }
+      if (eligibility.reason === 'stale') {
+        return { label: 'Stale (>24h)', color: 'text-amber-600 dark:text-amber-400 bg-amber-500/10' };
+      }
+      if (eligibility.reason === 'missing_timestamp') {
+        return { label: 'Timestamp Unavailable', color: 'text-stone-400 dark:text-zinc-500 bg-stone-100 dark:bg-zinc-800' };
+      }
+      if (eligibility.reason === 'future_timestamp') {
+        return { label: 'Suspicious Timing', color: 'text-rose-600 dark:text-rose-400 bg-rose-500/10' };
+      }
+      if (eligibility.reason === 'invalid_value') {
+        return { label: 'Invalid Reading', color: 'text-rose-600 dark:text-rose-400 bg-rose-500/10' };
+      }
+      if (eligibility.reason === 'missing_measurement') {
+        return { label: 'PM2.5 Unavailable', color: 'text-stone-400 dark:text-zinc-500 bg-stone-100 dark:bg-zinc-800' };
+      }
+    }
+
+    return getStatusBadge(sourceStatus);
   };
 
   return (
@@ -216,9 +254,12 @@ export const MultiSourceInspectorModal: React.FC<MultiSourceInspectorModalProps>
             <div className="space-y-2.5">
               {effectiveSources.map((source) => {
                 const kindBadge = getSourceKindBadge(source.sourceKind);
-                const statusBadge = getStatusBadge(source.status);
-                const pm25 = source.measurements?.find((m) => m.pollutant === 'pm25');
                 const isModel = source.sourceKind === 'atmospheric_model' || source.sourceKind === 'satellite_reanalysis';
+                const pm25Eligibility = !isModel ? evaluateMeasurementEligibility(source, 'pm25') : undefined;
+                const statusBadge = isModel
+                  ? getStatusBadge(source.status)
+                  : getPhysicalStatusBadge(source.status, pm25Eligibility);
+                const pm25 = source.measurements?.find((m) => m.pollutant === 'pm25');
 
                 return (
                   <div
@@ -267,15 +308,15 @@ export const MultiSourceInspectorModal: React.FC<MultiSourceInspectorModalProps>
                             <Clock className="w-3 h-3 text-stone-400" />
                             Observed: {new Date(pm25.observedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                           </span>
-                        ) : source.observedAt ? (
-                          <span className="flex items-center gap-1 text-[10px]">
-                            <Clock className="w-3 h-3 text-stone-400" />
-                            Observed: {new Date(source.observedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                          </span>
                         ) : isModel && (pm25?.validAt || source.validAt) ? (
                           <span className="flex items-center gap-1 text-[10px]">
                             <Clock className="w-3 h-3 text-stone-400" />
                             Model Valid: {new Date(pm25?.validAt || source.validAt!).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        ) : source.observedAt ? (
+                          <span className="flex items-center gap-1 text-[10px] text-stone-400">
+                            <Clock className="w-3 h-3 text-stone-400" />
+                            Station Heartbeat: {new Date(source.observedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (PM2.5 untimed)
                           </span>
                         ) : (
                           <span className="flex items-center gap-1 text-[10px] text-stone-400">

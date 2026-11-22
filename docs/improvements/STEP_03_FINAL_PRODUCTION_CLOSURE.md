@@ -227,3 +227,114 @@ jobs:
 - Implement a dedicated serverless scraper / ingestion worker for statutory CPCB (Central Pollution Control Board) CAAQMS stations.
 - Store official 15-minute statutory reference records with cryptographic hashes for regulatory provenance.
 - Maintain independent tracks for statutory regulatory enforcement (CPCB NAQI) and high-resolution personal health guidance (EPA Breakpoints).
+
+---
+
+## 9. Pollutant-Specific Freshness and Unified Active-Source Counting
+
+### 1. The Original Timestamp Contamination Defect
+In earlier implementations of `getActivePhysicalSources()` and `getStalePhysicalSources()`:
+```typescript
+const obsTime = measurement.observedAt || src.observedAt;
+```
+This fallback allowed station-level metadata (`src.observedAt` or `datetimeLast`) to contaminate individual pollutant freshness. If a physical station reported fresh PM10 or an active station heartbeat while its PM2.5 sensor was untimed or discontinued, the station-level timestamp falsely validated PM2.5 as active and fresh. Scientifically, this represented an invalid transfer of measurement provenance across physical particulate fractions.
+
+### 2. The Exact Code Fix
+In `src/config/environmental-sources.ts`, we eliminated all timestamp fallback logic:
+```typescript
+const obsTime = measurement.observedAt ?? null;
+```
+Observation timing is strictly resolved from the pollutant measurement itself. Station-level timestamps remain in `src.observedAt` and `src.provenance.limitations` strictly as informational device heartbeats and can never validate an individual pollutant's freshness.
+
+### 3. The Shared Canonical Eligibility Function
+Created `evaluateMeasurementEligibility(source, targetPollutant, now)` in `src/config/environmental-sources.ts`:
+```typescript
+export type MeasurementEligibility =
+  | {
+      eligible: true;
+      pollutant: 'pm25' | 'pm10';
+      value: number;
+      unit: string;
+      observedAt: string;
+      ageMinutes: number;
+    }
+  | {
+      eligible: false;
+      reason:
+        | 'missing_measurement'
+        | 'invalid_value'
+        | 'unsupported_unit'
+        | 'missing_timestamp'
+        | 'invalid_timestamp'
+        | 'future_timestamp'
+        | 'stale'
+        | 'source_unavailable'
+        | 'registry_only'
+        | 'duplicate_source';
+      message: string;
+    };
+```
+This pure domain function enforces:
+- Source availability (`status !== 'not_configured' && status !== 'registry_only' && status !== 'unavailable'`).
+- Measurement presence for target pollutant.
+- Non-negative, finite numeric value (`value >= 0 && Number.isFinite(value)`).
+- Valid concentration unit (`ug/m3` or `µg/m³`).
+- Measurement-specific observation timestamp (`obsTime = measurement.observedAt ?? null`).
+- Clock-skew rejection ($> 10\text{ min}$ future forward skew).
+- Freshness policy enforcement ($\le 24\text{ hours}$).
+
+### 4. Fresh, Stale, and Unverifiable Distinctions
+- **Fresh**: Authentically observed $\le 24\text{ hours}$ ago with valid particulate unit and concentration. Counted as active.
+- **Stale**: Authentically observed $> 24\text{ hours}$ ago. Excluded from active counts; selectable via `getStalePhysicalSources()`.
+- **Timestamp Unavailable (Unverifiable)**: Measurement concentration present without an observation timestamp. Not counted as active and not branded stale; displayed honestly as "Timestamp Unavailable".
+- **Invalid**: Negative values, non-finite numbers, or rejected quality flags.
+- **Unavailable**: Network outages, HTTP errors, or unconfigured server credentials.
+
+### 5. Unified `activeCount` Contract
+Previously, `openaq-provider.ts` computed `activeCount` using `r.status === 'fresh'`, while the UI inspector used physical monitor selectors.
+Now, both use `getActivePhysicalSources(sources, 'pm25')`:
+- `activeCount`: Canonical active PM2.5 reporting physical ground monitors.
+- `activePm25Count`: Explicit active PM2.5 count.
+- `activePm10Count`: Explicit active PM10 count.
+- `availableStationCount`: Distinct physical stations registered within the search radius.
+All displayed counts in the UI header, card badges, and API JSON responses strictly agree.
+
+### 6. Deduplication Behavior
+Aggregator feeds exposing identical physical ground monitors (e.g. OpenAQ location `4022` and CPCB CAAQMS station `4022`) are deduplicated using `station:${src.stationId.trim().toLowerCase()}`. Distinct physical stations within the same region or network retain their unique identities.
+
+### 7. API Response Semantics
+The Next.js route `/api/telemetry/sources` returns:
+```json
+{
+  "provider": "openaq",
+  "status": "available",
+  "sources": [...],
+  "retrievedAt": "2026-11-23T00:15:00.000Z",
+  "count": 2,
+  "activeCount": 1,
+  "activePm25Count": 1,
+  "activePm10Count": 1,
+  "availableStationCount": 1,
+  "errorCode": null
+}
+```
+HTTP headers enforce Edge caching:
+`Cache-Control: public, s-maxage=300, stale-while-revalidate=600`.
+
+### 8. Verification Results Matrix
+- **Test Suite**: 26 test files passed, 402 tests passed (100% pass rate).
+- **Cases A through J Regression Suite** (`tests/integration/step3-pollutant-freshness-edge-cases.test.ts`):
+  - Case A (PM10 fresh, PM2.5 untimed): PASS.
+  - Case B (PM2.5 fresh, PM10 untimed): PASS.
+  - Case C (PM2.5 stale, PM10 fresh): PASS.
+  - Case D (PM2.5 invalid, PM10 valid): PASS.
+  - Case E (Station timestamp exists, PM2.5 untimed): PASS.
+  - Case F (Two aggregators expose one station): PASS.
+  - Case G (Missing PM2.5 value, valid PM10 value): PASS.
+  - Case H (Valid PM2.5 zero accepted): PASS.
+  - Case I (Future-dated PM2.5 rejected): PASS.
+  - Case J (Provider status fresh, pollutant timestamp missing): PASS.
+- **TypeScript**: `npx tsc --noEmit` exited 0.
+- **Production Build**: `npm run build` compiled 6/6 static and dynamic routes successfully.
+- **Live OpenAQ Status**: `NOT LIVE-VERIFIED (BLOCKED — OPENAQ_API_KEY NOT CONFIGURED)`.
+
