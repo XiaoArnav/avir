@@ -9,9 +9,11 @@
  * Strict Invariants:
  * - Zero uncalibrated confidence percentages.
  * - Deduplication of identical upstream sensors.
- * - Spatial limit: <= 35km.
+ * - Spatial limit: <= 25km (boundary-layer correlation limit).
  * - Temporal limit: <= 120 minutes.
  * - Unit compatibility: verified ug/m3.
+ * - Pollutant-specific timestamp provenance (never borrow timestamps from other pollutants).
+ * - No unsupported causal claims.
  */
 
 import {
@@ -22,10 +24,19 @@ import {
   ComparedSourceItem,
   SourceMeasurement,
 } from '@/domain/types';
+import {
+  MAX_COMPARISON_DISTANCE_KM,
+  MAX_COMPARISON_TIME_DIFF_MINUTES,
+  MAX_OBSERVATION_AGE_HOURS,
+  SKEW_ALLOWANCE_MINUTES,
+} from '@/config/environmental-sources';
 
-export const MAX_COMPARISON_DISTANCE_KM = 35;
-export const MAX_COMPARISON_TIME_DIFF_MINUTES = 120;
-export const MAX_OBSERVATION_AGE_HOURS = 24;
+// Re-export constants for backwards compatibility
+export {
+  MAX_COMPARISON_DISTANCE_KM,
+  MAX_COMPARISON_TIME_DIFF_MINUTES,
+  MAX_OBSERVATION_AGE_HOURS,
+};
 
 /**
  * Extracts a target pollutant measurement from an EnvironmentalSourceRecord.
@@ -166,7 +177,7 @@ export function createOpenMeteoModelRecord(params: {
     retrievedAt,
     ingestedAt: retrievedAt,
     measurements,
-    attribution: 'Open-Meteo (CC BY 4.0) / ECMWF / Copernicus Atmosphere Monitoring Service',
+    attribution: 'Open-Meteo Air Quality (ECMWF CAMS) & Weather (NOAA GFS)',
     explanation: 'Regional numerical atmospheric dispersion and aerosol chemistry grid model (~11km resolution).',
     provenance: {
       network: 'ECMWF IFS / Copernicus Atmosphere Monitoring Service',
@@ -184,15 +195,17 @@ export function createOpenMeteoModelRecord(params: {
 /**
  * Resolves observation timestamp or forecast valid time for comparison eligibility checks.
  * Rejects future-dated observations (>10 min clock skew) and unparseable date strings.
+ * Enforces pollutant-specific timestamps: physical observations must use the measurement's own timestamp.
  */
 export function getSourceTimestamp(
   source: EnvironmentalSourceRecord,
   measurement?: SourceMeasurement | null
 ): { timeStr: string | null; timestamp: number | null; error?: string } {
   const isModel = source.sourceKind === 'atmospheric_model';
+  // Pollutant-specific timestamp: physical observation timing MUST come from the specific measurement
   const timeStr = isModel
-    ? source.validAt || measurement?.validAt || null
-    : measurement?.observedAt || source.observedAt || null;
+    ? (measurement?.validAt || source.validAt || null)
+    : (measurement?.observedAt || null);
 
   if (!timeStr) {
     return { timeStr: null, timestamp: null, error: 'Missing measurement timestamp or valid time' };
@@ -205,7 +218,7 @@ export function getSourceTimestamp(
 
   const now = Date.now();
   // Check future clock skew allowance (10 min) for physical observations
-  if (!isModel && parsed > now + 10 * 60 * 1000) {
+  if (!isModel && parsed > now + SKEW_ALLOWANCE_MINUTES * 60 * 1000) {
     return { timeStr, timestamp: parsed, error: 'Future-dated physical observation timestamp rejected' };
   }
 
@@ -215,7 +228,7 @@ export function getSourceTimestamp(
 /**
  * Compares environmental sources for a target pollutant (default PM2.5).
  * Implements Mode A (Single source), Mode B (Multiple incompatible), and Mode C (Comparable).
- * Enforces strict scientific parity: matching units, equal averaging periods, spatial (<=35km) and temporal (<=120m) parity.
+ * Enforces strict scientific parity: matching units, equal averaging periods, spatial (<=25km) and temporal (<=120m) parity.
  */
 export function compareEnvironmentalSources(
   rawSources: EnvironmentalSourceRecord[],
@@ -238,7 +251,10 @@ export function compareEnvironmentalSources(
       src.status === 'not_configured' ||
       src.status === 'registry_only' ||
       src.status === 'unavailable' ||
-      src.status === 'stale'
+      src.status === 'stale' ||
+      src.status === 'rejected' ||
+      src.status === 'unreachable' ||
+      src.status === 'error'
     ) {
       excludedSourceIds.push(src.id);
       if (src.status === 'stale') {
@@ -271,7 +287,7 @@ export function compareEnvironmentalSources(
     name: c.source.sourceName || c.source.name || 'Source',
     value: c.measurement.value!,
     unit: c.measurement.unit,
-    measuredAt: c.measurement.observedAt || c.source.observedAt || null,
+    measuredAt: c.measurement.observedAt || null,
     validAt: c.measurement.validAt || c.source.validAt || null,
     distanceKm: c.source.distanceKm ?? null,
     averagingPeriodMinutes: c.measurement.averagingPeriodMinutes ?? null,
@@ -327,6 +343,15 @@ export function compareEnvironmentalSources(
     );
   }
 
+  // Anchor unit check
+  const anchorUnit = anchor.measurement.unit.toLowerCase().trim();
+  if (anchorUnit !== 'ug/m3' && anchorUnit !== 'µg/m³') {
+    anchorValid = false;
+    incompatibilityReasons.push(
+      `Unsupported anchor unit: ${anchor.source.sourceName || anchor.source.name} reports in ${anchor.measurement.unit}. Only µg/m³ particulate concentrations are comparable.`
+    );
+  }
+
   if (anchor.measurement.averagingPeriodMinutes == null) {
     anchorValid = false;
     incompatibilityReasons.push(
@@ -357,7 +382,6 @@ export function compareEnvironmentalSources(
     let isCompatible = true;
 
     // 1. Unit compatibility
-    const anchorUnit = anchor.measurement.unit.toLowerCase().trim();
     const currUnit = c.measurement.unit.toLowerCase().trim();
     if (anchorUnit !== currUnit || (currUnit !== 'ug/m3' && currUnit !== 'µg/m³')) {
       isCompatible = false;
@@ -381,7 +405,7 @@ export function compareEnvironmentalSources(
       );
     }
 
-    // 3. Geographic proximity limit (<= 35km)
+    // 3. Geographic proximity limit
     if (c.source.distanceKm == null || !Number.isFinite(c.source.distanceKm)) {
       isCompatible = false;
       incompatibilityReasons.push(
@@ -462,14 +486,21 @@ export function compareEnvironmentalSources(
 
   let divergenceReason: string | null = null;
   if (relativeDifferencePercent >= 35) {
-    divergenceReason = `Significant divergence (${relativeDifferencePercent}%): ground monitor concentration differs substantially from regional model grid. Near-surface emissions or microclimatic boundary-layer trapping may contribute.`;
+    divergenceReason = `Significant divergence (${relativeDifferencePercent}%): reported concentrations differ substantially. Possible reasons include differing geographic sampling locations, instrument sensing principles (e.g. optical vs reference gravimetric), integration averaging periods, or localized atmospheric dispersion variability.`;
   } else if (relativeDifferencePercent >= 15) {
-    divergenceReason = `Moderate divergence (${relativeDifferencePercent}%): ground sensor and atmospheric model reflect minor local dispersion variances.`;
+    divergenceReason = `Moderate divergence (${relativeDifferencePercent}%): reported concentrations reflect minor local dispersion variances or microclimatic differences across sensor positions.`;
   }
 
-  const s1 = eligibleCandidates[0];
-  const s2 = eligibleCandidates[1];
-  const summary = `Two comparable PM2.5 sources are available. Their reported concentrations differ by ${absoluteDifferenceUgM3} µg/m³ (${s1.source.sourceName || s1.source.name}: ${s1.measurement.value} µg/m³, ${s2.source.sourceName || s2.source.name}: ${s2.measurement.value} µg/m³).`;
+  const count = eligibleCandidates.length;
+  const pollutantLabel = targetPollutant === 'pm25' ? 'PM2.5' : 'PM10';
+  let summary = '';
+  if (count === 2) {
+    const s1 = eligibleCandidates[0];
+    const s2 = eligibleCandidates[1];
+    summary = `Two comparable ${pollutantLabel} sources are available. Their reported concentrations differ by ${absoluteDifferenceUgM3} µg/m³ (${s1.source.sourceName || s1.source.name}: ${s1.measurement.value} µg/m³, ${s2.source.sourceName || s2.source.name}: ${s2.measurement.value} µg/m³).`;
+  } else {
+    summary = `${count} comparable ${pollutantLabel} sources are available. Reported concentrations range from ${minConcentration} to ${maxConcentration} µg/m³ (spread: Δ ${absoluteDifferenceUgM3} µg/m³).`;
+  }
 
   return {
     targetPollutant,

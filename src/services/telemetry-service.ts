@@ -15,7 +15,7 @@ import { calculateComprehensiveCpcbNaqi } from '@/domain/cpcb-naqi';
 import { buildMultiSourceFeeds, calculateMultiSourceConsensus } from '@/domain/advanced-air-math';
 import { getNearestGroundStation, discoverGroundStationSources } from './ground-station-service';
 import { createOpenMeteoModelRecord, compareEnvironmentalSources, deduplicateEnvironmentalSources } from '@/domain/source-comparison';
-import { fetchOpenAqSources } from './providers/openaq-provider';
+import { OPENAQ_DEFAULT_RADIUS_KM } from '@/config/environmental-sources';
 import { telemetryCache } from '@/lib/cache';
 
 export interface GeocodedLocation {
@@ -302,7 +302,7 @@ export async function fetchLiveAtmosphericMetrics(
       isStale: false,
       freshness: 'unavailable',
       errorType: 'validation',
-      sourceAttribution: 'Open-Meteo High-Resolution Ensemble (ECMWF & NOAA GFS)',
+      sourceAttribution: 'Open-Meteo Air Quality (ECMWF CAMS) & Weather (NOAA GFS)',
       errorMessage: `Invalid coordinates provided (latitude: ${latitude}, longitude: ${longitude}). Latitude must be between -90 and 90, and longitude between -180 and 180.`,
       availability: {
         aqi: false,
@@ -578,20 +578,24 @@ export async function fetchLiveAtmosphericMetrics(
       // Ground monitor query is non-blocking
     }
 
-    // Query OpenAQ provider asynchronously (Server direct or Client API route)
+    // Query OpenAQ provider asynchronously (Server dynamic import or Client API route)
     let openAqSources: EnvironmentalSourceRecord[] = [];
     try {
       if (typeof window === 'undefined') {
+        const { fetchOpenAqSources } = await import('./providers/openaq-provider');
         openAqSources = await fetchOpenAqSources({
           latitude,
           longitude,
-          radiusKm: 35,
+          radiusKm: OPENAQ_DEFAULT_RADIUS_KM,
           signal: options?.signal,
         });
       } else {
-        const res = await fetch(`/api/telemetry/sources?lat=${latitude}&lon=${longitude}&radius=35`, {
-          signal: options?.signal,
-        });
+        const res = await fetch(
+          `/api/telemetry/sources?lat=${latitude}&lon=${longitude}&radius=${OPENAQ_DEFAULT_RADIUS_KM}`,
+          {
+            signal: options?.signal,
+          }
+        );
         if (res.ok) {
           const json = await res.json();
           if (Array.isArray(json?.sources)) {
@@ -617,8 +621,8 @@ export async function fetchLiveAtmosphericMetrics(
       pm25,
       usAqi,
       cpcbAqi: cpcbResult.aqi ?? cpcb?.aqi,
-      boundaryLayerHeight: blh ?? 200,
-      isThermalInversion: blh !== null ? isThermalInversion(blh, currentHour) : false,
+      boundaryLayerHeight: blh,
+      isThermalInversion: isThermalInversion(blh, currentHour),
       groundStation,
     }) : [];
     const ensemble = calculateMultiSourceConsensus(feeds);
@@ -690,7 +694,7 @@ export async function fetchLiveAtmosphericMetrics(
       cpcbAqi: cpcbResult.aqi ?? cpcb?.aqi ?? null,
       cpcbCategory: cpcbResult.category ?? cpcb?.category ?? null,
       cpcbStatus: cpcbResult.classification,
-      sourceAttribution: 'Open-Meteo High-Resolution Ensemble (ECMWF & NOAA GFS)',
+      sourceAttribution: 'Open-Meteo Air Quality (ECMWF CAMS) & Weather (NOAA GFS)',
       hourlyForecast: hourlyForecast.length > 0 ? hourlyForecast : undefined,
       ensemble,
       environmentalSources: allEnvironmentalSources,
@@ -779,7 +783,7 @@ export async function fetchLiveAtmosphericMetrics(
       isStale: false,
       freshness: 'unavailable',
       errorType,
-      sourceAttribution: 'Open-Meteo High-Resolution Ensemble (ECMWF & NOAA GFS)',
+      sourceAttribution: 'Open-Meteo Air Quality (ECMWF CAMS) & Weather (NOAA GFS)',
       errorMessage,
       availability: {
         aqi: false,

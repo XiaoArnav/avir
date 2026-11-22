@@ -22,6 +22,7 @@ import {
   Sparkles,
   Share2,
   GraduationCap,
+  Layers,
 } from 'lucide-react';
 
 interface AtmosphereHeroProps {
@@ -75,10 +76,10 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
 
   const bestVentingSlot = useMemo(() => {
     return forecastPoints.reduce<HourlyAtmosphericPoint | null>((best, curr) => {
-      if (curr.usAqi === null && curr.boundaryLayerHeight === null) return best;
-      if (!best) return curr;
-      const currScore = (curr.boundaryLayerHeight ?? 200) - (curr.usAqi ?? 200) * 2;
-      const bestScore = (best.boundaryLayerHeight ?? 200) - (best.usAqi ?? 200) * 2;
+      if (curr.usAqi === null || curr.boundaryLayerHeight === null) return best;
+      if (!best || best.usAqi === null || best.boundaryLayerHeight === null) return curr;
+      const currScore = curr.boundaryLayerHeight - curr.usAqi * 2;
+      const bestScore = best.boundaryLayerHeight - best.usAqi * 2;
       return currScore > bestScore ? curr : best;
     }, null);
   }, [forecastPoints]);
@@ -412,6 +413,17 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
             )}
           </div>
           <div className="flex items-center gap-2">
+            {onOpenMultiSource && (
+              <button
+                onClick={onOpenMultiSource}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/80 dark:bg-zinc-850 hover:bg-stone-200 dark:hover:bg-zinc-700 text-ink dark:text-zinc-200 font-medium text-[11px] transition-colors border border-stone-200 dark:border-zinc-700 shadow-sm"
+                title="Inspect Atmospheric Data Sources & Provenance"
+                aria-label="Inspect Atmospheric Data Sources and Quality"
+              >
+                <Layers className="w-3 h-3 text-emerald-500" />
+                <span>Sources</span>
+              </button>
+            )}
             {onOpenShare && (
               <button
                 onClick={onOpenShare}

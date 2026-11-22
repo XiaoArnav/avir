@@ -4,26 +4,26 @@ import React from 'react';
 import {
   EnsembleConsensusAnalysis,
   EnvironmentalSourceRecord,
-  EnvironmentalSourceKind,
-  EnvironmentalSourceStatus,
   SourceComparison,
   AtmosphericMetrics,
 } from '@/domain/types';
+import {
+  getActivePhysicalSources,
+  getStalePhysicalSources,
+  getRegistryOnlyStations,
+  getAtmosphericModels,
+  getUnconfiguredProviders,
+} from '@/config/environmental-sources';
 import {
   Layers,
   X,
   ShieldCheck,
   AlertCircle,
-  BarChart3,
-  Database,
+  Radio,
   CheckCircle2,
   Clock,
-  MapPin,
-  Radio,
-  Cpu,
   Info,
   Scale,
-  ExternalLink,
 } from 'lucide-react';
 
 interface MultiSourceInspectorModalProps {
@@ -40,32 +40,23 @@ export const MultiSourceInspectorModal: React.FC<MultiSourceInspectorModalProps>
   isOpen,
   onClose,
   cityName,
-  ensemble,
   environmentalSources = [],
   sourceComparison,
   metrics,
 }) => {
   if (!isOpen) return null;
 
-  // Use genuine environmental sources provided by the telemetry pipeline.
   // Zero-fabrication: Never invent fake fresh atmospheric records, synthetic 150 values, or artificial timestamps.
   const effectiveSources: EnvironmentalSourceRecord[] = environmentalSources || [];
 
-  // Active independent observation sources (excluding models and unconfigured/registry-only)
-  const activePhysicalSources = effectiveSources.filter(
-    (s) =>
-      (s.sourceKind === 'physical_observation' ||
-        s.sourceKind === 'official_ground_station' ||
-        s.sourceKind === 'community_optical' ||
-        s.sourceKind === 'user_hardware') &&
-      s.status !== 'not_configured' &&
-      s.status !== 'registry_only' &&
-      s.status !== 'unavailable'
-  );
+  // Pure selectors for honest source category separation
+  const activePhysicalSources = getActivePhysicalSources(effectiveSources, 'pm25');
+  const stalePhysicalSources = getStalePhysicalSources(effectiveSources, 'pm25');
+  const registryStations = getRegistryOnlyStations(effectiveSources);
+  const atmosphericModels = getAtmosphericModels(effectiveSources);
+  const unconfiguredProviders = getUnconfiguredProviders(effectiveSources);
 
-  const registryStations = effectiveSources.filter((s) => s.status === 'registry_only');
-
-  const primaryModel = effectiveSources.find((s) => s.sourceKind === 'atmospheric_model');
+  const primaryModel = atmosphericModels[0] || effectiveSources.find((s) => s.sourceKind === 'atmospheric_model');
   const modelPm25 =
     primaryModel?.measurements?.find((m) => m.pollutant === 'pm25')?.value ??
     (metrics?.pm25 !== null && metrics?.pm25 !== undefined ? metrics.pm25 : null);
@@ -100,13 +91,20 @@ export const MultiSourceInspectorModal: React.FC<MultiSourceInspectorModalProps>
         return { label: 'Registry Verified', color: 'text-stone-500 dark:text-zinc-400 bg-stone-200 dark:bg-zinc-800' };
       case 'not_configured':
         return { label: 'API Key Unconfigured', color: 'text-stone-400 dark:text-zinc-500 bg-stone-100 dark:bg-zinc-800' };
+      case 'unreachable':
+      case 'unavailable':
       default:
         return { label: 'Readings Unavailable', color: 'text-stone-400 dark:text-zinc-500 bg-stone-100 dark:bg-zinc-800' };
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="modal-sources-title"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
+    >
       <div className="bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl max-w-3xl w-full p-6 shadow-2xl space-y-6 max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div className="flex items-center justify-between pb-3 border-b border-stone-200 dark:border-zinc-800">
@@ -115,7 +113,7 @@ export const MultiSourceInspectorModal: React.FC<MultiSourceInspectorModalProps>
               <Layers className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-lg font-bold text-ink dark:text-white">
+              <h3 id="modal-sources-title" className="text-lg font-bold text-ink dark:text-white">
                 Data Sources, Provenance &amp; Quality
               </h3>
               <p className="text-xs text-ink-muted dark:text-zinc-400">
@@ -163,8 +161,14 @@ export const MultiSourceInspectorModal: React.FC<MultiSourceInspectorModalProps>
                   : `${activePhysicalSources.length} reporting stations`}
               </div>
               <div className="text-xs font-mono text-ink-muted dark:text-zinc-400 mt-0.5">
-                {registryStations.length > 0
+                {activePhysicalSources.length === 0
+                  ? '0 currently available ground observations'
+                  : registryStations.length > 0
                   ? `${registryStations.length} registry station${registryStations.length > 1 ? 's' : ''} verified`
+                  : stalePhysicalSources.length > 0
+                  ? `${stalePhysicalSources.length} station${stalePhysicalSources.length > 1 ? 's' : ''} stale (>24h)`
+                  : unconfiguredProviders.length > 0
+                  ? 'OpenAQ API key not configured'
                   : activePhysicalSources.length > 0
                   ? 'Surface breathing height'
                   : 'Awaiting live feeds'}
@@ -214,7 +218,7 @@ export const MultiSourceInspectorModal: React.FC<MultiSourceInspectorModalProps>
                 const kindBadge = getSourceKindBadge(source.sourceKind);
                 const statusBadge = getStatusBadge(source.status);
                 const pm25 = source.measurements?.find((m) => m.pollutant === 'pm25');
-                const pm10 = source.measurements?.find((m) => m.pollutant === 'pm10');
+                const isModel = source.sourceKind === 'atmospheric_model' || source.sourceKind === 'satellite_reanalysis';
 
                 return (
                   <div
@@ -258,15 +262,20 @@ export const MultiSourceInspectorModal: React.FC<MultiSourceInspectorModalProps>
                     <div className="text-[11px] text-ink-muted dark:text-zinc-400 pt-1 border-t border-stone-200/60 dark:border-zinc-800/60 space-y-1">
                       <div className="flex flex-wrap items-center justify-between gap-1">
                         <span>Attribution: {source.attribution}</span>
-                        {source.observedAt ? (
+                        {pm25?.observedAt ? (
+                          <span className="flex items-center gap-1 text-[10px]">
+                            <Clock className="w-3 h-3 text-stone-400" />
+                            Observed: {new Date(pm25.observedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        ) : source.observedAt ? (
                           <span className="flex items-center gap-1 text-[10px]">
                             <Clock className="w-3 h-3 text-stone-400" />
                             Observed: {new Date(source.observedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                           </span>
-                        ) : source.validAt ? (
+                        ) : isModel && (pm25?.validAt || source.validAt) ? (
                           <span className="flex items-center gap-1 text-[10px]">
                             <Clock className="w-3 h-3 text-stone-400" />
-                            Model Valid: {new Date(source.validAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            Model Valid: {new Date(pm25?.validAt || source.validAt!).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                           </span>
                         ) : (
                           <span className="flex items-center gap-1 text-[10px] text-stone-400">
@@ -422,10 +431,10 @@ export const MultiSourceInspectorModal: React.FC<MultiSourceInspectorModalProps>
               &bull; <strong>Optical Sensors &amp; Hygroscopic Growth:</strong> Citizen science monitors (e.g. Sensor.Community SDS011) use laser light scattering, which can overestimate particulate mass under high humidity. Avir applies the scientific US EPA Barkjohn (2021) de-humidification formula when ambient relative humidity is verified.
             </p>
             <p>
-              &bull; <strong>Why Readings Disagree:</strong> Ground-level thermal inversions trap smoke near the surface while the upper boundary layer remains clearer. A divergence between surface monitors and satellite grid models reflects genuine physical boundary layer behavior.
+              &bull; <strong>Scientific Divergence:</strong> Ground-level thermal inversions trap smoke near the surface while the upper boundary layer remains clearer. A divergence between surface monitors and regional grid models reflects genuine physical boundary layer behavior rather than instrumentation error.
             </p>
             <p>
-              &bull; <strong>Comparison Ineligibility:</strong> To avoid false comparisons, Avir enforces strict spatial (&le; 35 km), temporal (&le; 120 minutes), and unit parity before computing inter-source differences.
+              &bull; <strong>Comparison Ineligibility:</strong> To avoid false comparisons, Avir enforces strict spatial (&le; 25 km), temporal (&le; 120 minutes), averaging period, and unit parity before computing inter-source differences.
             </p>
           </div>
         </div>

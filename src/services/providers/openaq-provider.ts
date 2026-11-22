@@ -7,7 +7,8 @@
  * - Honest 'not_configured' status when API key is missing.
  * - Handles 401, 429 rate limits, timeouts, and network outages gracefully.
  * - Validates physical units (rejects silent unit mixups), non-negative values, and timestamps.
- * - Retains original observation timestamps across cache cycles.
+ * - Retains original observation timestamps; NEVER substitutes station datetimeLast for measurement timestamps.
+ * - Enforces official OpenAQ v3 maximum search radius of 25km.
  */
 
 import {
@@ -17,9 +18,36 @@ import {
   SourceMeasurement,
 } from '@/domain/types';
 import { calculateDistanceKm } from '@/services/ground-station-service';
+import {
+  OPENAQ_MIN_RADIUS_KM,
+  OPENAQ_DEFAULT_RADIUS_KM,
+  OPENAQ_MAX_RADIUS_KM,
+  SKEW_ALLOWANCE_MINUTES,
+  MAX_OBSERVATION_AGE_HOURS,
+  validateObservationTiming,
+} from '@/config/environmental-sources';
 
-export const OPENAQ_MIN_RADIUS_KM = 1;
-export const OPENAQ_MAX_RADIUS_KM = 25; // Official OpenAQ v3 API supported maximum radius is 25km (25,000m)
+// Re-export constants for client/server shared consistency
+export { OPENAQ_MIN_RADIUS_KM, OPENAQ_DEFAULT_RADIUS_KM, OPENAQ_MAX_RADIUS_KM };
+
+export type OpenAqProviderStatus =
+  | 'available'
+  | 'not_configured'
+  | 'no_coverage'
+  | 'unauthorized'
+  | 'rate_limited'
+  | 'unavailable';
+
+export interface OpenAqProviderResult {
+  provider: 'openaq';
+  status: OpenAqProviderStatus;
+  sources: EnvironmentalSourceRecord[];
+  retrievedAt: string;
+  count: number;
+  activeCount: number;
+  errorCode?: string;
+  errorMessage?: string;
+}
 
 export interface OpenAqSensorParameter {
   id: number;
@@ -75,7 +103,7 @@ export interface OpenAqLatestMeasurementItem {
 }
 
 interface OpenAqCacheEntry {
-  records: EnvironmentalSourceRecord[];
+  result: OpenAqProviderResult;
   cachedAt: number; // millisecond timestamp
 }
 
@@ -91,6 +119,7 @@ export function clearOpenAqCache(): void {
  * Validates and normalizes pollutant concentration measurement.
  * Never defaults unit to ug/m3 when missing.
  * Only assigns averagingPeriodMinutes when explicitly established from metadata.
+ * Missing observation timestamps remain null.
  */
 export function validateMeasurementValue(
   rawVal: any,
@@ -166,29 +195,21 @@ export function evaluateObservationFreshness(observedAt: string | null): {
     return { status: 'unavailable', isStale: true, explanation: 'Missing measurement timestamp' };
   }
 
-  const parsedTime = Date.parse(observedAt);
-  if (isNaN(parsedTime)) {
-    return { status: 'rejected', isStale: true, explanation: 'Unparseable measurement timestamp' };
-  }
-
-  const now = Date.now();
-  const skewAllowanceMs = 10 * 60 * 1000; // 10 minutes clock skew allowed
-  if (parsedTime > now + skewAllowanceMs) {
+  const timing = validateObservationTiming(observedAt);
+  if (!timing.isValid) {
     return {
       status: 'rejected',
       isStale: true,
-      explanation: 'Suspicious future-dated physical observation timestamp',
+      explanation: timing.error || 'Invalid measurement timestamp',
     };
   }
 
-  const ageMs = now - parsedTime;
-  const staleThresholdMs = 24 * 60 * 60 * 1000; // 24 hours
-
-  if (ageMs > staleThresholdMs) {
+  if (timing.isStale) {
+    const ageHours = Math.round((Date.now() - Date.parse(observedAt)) / 3600000);
     return {
       status: 'stale',
       isStale: true,
-      explanation: `Observation is ${Math.round(ageMs / (3600 * 1000))} hours old (exceeds 24h freshness policy)`,
+      explanation: `Observation is ${ageHours} hours old (exceeds 24h freshness policy)`,
     };
   }
 
@@ -240,7 +261,7 @@ export function buildUnconfiguredOpenAqRecord(): EnvironmentalSourceRecord {
  * Parses OpenAQ v3 location & sensor response into normalized EnvironmentalSourceRecord.
  * Correctly maps sensorsId to location.sensors metadata to extract parameter and units.
  * Never defaults missing units to ug/m3.
- * Correctly classifies based on monitor metadata rather than assuming all stations are official reference monitors.
+ * Strictly prevents substituting station datetimeLast for missing individual measurement timestamps.
  */
 export function parseOpenAqLocation(
   loc: OpenAqLocationResult,
@@ -307,10 +328,8 @@ export function parseOpenAqLocation(
     }
   }
 
-  // Fallback to location's datetimeLast if latest reading didn't provide timestamp
-  if (!latestObservedAt && loc.datetimeLast?.utc) {
-    latestObservedAt = loc.datetimeLast.utc;
-  }
+  // ZERO-FABRICATION: Never substitute location's datetimeLast for missing measurement timestamps.
+  // loc.datetimeLast is station metadata ONLY.
 
   const freshness = evaluateObservationFreshness(latestObservedAt);
   const now = new Date().toISOString();
@@ -327,6 +346,8 @@ export function parseOpenAqLocation(
     sourceKind = 'community_optical';
     providerKind = 'community_optical';
   }
+
+  const stationLastReportedAt = loc.datetimeLast?.utc || null;
 
   return {
     id: `openaq-${loc.id}`,
@@ -364,6 +385,9 @@ export function parseOpenAqLocation(
           : loc.isMonitor === false
           ? 'Low-cost / community sensor aggregated via OpenAQ'
           : 'Direct in-situ physical ground observation aggregated via OpenAQ',
+        stationLastReportedAt
+          ? `Station reported heartbeat at: ${stationLastReportedAt}`
+          : 'Station heartbeat timestamp unavailable',
         'Reporting latency and calibration depend on the originating environmental agency',
       ],
     },
@@ -371,19 +395,27 @@ export function parseOpenAqLocation(
 }
 
 /**
- * Fetches OpenAQ v3 sources for given coordinates.
- * Server-side entry point.
- * Enforces official OpenAQ v3 maximum search radius of 25km.
+ * Fetches OpenAQ v3 sources and returns typed OpenAqProviderResult.
+ * Distinguishes provider diagnostics from actual physical observation records.
+ * Keeps OPENAQ_API_KEY strictly on the server.
  */
-export async function fetchOpenAqSources(params: {
+export async function fetchOpenAqProviderResult(params: {
   latitude: number;
   longitude: number;
   radiusKm?: number;
   apiKey?: string;
   signal?: AbortSignal;
   bypassCache?: boolean;
-}): Promise<EnvironmentalSourceRecord[]> {
-  const { latitude, longitude, radiusKm = OPENAQ_MAX_RADIUS_KM, apiKey = process.env.OPENAQ_API_KEY, signal, bypassCache = false } = params;
+}): Promise<OpenAqProviderResult> {
+  const {
+    latitude,
+    longitude,
+    radiusKm = OPENAQ_DEFAULT_RADIUS_KM,
+    apiKey = process.env.OPENAQ_API_KEY,
+    signal,
+    bypassCache = false,
+  } = params;
+  const now = new Date().toISOString();
 
   // Validate coordinates
   if (
@@ -396,15 +428,34 @@ export async function fetchOpenAqSources(params: {
     longitude < -180 ||
     longitude > 180
   ) {
-    return [];
+    return {
+      provider: 'openaq',
+      status: 'unavailable',
+      sources: [],
+      retrievedAt: now,
+      count: 0,
+      activeCount: 0,
+      errorCode: 'INVALID_COORDINATES',
+      errorMessage: 'Invalid coordinates provided.',
+    };
   }
 
   // Key check: honest not_configured when missing
   if (!apiKey || apiKey.trim() === '' || apiKey === 'your_openaq_api_key_here') {
-    return [buildUnconfiguredOpenAqRecord()];
+    const unconfiguredRecord = buildUnconfiguredOpenAqRecord();
+    return {
+      provider: 'openaq',
+      status: 'not_configured',
+      sources: [unconfiguredRecord],
+      retrievedAt: now,
+      count: 0,
+      activeCount: 0,
+      errorCode: 'NOT_CONFIGURED',
+      errorMessage: 'OPENAQ_API_KEY is not configured on the server.',
+    };
   }
 
-  // Official OpenAQ v3 API supports maximum 25km (25,000 meters) radius
+  // Clamped search radius [1km, 25km]
   const effectiveRadiusKm = Math.min(OPENAQ_MAX_RADIUS_KM, Math.max(OPENAQ_MIN_RADIUS_KM, radiusKm));
   const radiusMeters = Math.round(effectiveRadiusKm * 1000);
   const cacheKey = `${latitude.toFixed(2)},${longitude.toFixed(2)},${radiusMeters}`;
@@ -412,7 +463,7 @@ export async function fetchOpenAqSources(params: {
   if (!bypassCache) {
     const cached = openAqCache.get(cacheKey);
     if (cached && Date.now() - cached.cachedAt < CACHE_TTL_MS) {
-      return cached.records;
+      return cached.result;
     }
   }
 
@@ -429,46 +480,75 @@ export async function fetchOpenAqSources(params: {
     });
 
     if (res.status === 401) {
-      return [
-        {
-          ...buildUnconfiguredOpenAqRecord(),
-          id: 'openaq-unauthorized',
-          status: 'rejected',
-          errorCode: 'UNAUTHORIZED',
-          explanation: 'Invalid or expired OpenAQ API key provided in server environment.',
-        },
-      ];
+      const result: OpenAqProviderResult = {
+        provider: 'openaq',
+        status: 'unauthorized',
+        sources: [
+          {
+            ...buildUnconfiguredOpenAqRecord(),
+            id: 'openaq-unauthorized',
+            status: 'rejected',
+            errorCode: 'UNAUTHORIZED',
+            explanation: 'Invalid or expired OpenAQ API key provided in server environment.',
+          },
+        ],
+        retrievedAt: now,
+        count: 0,
+        activeCount: 0,
+        errorCode: 'UNAUTHORIZED',
+        errorMessage: 'Invalid or expired OpenAQ API key.',
+      };
+      return result;
     }
 
     if (res.status === 429) {
-      return [
-        {
-          ...buildUnconfiguredOpenAqRecord(),
-          id: 'openaq-rate-limit',
-          status: 'unreachable',
-          errorCode: 'RATE_LIMIT',
-          explanation: 'OpenAQ API rate limit exceeded. Retrying on next scheduled cycle.',
-        },
-      ];
+      const result: OpenAqProviderResult = {
+        provider: 'openaq',
+        status: 'rate_limited',
+        sources: [
+          {
+            ...buildUnconfiguredOpenAqRecord(),
+            id: 'openaq-rate-limit',
+            status: 'unreachable',
+            errorCode: 'RATE_LIMIT',
+            explanation: 'OpenAQ API rate limit exceeded. Retrying on next scheduled cycle.',
+          },
+        ],
+        retrievedAt: now,
+        count: 0,
+        activeCount: 0,
+        errorCode: 'RATE_LIMIT',
+        errorMessage: 'OpenAQ API rate limit exceeded.',
+      };
+      return result;
     }
 
     if (!res.ok) {
-      return [
-        {
-          ...buildUnconfiguredOpenAqRecord(),
-          id: 'openaq-server-error',
-          status: 'unreachable',
-          errorCode: `HTTP_${res.status}`,
-          explanation: `OpenAQ API upstream error (HTTP ${res.status}).`,
-        },
-      ];
+      const result: OpenAqProviderResult = {
+        provider: 'openaq',
+        status: 'unavailable',
+        sources: [
+          {
+            ...buildUnconfiguredOpenAqRecord(),
+            id: 'openaq-server-error',
+            status: 'unreachable',
+            errorCode: `HTTP_${res.status}`,
+            explanation: `OpenAQ API upstream error (HTTP ${res.status}).`,
+          },
+        ],
+        retrievedAt: now,
+        count: 0,
+        activeCount: 0,
+        errorCode: `HTTP_${res.status}`,
+        errorMessage: `OpenAQ API returned HTTP ${res.status}.`,
+      };
+      return result;
     }
 
     const data = await res.json();
     const locations: OpenAqLocationResult[] = Array.isArray(data?.results) ? data.results : [];
 
     if (locations.length === 0) {
-      const now = new Date().toISOString();
       const emptyRecords: EnvironmentalSourceRecord[] = [
         {
           id: 'openaq-no-nearby-stations',
@@ -490,7 +570,7 @@ export async function fetchOpenAqSources(params: {
           ingestedAt: now,
           measurements: [],
           attribution: 'OpenAQ Open Data (CC BY 4.0)',
-          explanation: `No active OpenAQ ground monitoring stations found within ${radiusKm}km.`,
+          explanation: `No active OpenAQ ground monitoring stations found within ${effectiveRadiusKm}km.`,
           provenance: {
             network: 'OpenAQ',
             licenseOrAttribution: 'OpenAQ Open Data (CC BY 4.0)',
@@ -500,8 +580,16 @@ export async function fetchOpenAqSources(params: {
           },
         },
       ];
-      openAqCache.set(cacheKey, { records: emptyRecords, cachedAt: Date.now() });
-      return emptyRecords;
+      const result: OpenAqProviderResult = {
+        provider: 'openaq',
+        status: 'no_coverage',
+        sources: emptyRecords,
+        retrievedAt: now,
+        count: 0,
+        activeCount: 0,
+      };
+      openAqCache.set(cacheKey, { result, cachedAt: Date.now() });
+      return result;
     }
 
     // Sort locations by distance to target coordinates
@@ -512,7 +600,7 @@ export async function fetchOpenAqSources(params: {
         const dist = lat != null && lon != null ? calculateDistanceKm(latitude, longitude, lat, lon) : Infinity;
         return { loc, dist };
       })
-      .filter((item) => item.dist <= radiusKm)
+      .filter((item) => item.dist <= effectiveRadiusKm)
       .sort((a, b) => a.dist - b.dist);
 
     const records: EnvironmentalSourceRecord[] = [];
@@ -544,20 +632,58 @@ export async function fetchOpenAqSources(params: {
       if (record) records.push(record);
     }
 
+    const activeCount = records.filter(
+      (r) => r.status === 'fresh' || r.status === 'active'
+    ).length;
+
+    const result: OpenAqProviderResult = {
+      provider: 'openaq',
+      status: 'available',
+      sources: records,
+      retrievedAt: now,
+      count: records.length,
+      activeCount,
+    };
+
     if (records.length > 0) {
-      openAqCache.set(cacheKey, { records, cachedAt: Date.now() });
+      openAqCache.set(cacheKey, { result, cachedAt: Date.now() });
     }
 
-    return records;
+    return result;
   } catch (err: any) {
-    return [
-      {
-        ...buildUnconfiguredOpenAqRecord(),
-        id: 'openaq-network-error',
-        status: 'unreachable',
-        errorCode: 'NETWORK_ERROR',
-        explanation: err?.name === 'AbortError' ? 'OpenAQ request timed out or was cancelled.' : 'Failed to reach OpenAQ API.',
-      },
-    ];
+    return {
+      provider: 'openaq',
+      status: 'unavailable',
+      sources: [
+        {
+          ...buildUnconfiguredOpenAqRecord(),
+          id: 'openaq-network-error',
+          status: 'unreachable',
+          errorCode: 'NETWORK_ERROR',
+          explanation: err?.name === 'AbortError' ? 'OpenAQ request timed out or was cancelled.' : 'Failed to reach OpenAQ API.',
+        },
+      ],
+      retrievedAt: now,
+      count: 0,
+      activeCount: 0,
+      errorCode: 'NETWORK_ERROR',
+      errorMessage: err?.message || 'Failed to reach OpenAQ API.',
+    };
   }
+}
+
+/**
+ * Fetches OpenAQ v3 sources and returns EnvironmentalSourceRecord array.
+ * Backwards-compatible server-side entry point.
+ */
+export async function fetchOpenAqSources(params: {
+  latitude: number;
+  longitude: number;
+  radiusKm?: number;
+  apiKey?: string;
+  signal?: AbortSignal;
+  bypassCache?: boolean;
+}): Promise<EnvironmentalSourceRecord[]> {
+  const result = await fetchOpenAqProviderResult(params);
+  return result.sources;
 }
