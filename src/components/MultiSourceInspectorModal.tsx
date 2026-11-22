@@ -240,6 +240,75 @@ export const MultiSourceInspectorModal: React.FC<MultiSourceInspectorModalProps>
             </h4>
           </div>
 
+          {/* Official Government Ground Monitoring Subsection */}
+          {(() => {
+            const officialSources = effectiveSources.filter((s) => s.sourceKind === 'official_ground_station');
+            return (
+              <div className="p-3.5 rounded-xl bg-stone-100/80 dark:bg-zinc-800/60 border border-stone-200 dark:border-zinc-800 space-y-2.5">
+                <div className="text-[10px] font-mono uppercase font-bold text-ink-muted dark:text-zinc-400 flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <ShieldCheck className="w-3.5 h-3.5 text-amber-500" />
+                    <span>Official Government Ground Monitoring (CPCB / CAAQMS / State PCBs)</span>
+                  </span>
+                  <span className="font-semibold text-stone-500 dark:text-zinc-400">
+                    {officialSources.length > 0
+                      ? `${officialSources.length} Reference Station${officialSources.length > 1 ? 's' : ''}`
+                      : 'No Station in Range'}
+                  </span>
+                </div>
+
+                {officialSources.length > 0 ? (
+                  <div className="space-y-2">
+                    {officialSources.map((st) => {
+                      const stPm25 = st.measurements?.find((m) => m.pollutant === 'pm25');
+                      const stPm10 = st.measurements?.find((m) => m.pollutant === 'pm10');
+                      const isReporting = stPm25 && stPm25.value !== null;
+                      return (
+                        <div
+                          key={`cpcb-summary-${st.id}`}
+                          className="p-3 rounded-lg bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-xs space-y-1.5"
+                        >
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                            <div>
+                              <span className="font-bold text-ink dark:text-white">{st.sourceName || st.name}</span>
+                              <div className="text-[11px] text-ink-muted dark:text-zinc-400">
+                                Agency: <strong>{st.provenance?.network || st.providerName || 'CPCB / State PCB'}</strong>
+                                {st.distanceKm !== null && st.distanceKm !== undefined && (
+                                  <span> &bull; Distance: <strong>{st.distanceKm} km</strong></span>
+                                )}
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              {isReporting ? (
+                                <div className="font-mono font-bold text-ink dark:text-white">
+                                  {stPm25.value} µg/m³ PM2.5
+                                  {stPm10 && stPm10.value !== null && (
+                                    <span className="text-ink-muted dark:text-zinc-400 ml-2">| {stPm10.value} µg/m³ PM10</span>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-stone-100 dark:bg-zinc-800 text-stone-500 dark:text-zinc-400">
+                                  Registry Verified &bull; Awaiting Continuous Stream
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="p-3 rounded-lg bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-xs text-ink-muted dark:text-zinc-400 flex items-center gap-2">
+                    <Info className="w-4 h-4 text-stone-400 shrink-0" />
+                    <span>
+                      No official CPCB / CAAQMS reference monitors located within 35 km of {cityName}.
+                    </span>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
           {effectiveSources.length === 0 ? (
             <div className="p-6 rounded-xl bg-stone-50 dark:bg-zinc-800/40 border border-stone-200 dark:border-zinc-800 text-center space-y-2">
               <AlertCircle className="w-6 h-6 text-stone-400 mx-auto" />
@@ -445,14 +514,18 @@ export const MultiSourceInspectorModal: React.FC<MultiSourceInspectorModalProps>
               <div className="flex items-center justify-between">
                 <span className="font-bold text-xs text-ink dark:text-white">CPCB NAQI (India)</span>
                 <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/10 text-amber-500 font-bold">
-                  {metrics?.cpcbStatus === 'statutory_compliant' ? 'Statutory Compliant' : 'Indicative Sub-Index'}
+                  {metrics?.cpcbStatus === 'statutory_compliant'
+                    ? 'Statutory Compliant (24-hr)'
+                    : metrics?.cpcbStatus === 'indicative_snapshot'
+                    ? 'Indicative Snapshot'
+                    : 'Indicative Sub-Index'}
                 </span>
               </div>
               <div className="text-xl font-mono font-black text-ink dark:text-white">
                 {metrics?.cpcbAqi !== null && metrics?.cpcbAqi !== undefined ? `${metrics.cpcbAqi} NAQI` : '—'}
               </div>
               <p className="text-[10.5px] text-ink-muted dark:text-zinc-400 leading-relaxed">
-                Evaluated against Ministry of Environment, Forest &amp; Climate Change 24-hour Indian National Air Quality Index breakpoints.
+                Evaluated against Ministry of Environment, Forest &amp; Climate Change Indian National Air Quality Index breakpoints. Statutory compliance requires verified 24-hr / 8-hr averages across at least 3 qualifying pollutants.
               </p>
             </div>
           </div>

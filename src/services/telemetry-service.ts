@@ -607,14 +607,48 @@ export async function fetchLiveAtmosphericMetrics(
       // OpenAQ query is non-blocking and isolated
     }
 
-    // Comprehensive statutory CPCB NAQI calculation with data sufficiency rules
+    // Query official CPCB/CAAQMS provider asynchronously (Server dynamic import or Client API route)
+    let cpcbSources: EnvironmentalSourceRecord[] = [];
+    try {
+      if (typeof window === 'undefined') {
+        const { fetchCpcbProviderResult } = await import('./providers/cpcb-provider');
+        const cpcbResult = await fetchCpcbProviderResult({
+          latitude,
+          longitude,
+          radiusKm: 35,
+          city: options?.cityName,
+          signal: options?.signal,
+        });
+        if (cpcbResult && Array.isArray(cpcbResult.sources)) {
+          cpcbSources = cpcbResult.sources;
+        }
+      } else {
+        const cityQuery = options?.cityName ? `&city=${encodeURIComponent(options.cityName)}` : '';
+        const res = await fetch(
+          `/api/telemetry/cpcb?lat=${latitude}&lon=${longitude}&radius=35${cityQuery}`,
+          { signal: options?.signal }
+        );
+        if (res.ok) {
+          const json = await res.json();
+          if (Array.isArray(json?.sources)) {
+            cpcbSources = json.sources;
+          }
+        }
+      }
+    } catch {
+      // CPCB query is non-blocking and isolated
+    }
+
+    // Comprehensive CPCB NAQI calculation with explicit units & data sufficiency rules
     const cpcbResult = calculateComprehensiveCpcbNaqi({
       pm25,
       pm10,
       no2: no2Field.value,
       so2: so2Field.value,
       co: coField.value,
+      coUnit: 'ug/m3',
       o3: o3Field.value,
+      is24HourAveraged: false, // Model snapshot, not statutory 24-hr regulatory average
     });
 
     const feeds = pm25 !== null && usAqi !== null ? buildMultiSourceFeeds({
@@ -640,6 +674,7 @@ export async function fetchLiveAtmosphericMetrics(
 
     const allEnvironmentalSources = deduplicateEnvironmentalSources([
       modelRecord,
+      ...cpcbSources,
       ...groundSources,
       ...openAqSources,
     ]);

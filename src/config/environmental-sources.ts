@@ -232,10 +232,9 @@ export function evaluateMeasurementEligibility(
  * they share identical verified upstream provenance (upstreamProviderId + stationId).
  */
 export const VERIFIED_CROSS_PROVIDER_STATION_MAP: Record<string, string> = {
-  // Verified collocation: OpenAQ location 5001 is US Embassy Chanakyapuri reference monitor
+  // Verified collocation: OpenAQ location 5001 is US Department of State / AirNow reference monitor at Chanakyapuri, New Delhi
   'openaq:5001': 'us_embassy_chanakyapuri',
   'airnow:chanakyapuri': 'us_embassy_chanakyapuri',
-  'cpcb:us_embassy': 'us_embassy_chanakyapuri',
 };
 
 /**
