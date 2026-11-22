@@ -10,9 +10,28 @@ describe('AVIR — Device Connector Modal & Hardware Telemetry (31 Mandated Scen
   let originalSerial: any;
   let originalWindow: any;
 
+  function setNavigatorSerial(serialValue: any) {
+    if (typeof (global as any).navigator === 'undefined' || !(global as any).navigator) {
+      (global as any).navigator = {};
+    }
+    try {
+      Object.defineProperty(global.navigator, 'serial', {
+        value: serialValue,
+        configurable: true,
+        writable: true,
+      });
+    } catch {
+      (global.navigator as any).serial = serialValue;
+    }
+  }
+
   beforeEach(() => {
     vi.clearAllMocks();
     hardwareDeviceService.disconnect();
+
+    if (typeof (global as any).navigator === 'undefined' || !(global as any).navigator) {
+      (global as any).navigator = {};
+    }
 
     originalSerial = (global.navigator as any)?.serial;
     originalWindow = (global as any).window;
@@ -29,14 +48,8 @@ describe('AVIR — Device Connector Modal & Hardware Telemetry (31 Mandated Scen
 
   afterEach(() => {
     if (originalSerial !== undefined) {
-      try {
-        Object.defineProperty(global.navigator, 'serial', {
-          value: originalSerial,
-          configurable: true,
-          writable: true,
-        });
-      } catch {}
-    } else {
+      setNavigatorSerial(originalSerial);
+    } else if ((global as any).navigator) {
       try {
         delete (global.navigator as any).serial;
       } catch {}
@@ -158,19 +171,17 @@ describe('AVIR — Device Connector Modal & Hardware Telemetry (31 Mandated Scen
   describe('Group 2: USB WebSerial Connection Lifecycle', () => {
     it('12. Unsupported browser displays clear explanation and directs to Wi-Fi tab', () => {
       const service = new HardwareDeviceService();
-      try {
-        delete (global.navigator as any).serial;
-      } catch {}
+      if ((global as any).navigator) {
+        try {
+          delete (global.navigator as any).serial;
+        } catch {}
+      }
       expect(service.isWebSerialSupported()).toBe(false);
     });
 
     it('13. Modal opening never triggers requestPort() automatically', async () => {
       const requestPortSpy = vi.fn();
-      Object.defineProperty(global.navigator, 'serial', {
-        value: { requestPort: requestPortSpy },
-        configurable: true,
-        writable: true,
-      });
+      setNavigatorSerial({ requestPort: requestPortSpy });
 
       const service = new HardwareDeviceService();
       // Instantiating or getting connection state does NOT call requestPort
@@ -180,11 +191,7 @@ describe('AVIR — Device Connector Modal & Hardware Telemetry (31 Mandated Scen
 
     it('14. USB permission request occurs only following explicit user click', async () => {
       const requestPortSpy = vi.fn().mockRejectedValue(new Error('User cancelled'));
-      Object.defineProperty(global.navigator, 'serial', {
-        value: { requestPort: requestPortSpy },
-        configurable: true,
-        writable: true,
-      });
+      setNavigatorSerial({ requestPort: requestPortSpy });
 
       const service = new HardwareDeviceService();
       await service.connectUsbDevice();
@@ -194,11 +201,7 @@ describe('AVIR — Device Connector Modal & Hardware Telemetry (31 Mandated Scen
     it('15. User-cancelled port selection is handled gracefully without fatal error', async () => {
       const cancelError = new Error('No port selected by the user');
       (cancelError as any).name = 'NotFoundError';
-      Object.defineProperty(global.navigator, 'serial', {
-        value: { requestPort: vi.fn().mockRejectedValue(cancelError) },
-        configurable: true,
-        writable: true,
-      });
+      setNavigatorSerial({ requestPort: vi.fn().mockRejectedValue(cancelError) });
 
       const service = new HardwareDeviceService();
       const result = await service.connectUsbDevice();
@@ -212,11 +215,7 @@ describe('AVIR — Device Connector Modal & Hardware Telemetry (31 Mandated Scen
       const mockPort = {
         open: vi.fn().mockRejectedValue(new Error('Failed to open serial port (Device busy)')),
       };
-      Object.defineProperty(global.navigator, 'serial', {
-        value: { requestPort: vi.fn().mockResolvedValue(mockPort) },
-        configurable: true,
-        writable: true,
-      });
+      setNavigatorSerial({ requestPort: vi.fn().mockResolvedValue(mockPort) });
 
       const service = new HardwareDeviceService();
       const result = await service.connectUsbDevice();
@@ -231,11 +230,7 @@ describe('AVIR — Device Connector Modal & Hardware Telemetry (31 Mandated Scen
         open: vi.fn().mockResolvedValue(undefined),
         readable: null,
       };
-      Object.defineProperty(global.navigator, 'serial', {
-        value: { requestPort: vi.fn().mockResolvedValue(mockPort) },
-        configurable: true,
-        writable: true,
-      });
+      setNavigatorSerial({ requestPort: vi.fn().mockResolvedValue(mockPort) });
 
       const service = new HardwareDeviceService();
       const result = await service.connectUsbDevice();
