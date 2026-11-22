@@ -59,6 +59,36 @@ export interface TelemetryCacheMetadata {
   ttlMs?: number;
 }
 
+export type GroundStationType = 'official_reference' | 'community_optical' | 'user_device';
+
+export interface GroundStationMetadata {
+  stationId: string | number;
+  stationName: string;
+  distanceKm: number;
+  latitude: number;
+  longitude: number;
+  provider: string; // e.g. "CPCB (Central Pollution Control Board)", "DPCC", "Sensor.Community", "AirGradient Local"
+  stationType: GroundStationType;
+  lastUpdated: string;
+  pm25: number | null;
+  pm10: number | null;
+  rawPm25?: number | null;
+  isCalibrated?: boolean;
+  calibrationFormula?: string;
+  co?: number | null;
+  no2?: number | null;
+  so2?: number | null;
+  o3?: number | null;
+}
+
+export interface GroundModelDelta {
+  groundPm25: number;
+  modelPm25: number;
+  deltaPercent: number; // e.g. +65%
+  divergenceType: 'ground_trapping' | 'model_overestimate' | 'aligned';
+  narrative: string;
+}
+
 export type AQICategory = 
   | 'Good'
   | 'Moderate'
@@ -184,6 +214,10 @@ export interface AtmosphericMetrics {
   cacheMetadata?: TelemetryCacheMetadata;
   freshness?: 'fresh' | 'stale' | 'expired' | 'unavailable';
   errorType?: 'network' | 'timeout' | 'rate_limit' | 'validation' | 'unknown';
+
+  // Live Ground Truth Station & Multi-Source Delta
+  groundStation?: GroundStationMetadata | null;
+  groundModelDelta?: GroundModelDelta | null;
 
   cpcbAqi?: number | null;
   cpcbCategory?: string | null;

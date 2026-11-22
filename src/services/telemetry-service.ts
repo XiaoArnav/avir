@@ -9,7 +9,9 @@ import {
   TelemetryStatus,
 } from '@/domain/types';
 import { isThermalInversion, calculateAQIFromPM25, calculateCpcbNaqi } from '@/domain/air-math';
+import { calculateComprehensiveCpcbNaqi } from '@/domain/cpcb-naqi';
 import { buildMultiSourceFeeds, calculateMultiSourceConsensus } from '@/domain/advanced-air-math';
+import { getNearestGroundStation } from './ground-station-service';
 import { telemetryCache } from '@/lib/cache';
 
 export interface GeocodedLocation {
@@ -549,12 +551,39 @@ export async function fetchLiveAtmosphericMetrics(
       }
     }
 
+    // Query physical ground monitoring station (CPCB / Sensor.Community)
+    let groundStation = null;
+    let groundModelDelta = null;
+    try {
+      const groundMatch = await getNearestGroundStation(
+        latitude,
+        longitude,
+        humidity ?? 50,
+        { signal: options?.signal, modelPm25: pm25 }
+      );
+      groundStation = groundMatch.station;
+      groundModelDelta = groundMatch.delta;
+    } catch {
+      // Ground monitor query is non-blocking
+    }
+
+    // Comprehensive statutory CPCB NAQI calculation with data sufficiency rules
+    const cpcbResult = calculateComprehensiveCpcbNaqi({
+      pm25,
+      pm10,
+      no2: no2Field.value,
+      so2: so2Field.value,
+      co: coField.value,
+      o3: o3Field.value,
+    });
+
     const feeds = pm25 !== null && usAqi !== null ? buildMultiSourceFeeds({
       pm25,
       usAqi,
-      cpcbAqi: cpcb?.aqi,
+      cpcbAqi: cpcbResult.aqi ?? cpcb?.aqi,
       boundaryLayerHeight: blh ?? 200,
       isThermalInversion: blh !== null ? isThermalInversion(blh, currentHour) : false,
+      groundStation,
     }) : [];
     const ensemble = calculateMultiSourceConsensus(feeds);
 
@@ -601,8 +630,10 @@ export async function fetchLiveAtmosphericMetrics(
       fields,
       location,
       cacheMetadata,
-      cpcbAqi: cpcb?.aqi ?? null,
-      cpcbCategory: cpcb?.category ?? null,
+      groundStation,
+      groundModelDelta,
+      cpcbAqi: cpcbResult.aqi ?? cpcb?.aqi ?? null,
+      cpcbCategory: cpcbResult.category ?? cpcb?.category ?? null,
       sourceAttribution: 'Open-Meteo High-Resolution Ensemble (ECMWF & NOAA GFS)',
       hourlyForecast: hourlyForecast.length > 0 ? hourlyForecast : undefined,
       ensemble,
