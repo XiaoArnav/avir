@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Wind, Settings, Atom, Megaphone, Sun, Moon, Globe, GraduationCap, Share2, Layers } from 'lucide-react';
+import { Settings, Sun, Moon, Layers } from 'lucide-react';
 
 interface TopNavProps {
   onOpenSettings: () => void;
@@ -96,74 +96,17 @@ export const TopNav: React.FC<TopNavProps> = ({
             </button>
           )}
 
-          {/* World Data Rankings Shortcut Button */}
-          {onOpenWorldData && (
-            <button
-              onClick={onOpenWorldData}
-              className="hidden lg:inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-white dark:bg-zinc-900/80 hover:bg-stone-200 dark:hover:bg-zinc-800 text-ink dark:text-zinc-300 transition-colors border border-stone-300 dark:border-zinc-800 shadow-sm"
-              aria-label="Open World Air Quality Rankings"
-            >
-              <Globe className="w-3.5 h-3.5 text-sage-600 dark:text-emerald-400" />
-              <span>World AQI</span>
-            </button>
-          )}
-
           {/* Atmospheric Data Sources & Quality Button */}
           {onOpenMultiSource && (
             <button
               onClick={onOpenMultiSource}
-              className="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 sm:px-3 py-1.5 rounded-lg bg-white dark:bg-zinc-900/80 hover:bg-stone-200 dark:hover:bg-zinc-800 text-ink dark:text-zinc-300 transition-colors border border-stone-300 dark:border-zinc-800 shadow-sm"
+              className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-white dark:bg-zinc-900/80 hover:bg-stone-200 dark:hover:bg-zinc-800 text-ink dark:text-zinc-300 transition-colors border border-stone-300 dark:border-zinc-800 shadow-sm"
               aria-label="Inspect Atmospheric Data Sources and Quality"
             >
               <Layers className="w-3.5 h-3.5 text-emerald-500" />
-              <span className="hidden sm:inline">Data Sources &amp; Quality</span>
-              <span className="sm:hidden">Sources</span>
+              <span>Data Sources &amp; Quality</span>
             </button>
           )}
-
-          {/* Science Explainer Button */}
-          <button
-            onClick={onOpenExplainer}
-            className="hidden md:inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-white dark:bg-zinc-900/80 hover:bg-stone-200 dark:hover:bg-zinc-800 text-ink dark:text-zinc-300 transition-colors border border-stone-300 dark:border-zinc-800 shadow-sm"
-            aria-label="Open Clean Air Science Guide"
-          >
-            <Atom className="w-3.5 h-3.5 text-sage-600 dark:text-zinc-400" />
-            <span>How It Works</span>
-          </button>
-
-          {/* School Safety Advisory Button */}
-          {onOpenSchoolAdvisory && (
-            <button
-              onClick={onOpenSchoolAdvisory}
-              className="hidden lg:inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-white dark:bg-zinc-900/80 hover:bg-stone-200 dark:hover:bg-zinc-800 text-ink dark:text-zinc-300 transition-colors border border-stone-300 dark:border-zinc-800 shadow-sm"
-              aria-label="Open School & Child Outdoor Sports Advisory"
-            >
-              <GraduationCap className="w-3.5 h-3.5 text-amber-500" />
-              <span>School Guide</span>
-            </button>
-          )}
-
-          {/* Share Daily Smog Bulletin Button */}
-          {onOpenShare && (
-            <button
-              onClick={onOpenShare}
-              className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white transition-colors shadow-sm"
-              aria-label="Share Daily Smog Bulletin on WhatsApp"
-            >
-              <Share2 className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Share</span>
-            </button>
-          )}
-
-          {/* RWA Circular Generator Button */}
-          <button
-            onClick={onOpenRwa}
-            className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-white dark:bg-zinc-900/80 hover:bg-stone-200 dark:hover:bg-zinc-800 text-ink dark:text-zinc-300 transition-colors border border-stone-300 dark:border-zinc-800 shadow-sm"
-            aria-label="Open RWA Notice Circular"
-          >
-            <Megaphone className="w-3.5 h-3.5 text-terracotta-600 dark:text-zinc-400" />
-            <span className="hidden sm:inline">RWA Notice</span>
-          </button>
 
           {/* AI Settings Button */}
           <button

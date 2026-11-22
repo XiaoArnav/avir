@@ -437,7 +437,7 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
             {onOpenSchoolAdvisory && (
               <button
                 onClick={onOpenSchoolAdvisory}
-                className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-stone-100 dark:bg-zinc-800 hover:bg-stone-200 dark:hover:bg-zinc-700 text-ink dark:text-zinc-200 font-medium text-[11px] transition-colors border border-stone-200 dark:border-zinc-700"
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-stone-100 dark:bg-zinc-800 hover:bg-stone-200 dark:hover:bg-zinc-700 text-ink dark:text-zinc-200 font-medium text-[11px] transition-colors border border-stone-200 dark:border-zinc-700"
                 title="Open School Sports Safety Guide"
               >
                 <GraduationCap className="w-3 h-3 text-amber-500" />
