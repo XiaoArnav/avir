@@ -47,89 +47,9 @@ export const MultiSourceInspectorModal: React.FC<MultiSourceInspectorModalProps>
 }) => {
   if (!isOpen) return null;
 
-  // Fallback to ensemble feeds or default model if environmentalSources not populated
-  const effectiveSources: EnvironmentalSourceRecord[] =
-    environmentalSources.length > 0
-      ? environmentalSources
-      : ensemble?.feeds && ensemble.feeds.length > 0
-      ? ensemble.feeds.map((f) => ({
-          id: f.id,
-          providerId: f.provider.toLowerCase().replace(/[^a-z0-9]/g, '_'),
-          providerName: f.provider,
-          sourceName: f.sourceName,
-          name: f.sourceName,
-          provider: f.provider,
-          sourceKind: (f.provenance === 'observed'
-            ? 'physical_observation'
-            : f.provenance === 'derived_calculation'
-            ? 'derived_standard'
-            : 'atmospheric_model') as EnvironmentalSourceKind,
-          providerKind: (f.provenance === 'observed'
-            ? 'official_ground_station'
-            : f.provenance === 'derived_calculation'
-            ? 'derived_standard'
-            : 'atmospheric_model') as EnvironmentalSourceKind,
-          status: 'fresh' as EnvironmentalSourceStatus,
-          latitude: null,
-          longitude: null,
-          distanceKm: null,
-          observedAt: null,
-          retrievedAt: new Date().toISOString(),
-          ingestedAt: new Date().toISOString(),
-          measurements: [
-            {
-              pollutant: 'pm25' as const,
-              value: f.pm25,
-              unit: 'ug/m3',
-              averagingPeriodMinutes: 60,
-              qualityFlag: 'valid' as const,
-            },
-          ],
-          attribution: f.provider,
-          explanation: f.description,
-          provenance: {
-            network: f.provider,
-            licenseOrAttribution: f.provider,
-            isModel: f.provenance === 'modeled_forecast',
-            limitations: [],
-          },
-        }))
-      : [
-          {
-            id: 'open-meteo-atmospheric-model',
-            providerId: 'open-meteo',
-            providerName: 'Open-Meteo',
-            sourceName: 'Open-Meteo Atmospheric Chemistry (ECMWF IFS & CAMS)',
-            name: 'Open-Meteo Atmospheric Chemistry',
-            provider: 'Open-Meteo (ECMWF IFS / CAMS)',
-            sourceKind: 'atmospheric_model' as EnvironmentalSourceKind,
-            providerKind: 'atmospheric_model' as EnvironmentalSourceKind,
-            status: 'fresh' as EnvironmentalSourceStatus,
-            latitude: null,
-            longitude: null,
-            distanceKm: null,
-            observedAt: null,
-            retrievedAt: new Date().toISOString(),
-            ingestedAt: new Date().toISOString(),
-            measurements: [
-              {
-                pollutant: 'pm25' as const,
-                value: metrics?.pm25 ?? ensemble?.consensusPm25 ?? 150,
-                unit: 'ug/m3',
-                averagingPeriodMinutes: 60,
-                qualityFlag: 'valid' as const,
-              },
-            ],
-            attribution: 'Open-Meteo (CC BY 4.0) / ECMWF / CAMS',
-            explanation: 'Regional numerical atmospheric dispersion and aerosol chemistry grid model.',
-            provenance: {
-              network: 'ECMWF IFS / Copernicus Atmosphere Monitoring Service',
-              licenseOrAttribution: 'Open-Meteo (CC BY 4.0)',
-              isModel: true,
-              limitations: ['Regional 11km grid model does not capture microclimatic boundary trapping'],
-            },
-          },
-        ];
+  // Use genuine environmental sources provided by the telemetry pipeline.
+  // Zero-fabrication: Never invent fake fresh atmospheric records, synthetic 150 values, or artificial timestamps.
+  const effectiveSources: EnvironmentalSourceRecord[] = environmentalSources || [];
 
   // Active independent observation sources (excluding models and unconfigured/registry-only)
   const activePhysicalSources = effectiveSources.filter(
@@ -143,14 +63,15 @@ export const MultiSourceInspectorModal: React.FC<MultiSourceInspectorModalProps>
       s.status !== 'unavailable'
   );
 
+  const registryStations = effectiveSources.filter((s) => s.status === 'registry_only');
+
   const primaryModel = effectiveSources.find((s) => s.sourceKind === 'atmospheric_model');
   const modelPm25 =
     primaryModel?.measurements?.find((m) => m.pollutant === 'pm25')?.value ??
-    metrics?.pm25 ??
-    ensemble?.consensusPm25 ??
-    null;
+    (metrics?.pm25 !== null && metrics?.pm25 !== undefined ? metrics.pm25 : null);
 
-  const comparisonMode = sourceComparison?.mode || (ensemble && ensemble.feeds.length > 1 ? 'mode_c_comparable' : 'mode_a_single_source');
+  // Strictly use validated sourceComparison. Never infer Mode C from legacy feed counts.
+  const comparisonMode = sourceComparison?.mode || 'mode_a_single_source';
 
   const getSourceKindBadge = (kind: string) => {
     switch (kind) {
@@ -217,7 +138,9 @@ export const MultiSourceInspectorModal: React.FC<MultiSourceInspectorModalProps>
           <div className="text-[10px] font-mono uppercase font-bold text-ink-muted dark:text-zinc-400 flex items-center justify-between">
             <span>Section A &bull; Telemetry Overview</span>
             <span className="font-semibold text-stone-500 dark:text-zinc-400">
-              {metrics?.timestamp ? `Model Run: ${new Date(metrics.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'Live Telemetry'}
+              {metrics?.timestamp
+                ? `Model Valid Time: ${new Date(metrics.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                : 'Measurement time unavailable'}
             </span>
           </div>
 
@@ -228,7 +151,7 @@ export const MultiSourceInspectorModal: React.FC<MultiSourceInspectorModalProps>
                 Open-Meteo Atmospheric Chemistry
               </div>
               <div className="text-xs font-mono text-emerald-600 dark:text-emerald-400 mt-0.5">
-                {modelPm25 !== null ? `${modelPm25} µg/m³ PM2.5` : 'Unavailable'}
+                {modelPm25 !== null ? `${modelPm25} µg/m³ PM2.5` : 'PM2.5 concentration unavailable.'}
               </div>
             </div>
 
@@ -240,7 +163,11 @@ export const MultiSourceInspectorModal: React.FC<MultiSourceInspectorModalProps>
                   : `${activePhysicalSources.length} reporting stations`}
               </div>
               <div className="text-xs font-mono text-ink-muted dark:text-zinc-400 mt-0.5">
-                {activePhysicalSources.length > 0 ? 'Surface breathing height' : 'Awaiting live feeds'}
+                {registryStations.length > 0
+                  ? `${registryStations.length} registry station${registryStations.length > 1 ? 's' : ''} verified`
+                  : activePhysicalSources.length > 0
+                  ? 'Surface breathing height'
+                  : 'Awaiting live feeds'}
               </div>
             </div>
 
@@ -271,77 +198,99 @@ export const MultiSourceInspectorModal: React.FC<MultiSourceInspectorModalProps>
             </h4>
           </div>
 
-          <div className="space-y-2.5">
-            {effectiveSources.map((source) => {
-              const kindBadge = getSourceKindBadge(source.sourceKind);
-              const statusBadge = getStatusBadge(source.status);
-              const pm25 = source.measurements?.find((m) => m.pollutant === 'pm25');
-              const pm10 = source.measurements?.find((m) => m.pollutant === 'pm10');
+          {effectiveSources.length === 0 ? (
+            <div className="p-6 rounded-xl bg-stone-50 dark:bg-zinc-800/40 border border-stone-200 dark:border-zinc-800 text-center space-y-2">
+              <AlertCircle className="w-6 h-6 text-stone-400 mx-auto" />
+              <p className="text-sm font-semibold text-ink dark:text-white">
+                Environmental source details are currently unavailable.
+              </p>
+              <p className="text-xs text-ink-muted dark:text-zinc-400">
+                Atmospheric telemetry pipeline has not populated independent source registry records for {cityName}.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-2.5">
+              {effectiveSources.map((source) => {
+                const kindBadge = getSourceKindBadge(source.sourceKind);
+                const statusBadge = getStatusBadge(source.status);
+                const pm25 = source.measurements?.find((m) => m.pollutant === 'pm25');
+                const pm10 = source.measurements?.find((m) => m.pollutant === 'pm10');
 
-              return (
-                <div
-                  key={source.id}
-                  className="p-4 rounded-xl bg-stone-50 dark:bg-zinc-800/40 border border-stone-200 dark:border-zinc-800 space-y-2.5 transition-colors hover:border-stone-300 dark:hover:border-zinc-700"
-                >
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <div className="space-y-0.5">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="font-bold text-sm text-ink dark:text-white">
-                          {source.sourceName || source.name}
-                        </span>
-                        <span className={`text-[10px] font-mono px-2 py-0.5 rounded border font-semibold ${kindBadge.color}`}>
-                          {kindBadge.label}
-                        </span>
-                        <span className={`text-[10px] font-mono px-2 py-0.5 rounded font-semibold ${statusBadge.color}`}>
-                          {statusBadge.label}
-                        </span>
+                return (
+                  <div
+                    key={source.id}
+                    className="p-4 rounded-xl bg-stone-50 dark:bg-zinc-800/40 border border-stone-200 dark:border-zinc-800 space-y-2.5 transition-colors hover:border-stone-300 dark:hover:border-zinc-700"
+                  >
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div className="space-y-0.5">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="font-bold text-sm text-ink dark:text-white">
+                            {source.sourceName || source.name}
+                          </span>
+                          <span className={`text-[10px] font-mono px-2 py-0.5 rounded border font-semibold ${kindBadge.color}`}>
+                            {kindBadge.label}
+                          </span>
+                          <span className={`text-[10px] font-mono px-2 py-0.5 rounded font-semibold ${statusBadge.color}`}>
+                            {statusBadge.label}
+                          </span>
+                        </div>
+                        <p className="text-xs text-ink-muted dark:text-zinc-400">
+                          Provider: <strong>{source.providerName || source.provider}</strong>
+                          {source.distanceKm !== null && source.distanceKm !== undefined && (
+                            <span> &bull; Distance: <strong>{source.distanceKm} km</strong></span>
+                          )}
+                        </p>
                       </div>
-                      <p className="text-xs text-ink-muted dark:text-zinc-400">
-                        Provider: <strong>{source.providerName || source.provider}</strong>
-                        {source.distanceKm !== null && source.distanceKm !== undefined && (
-                          <span> &bull; Distance: <strong>{source.distanceKm} km</strong></span>
+
+                      <div className="flex items-center gap-2 self-start sm:self-center">
+                        <div className="text-right">
+                          <div className="text-base font-mono font-bold text-ink dark:text-white">
+                            {pm25 && pm25.value !== null ? `${pm25.value} µg/m³` : '—'}
+                          </div>
+                          <div className="text-[10px] font-mono text-ink-muted dark:text-zinc-400">
+                            {pm25 && pm25.value !== null ? 'PM2.5 (Fine Dust)' : 'PM2.5 Unavailable'}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Measurement Provenance & Limitations */}
+                    <div className="text-[11px] text-ink-muted dark:text-zinc-400 pt-1 border-t border-stone-200/60 dark:border-zinc-800/60 space-y-1">
+                      <div className="flex flex-wrap items-center justify-between gap-1">
+                        <span>Attribution: {source.attribution}</span>
+                        {source.observedAt ? (
+                          <span className="flex items-center gap-1 text-[10px]">
+                            <Clock className="w-3 h-3 text-stone-400" />
+                            Observed: {new Date(source.observedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        ) : source.validAt ? (
+                          <span className="flex items-center gap-1 text-[10px]">
+                            <Clock className="w-3 h-3 text-stone-400" />
+                            Model Valid: {new Date(source.validAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-1 text-[10px] text-stone-400">
+                            <Clock className="w-3 h-3 text-stone-400" />
+                            Measurement time unavailable
+                          </span>
                         )}
-                      </p>
-                    </div>
-
-                    <div className="flex items-center gap-2 self-start sm:self-center">
-                      <div className="text-right">
-                        <div className="text-base font-mono font-bold text-ink dark:text-white">
-                          {pm25 && pm25.value !== null ? `${pm25.value} µg/m³` : '—'}
-                        </div>
-                        <div className="text-[10px] font-mono text-ink-muted dark:text-zinc-400">
-                          {pm25 && pm25.value !== null ? 'PM2.5 (Fine Dust)' : 'PM2.5 Unavailable'}
-                        </div>
                       </div>
-                    </div>
-                  </div>
-
-                  {/* Measurement Provenance & Limitations */}
-                  <div className="text-[11px] text-ink-muted dark:text-zinc-400 pt-1 border-t border-stone-200/60 dark:border-zinc-800/60 space-y-1">
-                    <div className="flex flex-wrap items-center justify-between gap-1">
-                      <span>Attribution: {source.attribution}</span>
-                      {source.observedAt && (
-                        <span className="flex items-center gap-1 text-[10px]">
-                          <Clock className="w-3 h-3 text-stone-400" />
-                          Observed: {new Date(source.observedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </span>
+                      {source.explanation && (
+                        <p className="text-stone-600 dark:text-zinc-300 italic">{source.explanation}</p>
+                      )}
+                      {source.provenance?.limitations && source.provenance.limitations.length > 0 && (
+                        <ul className="list-disc list-inside space-y-0.5 text-[10.5px] text-stone-500 dark:text-zinc-400">
+                          {source.provenance.limitations.map((lim, idx) => (
+                            <li key={idx}>{lim}</li>
+                          ))}
+                        </ul>
                       )}
                     </div>
-                    {source.explanation && (
-                      <p className="text-stone-600 dark:text-zinc-300 italic">{source.explanation}</p>
-                    )}
-                    {source.provenance?.limitations && source.provenance.limitations.length > 0 && (
-                      <ul className="list-disc list-inside space-y-0.5 text-[10.5px] text-stone-500 dark:text-zinc-400">
-                        {source.provenance.limitations.map((lim, idx) => (
-                          <li key={idx}>{lim}</li>
-                        ))}
-                      </ul>
-                    )}
                   </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* SECTION C: SOURCE COMPARISON & DIVERGENCE ENGINE */}

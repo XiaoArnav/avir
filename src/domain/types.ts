@@ -164,6 +164,7 @@ export interface SourceMeasurement {
   unit: string;
   averagingPeriodMinutes?: number | null;
   observedAt?: string | null;
+  validAt?: string | null;
   receivedAt?: string | null;
   rawUncalibratedValue?: number | null;
   calibrationApplied?: string | null;
@@ -193,6 +194,7 @@ export interface EnvironmentalSourceRecord {
   } | null;
   observedAt: string | null;
   measuredAt?: string | null;
+  validAt?: string | null;
   retrievedAt: string | null;
   ingestedAt?: string;
   modelRunAt?: string | null;
@@ -227,10 +229,12 @@ export interface ComparedSourceItem {
   name: string;
   value: number;
   unit: string;
-  measuredAt: string;
+  measuredAt: string | null;
+  validAt?: string | null;
   distanceKm?: number | null;
   averagingPeriodMinutes?: number | null;
   kind: EnvironmentalSourceKind;
+  isModel?: boolean;
 }
 
 export interface SourceComparison {
