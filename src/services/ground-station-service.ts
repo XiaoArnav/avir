@@ -5,7 +5,12 @@
  * Enforces scientific de-humidification via the US EPA Barkjohn formula for optical sensors.
  */
 
-import { GroundStationMetadata, GroundModelDelta } from '@/domain/types';
+import {
+  GroundStationMetadata,
+  GroundModelDelta,
+  EnvironmentalSourceRecord,
+  SourceMeasurement,
+} from '@/domain/types';
 import { calibrateCommunitySensorReading } from '@/domain/calibration-math';
 
 /**
@@ -163,9 +168,10 @@ export async function fetchSensorCommunityStation(
       const parsedTime = Date.parse(rawTimestamp);
       if (!isNaN(parsedTime)) {
         observedAt = new Date(parsedTime).toISOString();
-        const ageMs = Date.now() - parsedTime;
-        // Readings older than 24 hours are marked stale
-        if (ageMs > 24 * 60 * 60 * 1000) {
+        const now = Date.now();
+        const ageMs = now - parsedTime;
+        // Readings older than 24 hours or suspicious future-dated timestamps (>10m clock skew) are marked stale
+        if (ageMs > 24 * 60 * 60 * 1000 || parsedTime > now + 10 * 60 * 1000) {
           isStale = true;
         }
       }
@@ -244,25 +250,166 @@ export function calculateGroundModelDelta(
 }
 
 /**
+ * Converts a GroundStationMetadata object into a canonical EnvironmentalSourceRecord.
+ */
+export function convertGroundStationToSourceRecord(
+  station: GroundStationMetadata,
+  targetLat?: number,
+  targetLon?: number
+): EnvironmentalSourceRecord {
+  const isOfficial = station.stationType === 'official_reference';
+  const isCommunity = station.stationType === 'community_optical';
+  const isRegistryOnly = station.stationState === 'registry_only' || station.pm25 === null;
+
+  const measurements: SourceMeasurement[] = [];
+  if (station.pm25 !== null && Number.isFinite(station.pm25) && station.pm25 >= 0) {
+    measurements.push({
+      pollutant: 'pm25',
+      value: Math.round(station.pm25 * 10) / 10,
+      unit: 'ug/m3',
+      averagingPeriodMinutes: isOfficial ? 60 : 15,
+      observedAt: station.observedAt || null,
+      rawUncalibratedValue: station.rawPm25 ?? null,
+      calibrationApplied: station.isCalibrated ? (station.calibrationFormula || 'EPA Barkjohn 2021') : null,
+      qualityFlag: station.isCalibrated ? 'calibrated' : isOfficial ? 'valid' : 'raw',
+    });
+  }
+
+  if (station.pm10 !== null && Number.isFinite(station.pm10) && station.pm10 >= 0) {
+    measurements.push({
+      pollutant: 'pm10',
+      value: Math.round(station.pm10 * 10) / 10,
+      unit: 'ug/m3',
+      averagingPeriodMinutes: isOfficial ? 60 : 15,
+      observedAt: station.observedAt || null,
+      qualityFlag: isOfficial ? 'valid' : 'raw',
+    });
+  }
+
+  const now = new Date().toISOString();
+  return {
+    id: `ground-${station.stationId}`,
+    providerId: isOfficial ? 'cpcb' : 'sensor_community',
+    providerName: station.provider,
+    upstreamProviderId: isOfficial ? 'cpcb_caaqms' : 'sensor_community',
+    stationId: String(station.stationId),
+    sourceName: `${station.stationName} (${station.distanceKm}km)`,
+    name: station.stationName,
+    provider: station.provider,
+    sourceKind: isOfficial ? 'official_ground_station' : 'community_optical',
+    providerKind: isOfficial ? 'official_ground_station' : 'community_optical',
+    status: isRegistryOnly ? 'registry_only' : station.stationState === 'stale_observation' ? 'stale' : 'fresh',
+    latitude: station.latitude,
+    longitude: station.longitude,
+    distanceKm: station.distanceKm,
+    coordinates: { latitude: station.latitude, longitude: station.longitude, distanceKm: station.distanceKm },
+    observedAt: station.observedAt ?? null,
+    measuredAt: station.observedAt ?? null,
+    retrievedAt: station.retrievedAt || now,
+    ingestedAt: now,
+    measurements,
+    attribution: isOfficial
+      ? 'Central Pollution Control Board (National Air Quality Index)'
+      : 'Sensor.Community Open Data (ODbL)',
+    explanation: isRegistryOnly
+      ? 'Official CAAQMS station verified from regulatory registry. Continuous streaming telemetry integration is scheduled for Step 4.'
+      : isCommunity && station.isCalibrated
+      ? `Citizen optical sensor calibrated via ${station.calibrationFormula || 'US EPA Barkjohn'} hygroscopic correction.`
+      : undefined,
+    provenance: {
+      network: station.provider,
+      licenseOrAttribution: isOfficial
+        ? 'CPCB / State Pollution Control Boards'
+        : 'Sensor.Community (ODbL)',
+      url: isOfficial ? 'https://app.cpcbccr.com/' : 'https://sensor.community/',
+      isModel: false,
+      limitations: isOfficial
+        ? [
+            'Official regulatory reference station',
+            'Continuous live streaming telemetry integration scheduled for Step 4',
+          ]
+        : [
+            'Low-cost optical laser dust sensor (SDS011 / Nova Fitness)',
+            'Subject to hygroscopic particle swelling under high humidity (>70% RH)',
+            station.isCalibrated
+              ? 'Calibrated with US EPA Barkjohn (2021) de-humidification model'
+              : 'Uncalibrated: ambient relative humidity unavailable for hygroscopic correction',
+          ],
+    },
+  };
+}
+
+/**
+ * Discovers and normalizes all available ground monitoring sources for given coordinates.
+ * Discovers both official CPCB registry stations AND live citizen-science observations without suppression.
+ */
+export async function discoverGroundStationSources(
+  latitude: number,
+  longitude: number,
+  ambientRhPercent?: number | null,
+  options?: { signal?: AbortSignal }
+): Promise<EnvironmentalSourceRecord[]> {
+  const records: EnvironmentalSourceRecord[] = [];
+
+  // 1. Official CPCB / CAAQMS reference stations (within 35km)
+  const cpcbMatch = findNearestCpcbStation(latitude, longitude, 35);
+  if (cpcbMatch) {
+    const cpcbStation: GroundStationMetadata = {
+      stationId: cpcbMatch.station.id,
+      stationName: cpcbMatch.station.name,
+      distanceKm: cpcbMatch.distanceKm,
+      latitude: cpcbMatch.station.latitude,
+      longitude: cpcbMatch.station.longitude,
+      provider: cpcbMatch.station.provider,
+      stationType: 'official_reference',
+      stationState: 'registry_only',
+      lastUpdated: '',
+      observedAt: null,
+      retrievedAt: new Date().toISOString(),
+      pm25: null,
+      pm10: null,
+      rawPm25: null,
+      isCalibrated: false,
+    };
+    records.push(convertGroundStationToSourceRecord(cpcbStation, latitude, longitude));
+  }
+
+  // 2. Citizen-science Sensor.Community optical sensor (within 25km)
+  try {
+    const scStation = await fetchSensorCommunityStation(latitude, longitude, ambientRhPercent, 25, options?.signal);
+    if (scStation) {
+      records.push(convertGroundStationToSourceRecord(scStation, latitude, longitude));
+    }
+  } catch {
+    // Sensor.Community query failed, non-blocking
+  }
+
+  return records;
+}
+
+/**
  * Retrieves the most accurate ground monitoring station for given coordinates.
- * Priority:
- * 1. Official CPCB / State PCB Reference Station (Registered station metadata, honest unavailable observation)
- * 2. Sensor.Community Hyperlocal Node (EPA Barkjohn Calibrated if humidity available)
+ * Guarantees that static CPCB registry stations never block discovery of live citizen sensors.
  */
 export async function getNearestGroundStation(
   latitude: number,
   longitude: number,
   ambientRhPercent?: number | null,
-  options?: { signal?: AbortSignal; modelPm25?: number | null }
-): Promise<{ station: GroundStationMetadata | null; delta: GroundModelDelta | null }> {
+  options?: { signal?: AbortSignal; modelPm25?: number | null; preferLiveObservation?: boolean }
+): Promise<{
+  station: GroundStationMetadata | null;
+  registryStation?: GroundStationMetadata | null;
+  liveStation?: GroundStationMetadata | null;
+  delta: GroundModelDelta | null;
+}> {
   // Check CPCB official reference station network
   const cpcbMatch = findNearestCpcbStation(latitude, longitude, 30);
-  let station: GroundStationMetadata | null = null;
+  let registryStation: GroundStationMetadata | null = null;
 
   if (cpcbMatch) {
     // Zero-fabrication: Never multiply model PM2.5 to simulate official CPCB observations!
     // Since official CAAQMS streaming feeds are not yet connected, record registry metadata with null measurements.
-    station = {
+    registryStation = {
       stationId: cpcbMatch.station.id,
       stationName: cpcbMatch.station.name,
       distanceKm: cpcbMatch.distanceKm,
@@ -281,13 +428,27 @@ export async function getNearestGroundStation(
     };
   }
 
-  // If no official CPCB station within radius, query Sensor.Community network
-  if (!station) {
-    station = await fetchSensorCommunityStation(latitude, longitude, ambientRhPercent, 25, options?.signal);
+  // ALSO query Sensor.Community network so registered CPCB stations do not suppress active citizen observations
+  let liveStation: GroundStationMetadata | null = null;
+  try {
+    liveStation = await fetchSensorCommunityStation(latitude, longitude, ambientRhPercent, 25, options?.signal);
+  } catch {
+    // Non-blocking
+  }
+
+  // Maintain backwards compatibility:
+  // Default 'station' preserves official registered station if present (or falls back to liveStation).
+  // When preferLiveObservation is requested, liveStation takes precedence if it has genuine readings.
+  let station: GroundStationMetadata | null = null;
+  if (options?.preferLiveObservation && liveStation && liveStation.pm25 !== null) {
+    station = liveStation;
+  } else {
+    station = registryStation || liveStation;
   }
 
   // Calculate ground-model delta only when authentic ground measurement exists
-  const delta = calculateGroundModelDelta(station?.pm25, options?.modelPm25);
+  const activePm25 = station && station.pm25 !== null ? station.pm25 : null;
+  const delta = calculateGroundModelDelta(activePm25, options?.modelPm25);
 
-  return { station, delta };
+  return { station, registryStation, liveStation, delta };
 }

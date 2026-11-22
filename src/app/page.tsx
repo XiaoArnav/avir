@@ -463,6 +463,9 @@ export default function Home() {
         onClose={() => setIsMultiSourceModalOpen(false)}
         cityName={selectedCity.name}
         ensemble={metrics?.ensemble}
+        environmentalSources={metrics?.environmentalSources}
+        sourceComparison={metrics?.sourceComparison}
+        metrics={metrics}
       />
     </div>
   );

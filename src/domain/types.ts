@@ -134,6 +134,124 @@ export interface HourlyAtmosphericPoint {
   isStagnantDispersion: boolean; // low boundary layer height (<200m)
 }
 
+// ---------------------------------------------------------------------------
+// Canonical Environmental Multi-Source & Provenance Model (Step 3/24)
+// ---------------------------------------------------------------------------
+
+export type EnvironmentalSourceKind =
+  | 'physical_observation'
+  | 'official_ground_station'
+  | 'atmospheric_model'
+  | 'community_optical'
+  | 'user_hardware'
+  | 'satellite_reanalysis'
+  | 'derived_standard';
+
+export type EnvironmentalSourceStatus =
+  | 'active'
+  | 'fresh'
+  | 'stale'
+  | 'unavailable'
+  | 'rejected'
+  | 'unreachable'
+  | 'error'
+  | 'not_configured'
+  | 'registry_only';
+
+export interface SourceMeasurement {
+  value: number | null;
+  pollutant: 'pm25' | 'pm10' | 'o3' | 'no2' | 'so2' | 'co' | 'nh3' | 'aqi_derived';
+  unit: string;
+  averagingPeriodMinutes?: number | null;
+  observedAt?: string | null;
+  receivedAt?: string | null;
+  rawUncalibratedValue?: number | null;
+  calibrationApplied?: string | null;
+  qualityFlag?: 'valid' | 'suspect' | 'calibrated' | 'raw' | 'rejected';
+}
+
+export interface EnvironmentalSourceRecord {
+  id: string;
+  providerId: string;
+  providerName: string;
+  provider?: string;
+  upstreamProviderId?: string | null;
+  datasetId?: string | null;
+  stationId?: string | null;
+  sourceName: string;
+  name?: string;
+  sourceKind: EnvironmentalSourceKind;
+  providerKind?: EnvironmentalSourceKind;
+  status: EnvironmentalSourceStatus;
+  latitude: number | null;
+  longitude: number | null;
+  distanceKm: number | null;
+  coordinates?: {
+    latitude: number;
+    longitude: number;
+    distanceKm?: number | null;
+  } | null;
+  observedAt: string | null;
+  measuredAt?: string | null;
+  retrievedAt: string | null;
+  ingestedAt?: string;
+  modelRunAt?: string | null;
+  measurements: SourceMeasurement[];
+  attribution: string;
+  explanation?: string | null;
+  errorCode?: string | null;
+  provenance: {
+    network?: string | null;
+    licenseOrAttribution: string;
+    url?: string | null;
+    reportingLatencyMinutes?: number | null;
+    isModel: boolean;
+    limitations: string[];
+  };
+}
+
+export type SourceComparisonStatus =
+  | 'insufficient_sources'
+  | 'incompatible'
+  | 'comparable'
+  | 'partial';
+
+export type SourceComparisonMode =
+  | 'mode_a_single_source'
+  | 'mode_b_incompatible'
+  | 'mode_c_comparable';
+
+export interface ComparedSourceItem {
+  sourceId: string;
+  provider: string;
+  name: string;
+  value: number;
+  unit: string;
+  measuredAt: string;
+  distanceKm?: number | null;
+  averagingPeriodMinutes?: number | null;
+  kind: EnvironmentalSourceKind;
+}
+
+export interface SourceComparison {
+  targetPollutant: 'pm25' | 'pm10';
+  mode: SourceComparisonMode;
+  status: SourceComparisonStatus;
+  sourcesCompared: ComparedSourceItem[];
+  eligibleSourceIds: string[];
+  excludedSourceIds: string[];
+  reasons: string[];
+  incompatibilityReasons?: string[];
+  absoluteDifferenceUgM3: number | null;
+  absoluteDifference?: number | null;
+  relativeDifferencePercent: number | null;
+  minConcentration: number | null;
+  maxConcentration: number | null;
+  summary: string;
+  divergenceReason?: string | null;
+  comparedAt: string | null;
+}
+
 export interface AtmosphericSourceFeed {
   id: string;
   sourceName: string;
@@ -237,6 +355,10 @@ export interface AtmosphericMetrics {
   hourlyForecast?: HourlyAtmosphericPoint[];
   ensemble?: EnsembleConsensusAnalysis;
   availability?: MetricAvailability;
+
+  // Genuine Multi-Source Monitoring & Provenance (Step 3/24)
+  environmentalSources?: EnvironmentalSourceRecord[];
+  sourceComparison?: SourceComparison | null;
 }
 
 export type ActivityIntensity = 'resting' | 'light_walk' | 'moderate_activity' | 'intense_exercise';

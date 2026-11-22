@@ -7,11 +7,15 @@ import {
   TelemetryLocationMetadata,
   TelemetryCacheMetadata,
   TelemetryStatus,
+  EnvironmentalSourceRecord,
+  SourceComparison,
 } from '@/domain/types';
 import { isThermalInversion, calculateAQIFromPM25, calculateCpcbNaqi } from '@/domain/air-math';
 import { calculateComprehensiveCpcbNaqi } from '@/domain/cpcb-naqi';
 import { buildMultiSourceFeeds, calculateMultiSourceConsensus } from '@/domain/advanced-air-math';
-import { getNearestGroundStation } from './ground-station-service';
+import { getNearestGroundStation, discoverGroundStationSources } from './ground-station-service';
+import { createOpenMeteoModelRecord, compareEnvironmentalSources, deduplicateEnvironmentalSources } from '@/domain/source-comparison';
+import { fetchOpenAqSources } from './providers/openaq-provider';
 import { telemetryCache } from '@/lib/cache';
 
 export interface GeocodedLocation {
@@ -554,6 +558,7 @@ export async function fetchLiveAtmosphericMetrics(
     // Query physical ground monitoring station (CPCB / Sensor.Community)
     let groundStation = null;
     let groundModelDelta = null;
+    let groundSources: EnvironmentalSourceRecord[] = [];
     try {
       const groundMatch = await getNearestGroundStation(
         latitude,
@@ -563,8 +568,39 @@ export async function fetchLiveAtmosphericMetrics(
       );
       groundStation = groundMatch.station;
       groundModelDelta = groundMatch.delta;
+      groundSources = await discoverGroundStationSources(
+        latitude,
+        longitude,
+        humidityField.value,
+        { signal: options?.signal }
+      );
     } catch {
       // Ground monitor query is non-blocking
+    }
+
+    // Query OpenAQ provider asynchronously (Server direct or Client API route)
+    let openAqSources: EnvironmentalSourceRecord[] = [];
+    try {
+      if (typeof window === 'undefined') {
+        openAqSources = await fetchOpenAqSources({
+          latitude,
+          longitude,
+          radiusKm: 35,
+          signal: options?.signal,
+        });
+      } else {
+        const res = await fetch(`/api/telemetry/sources?lat=${latitude}&lon=${longitude}&radius=35`, {
+          signal: options?.signal,
+        });
+        if (res.ok) {
+          const json = await res.json();
+          if (Array.isArray(json?.sources)) {
+            openAqSources = json.sources;
+          }
+        }
+      }
+    } catch {
+      // OpenAQ query is non-blocking and isolated
     }
 
     // Comprehensive statutory CPCB NAQI calculation with data sufficiency rules
@@ -586,6 +622,25 @@ export async function fetchLiveAtmosphericMetrics(
       groundStation,
     }) : [];
     const ensemble = calculateMultiSourceConsensus(feeds);
+
+    // Assemble canonical multi-source records & evaluate comparison
+    const modelRecord = createOpenMeteoModelRecord({
+      pm25,
+      pm10,
+      timestamp: current.time || retrievedAt,
+      latitude,
+      longitude,
+      cityName: options?.cityName,
+      retrievedAt,
+    });
+
+    const allEnvironmentalSources = deduplicateEnvironmentalSources([
+      modelRecord,
+      ...groundSources,
+      ...openAqSources,
+    ]);
+
+    const sourceComparison = compareEnvironmentalSources(allEnvironmentalSources, 'pm25');
 
     const location: TelemetryLocationMetadata = {
       latitude,
@@ -638,6 +693,8 @@ export async function fetchLiveAtmosphericMetrics(
       sourceAttribution: 'Open-Meteo High-Resolution Ensemble (ECMWF & NOAA GFS)',
       hourlyForecast: hourlyForecast.length > 0 ? hourlyForecast : undefined,
       ensemble,
+      environmentalSources: allEnvironmentalSources,
+      sourceComparison,
       availability: {
         aqi: usAqi !== null,
         pm25: pm25 !== null,
