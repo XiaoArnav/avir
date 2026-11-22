@@ -240,11 +240,18 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
           label: 'Very Unhealthy',
         };
       case 'Hazardous':
-      default:
+      case 'Severe':
         return {
           bg: 'bg-red-600/20 border-red-500/50 text-red-700 dark:text-red-300',
           dot: 'bg-red-500',
           label: 'Hazardous (Severe Smog Alert)',
+        };
+      case 'Unavailable':
+      default:
+        return {
+          bg: 'bg-stone-500/15 border-stone-500/30 text-stone-600 dark:text-stone-400',
+          dot: 'bg-stone-400',
+          label: 'Unavailable',
         };
     }
   };
@@ -360,7 +367,11 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
                 ? 'bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800'
                 : 'bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800'
             }`}>
-              {metrics.isStale || metrics.status === 'stale' ? 'Cached Reading' : 'Live Observation'}
+              {metrics.isStale || metrics.status === 'stale'
+                ? 'Cached Reading'
+                : metrics.provenance === 'observed'
+                ? 'Ground Observation'
+                : 'Latest modeled conditions'}
             </span>
           </div>
           <div className="flex flex-wrap items-center gap-3">
@@ -379,7 +390,13 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
         {/* Live Timestamp & Fast Sync */}
         <div className="flex items-center sm:flex-col sm:items-end justify-between gap-2 text-xs font-mono text-ink-muted dark:text-zinc-400">
           <div className="flex items-center gap-2">
-            <span>Observed at:</span>
+            <span>
+              {metrics.isStale || metrics.status === 'stale'
+                ? 'Cached from:'
+                : metrics.provenance === 'observed'
+                ? 'Observed at:'
+                : 'Modeled for:'}
+            </span>
             <span className="text-ink dark:text-zinc-200 font-semibold">{formattedTime}</span>
             {onRefresh && (
               <button
@@ -444,36 +461,7 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
             </div>
           </div>
 
-          {/* Multi-Source Open-Source AQI Consensus Range Badge */}
-          {metrics.ensemble && metrics.ensemble.consensusAqi !== null && (
-            <button
-              onClick={onOpenMultiSource}
-              className="mt-3.5 inline-flex items-center flex-wrap gap-2 px-3 py-1.5 rounded-xl bg-white/90 dark:bg-zinc-900/90 border border-stone-200 dark:border-zinc-800 text-xs text-ink dark:text-zinc-200 hover:border-emerald-500/60 hover:bg-emerald-50/40 dark:hover:bg-emerald-950/20 transition-all shadow-sm group cursor-pointer text-left w-fit"
-              title="Compare open-source air quality model feeds"
-              aria-label="Inspect Open-Source AQI Feeds"
-            >
-              <span className="flex h-2 w-2 relative">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-              </span>
-              <span className="font-semibold text-ink dark:text-white">
-                Multi-Model Consensus: <strong className="font-mono text-emerald-600 dark:text-emerald-400 font-bold">{metrics.ensemble.consensusAqi} AQI</strong>
-              </span>
-              {metrics.ensemble.aqiMin !== null && metrics.ensemble.aqiMax !== null && (
-                <span className="font-mono text-ink-muted dark:text-zinc-400 text-[11px]">
-                  (Spread: {metrics.ensemble.aqiMin}–{metrics.ensemble.aqiMax})
-                </span>
-              )}
-              {metrics.ensemble.confidenceScorePercent !== null && (
-                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 font-bold border border-emerald-500/20">
-                  {metrics.ensemble.confidenceScorePercent}% Agreement
-                </span>
-              )}
-              <span className="text-emerald-600 dark:text-emerald-400 font-bold text-xs group-hover:translate-x-0.5 transition-transform">
-                &rarr;
-              </span>
-            </button>
-          )}
+          {/* Multi-Source Open-Source AQI Consensus Range Badge hidden in Step 2 to remove misleading 5-source claim until Step 3 */}
 
           {/* Berkeley Earth Cigarette Equivalence Card */}
           <div className="mt-4 p-3.5 rounded-xl bg-white/80 dark:bg-zinc-900/70 border border-stone-200 dark:border-zinc-800/80 flex items-center gap-3 shadow-sm">
@@ -656,8 +644,8 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
               {forecastPoints.slice(0, 24).map((slot) => {
                 const isCurrent = slot.hour === currentCityHour;
                 const isSelected = slot.hour === selectedHour;
-                const blh = slot.boundaryLayerHeight ?? 200;
-                const heightPercent = Math.max(20, Math.min(100, (blh / 1200) * 100));
+                const hasBlh = slot.boundaryLayerHeight !== null && slot.boundaryLayerHeight !== undefined;
+                const heightPercent = hasBlh ? Math.max(15, Math.min(100, (slot.boundaryLayerHeight! / 1200) * 100)) : 8;
 
                 return (
                   <button
@@ -665,12 +653,14 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
                     type="button"
                     onClick={() => setSelectedHour(slot.hour)}
                     className={`relative w-full rounded-t-sm transition-all group ${
-                      slot.isSafeVentingWindow
+                      !hasBlh
+                        ? 'bg-stone-200 dark:bg-zinc-800/40 hover:bg-stone-300 dark:hover:bg-zinc-700'
+                        : slot.isSafeVentingWindow
                         ? 'bg-emerald-500/80 hover:bg-emerald-400'
                         : 'bg-stone-300 dark:bg-zinc-800 hover:bg-stone-400 dark:hover:bg-zinc-700'
                     } ${isSelected ? 'ring-2 ring-primary ring-offset-1' : ''}`}
                     style={{ height: `${heightPercent}%` }}
-                    title={`${slot.hour.toString().padStart(2, '0')}:00 — Mixing Depth: ${slot.boundaryLayerHeight !== null ? `${slot.boundaryLayerHeight}m` : 'N/A'}, PM2.5: ${slot.pm25 !== null ? `${slot.pm25}µg/m³` : 'N/A'}`}
+                    title={`${slot.hour.toString().padStart(2, '0')}:00 — Mixing Depth: ${slot.boundaryLayerHeight !== null ? `${slot.boundaryLayerHeight}m` : 'Unavailable'}, PM2.5: ${slot.pm25 !== null ? `${slot.pm25}µg/m³` : 'Unavailable'}`}
                   >
                     {isCurrent && (
                       <span className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-primary" />

@@ -24,7 +24,8 @@ export type AQICategory =
   | 'Unhealthy'
   | 'VeryUnhealthy'
   | 'Hazardous'
-  | 'Severe';
+  | 'Severe'
+  | 'Unavailable';
 
 export interface AQIBreakpoint {
   category: AQICategory;
