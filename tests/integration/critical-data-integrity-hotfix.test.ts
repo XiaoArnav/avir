@@ -316,7 +316,7 @@ describe('AVIR CRITICAL PRODUCTION DATA INTEGRITY HOTFIX — Regression Verifica
     });
 
     it('37 & 38. Valid pollutant zeros are preserved and count toward monitored pollutants', () => {
-      const res = calculateComprehensiveCpcbNaqi({ pm25: 0, no2: 0, so2: 0 });
+      const res = calculateComprehensiveCpcbNaqi({ pm25: 0, no2: 0, so2: 0, is24HourAveraged: true });
       expect(res.isDataSufficient).toBe(true);
       expect(res.aqi).toBe(0);
       expect(res.category).toBe('Good');
@@ -324,7 +324,7 @@ describe('AVIR CRITICAL PRODUCTION DATA INTEGRITY HOTFIX — Regression Verifica
     });
 
     it('39. Statutory compliance achieved when at least 3 pollutants are monitored including particulate', () => {
-      const res = calculateComprehensiveCpcbNaqi({ pm25: 90, no2: 50, so2: 30 });
+      const res = calculateComprehensiveCpcbNaqi({ pm25: 90, no2: 50, so2: 30, is24HourAveraged: true });
       expect(res.isDataSufficient).toBe(true);
       expect(res.classification).toBe('statutory_compliant');
       expect(res.dominantPollutant).toBe('PM2.5');

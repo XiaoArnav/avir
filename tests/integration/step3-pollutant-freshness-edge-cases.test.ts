@@ -684,6 +684,8 @@ describe('AVIR STEP 03 FINAL PRODUCTION CLOSURE — Cross-Pollutant Freshness & 
     });
 
     it('3. Cross-provider records mapped via VERIFIED_CROSS_PROVIDER_STATION_MAP ARE merged', () => {
+      registerVerifiedStationMapping('openaq:5001', 'us_embassy_chanakyapuri');
+      registerVerifiedStationMapping('airnow:chanakyapuri', 'us_embassy_chanakyapuri');
       const freshTime = getFreshIso(15);
 
       // OpenAQ location 5001 (US Embassy Chanakyapuri)

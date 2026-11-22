@@ -67,6 +67,50 @@ export type GroundStationState =
   | 'stale_observation'
   | 'measurement_unavailable';
 
+export interface VerifiedStationIdentity {
+  internalId: string;
+  sourceProvider: string;
+  officialStationId: string | null;
+  stationName: string;
+  operatingAgency: string | null;
+  city: string | null;
+  state: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  registryVerified: boolean;
+  sourceReference: string;
+}
+
+export type OfficialProviderStatus =
+  | 'available'
+  | 'not_configured'
+  | 'unauthorized'
+  | 'rate_limited'
+  | 'no_coverage'
+  | 'stale'
+  | 'upstream_error'
+  | 'schema_changed'
+  | 'unavailable'
+  | 'partial'
+  | 'untimed';
+
+export interface OfficialGroundProviderResult {
+  providerId: string;
+  status: OfficialProviderStatus;
+  sources: EnvironmentalSourceRecord[];
+  retrievedAt: string;
+  observedThrough: string | null;
+  activeStationCount: number;
+  activePm25Count: number;
+  activePm10Count: number;
+  availableStationCount?: number;
+  isPartial?: boolean;
+  totalReported?: number;
+  totalFetched?: number;
+  errorCode?: string;
+  errorMessage?: string;
+}
+
 export interface GroundStationMetadata {
   stationId: string | number;
   stationName: string;
@@ -94,7 +138,7 @@ export interface GroundModelDelta {
   groundPm25: number;
   modelPm25: number;
   deltaPercent: number; // e.g. +65%
-  divergenceType: 'ground_trapping' | 'model_overestimate' | 'aligned';
+  divergenceType: 'ground_trapping' | 'model_overestimate' | 'aligned' | 'higher_than_model' | 'lower_than_model';
   narrative: string;
 }
 
@@ -160,7 +204,7 @@ export type EnvironmentalSourceStatus =
 
 export interface SourceMeasurement {
   value: number | null;
-  pollutant: 'pm25' | 'pm10' | 'o3' | 'no2' | 'so2' | 'co' | 'nh3' | 'aqi_derived';
+  pollutant: 'pm25' | 'pm10' | 'o3' | 'no2' | 'so2' | 'co' | 'nh3' | 'pb' | 'aqi_derived';
   unit: string;
   averagingPeriodMinutes?: number | null;
   observedAt?: string | null;
@@ -169,6 +213,8 @@ export interface SourceMeasurement {
   rawUncalibratedValue?: number | null;
   calibrationApplied?: string | null;
   qualityFlag?: 'valid' | 'suspect' | 'calibrated' | 'raw' | 'rejected';
+  min?: number | null;
+  max?: number | null;
 }
 
 export interface EnvironmentalSourceRecord {
@@ -354,7 +400,7 @@ export interface AtmosphericMetrics {
 
   cpcbAqi?: number | null;
   cpcbCategory?: string | null;
-  cpcbStatus?: 'statutory_compliant' | 'indicative_subindex' | 'unavailable';
+  cpcbStatus?: 'statutory_compliant' | 'indicative_subindex' | 'indicative_snapshot' | 'unavailable';
   sourceAttribution?: string;
   hourlyForecast?: HourlyAtmosphericPoint[];
   ensemble?: EnsembleConsensusAnalysis;

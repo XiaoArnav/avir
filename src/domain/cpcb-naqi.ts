@@ -3,6 +3,13 @@
  * Implements the official statutory 8-pollutant piecewise breakpoint interpolation
  * and data-sufficiency requirements published by the Ministry of Environment,
  * Forest and Climate Change (MoEFCC), Government of India.
+ * 
+ * Strict Invariants (Step 4):
+ * 1. Explicit units: Never guess CO units based on concentration magnitude.
+ * 2. Complete 8-pollutant support: PM2.5, PM10, NO2, SO2, CO, O3, NH3, and Pb (Lead).
+ * 3. Enforces data sufficiency: >= 3 pollutants required, including PM2.5 or PM10.
+ * 4. Distinguishes official statutory compliance (24-hr / 8-hr verified averages) from indicative sub-indices.
+ * 5. Rejects negative values, NaN, and unverified placeholders.
  */
 
 export type CpcbCategory =
@@ -25,10 +32,14 @@ export interface PollutantInput {
   pm10?: number | null; // µg/m³ (24-hr)
   no2?: number | null;  // µg/m³ (24-hr)
   so2?: number | null;  // µg/m³ (24-hr)
-  co?: number | null;   // µg/m³ or mg/m³ (8-hr) - auto-detects unit
+  co?: number | null;   // mg/m³ (8-hr) by default, or converted with explicit coUnit
+  coUnit?: 'mg/m3' | 'ug/m3' | 'µg/m³' | string | null;
   o3?: number | null;   // µg/m³ (8-hr)
   nh3?: number | null;  // µg/m³ (24-hr)
-  pb?: number | null;   // µg/m³ (24-hr)
+  pb?: number | null;   // µg/m³ (24-hr Lead)
+  units?: Record<string, string | null>;
+  averagingPeriods?: Record<string, number | null>;
+  is24HourAveraged?: boolean;
 }
 
 export interface SubIndexResult {
@@ -36,7 +47,15 @@ export interface SubIndexResult {
   concentration: number;
   subIndex: number;
   category: CpcbCategory;
+  unit: string;
+  averagingPeriod?: string;
 }
+
+export type CpcbClassification =
+  | 'statutory_compliant'
+  | 'indicative_subindex'
+  | 'indicative_snapshot'
+  | 'unavailable';
 
 export interface CpcbNaqiCalculationResult {
   aqi: number | null;
@@ -47,11 +66,12 @@ export interface CpcbNaqiCalculationResult {
   monitoredPollutantCount: number;
   missingRequirements: string[];
   notes: string;
-  classification: 'statutory_compliant' | 'indicative_subindex' | 'unavailable';
+  classification: CpcbClassification;
+  isOfficialPublished?: boolean;
 }
 
 // ---------------------------------------------------------------------------
-// Official CPCB Breakpoints (CPCB NAQI 2014 / 2015 Guidelines)
+// Official CPCB Breakpoints (CPCB NAQI 2014 / 2015 MoEFCC Guidelines)
 // ---------------------------------------------------------------------------
 
 export const CPCB_BREAKPOINTS: Record<string, PollutantBreakpoint[]> = {
@@ -88,7 +108,7 @@ export const CPCB_BREAKPOINTS: Record<string, PollutantBreakpoint[]> = {
     { cLow: 1600, cHigh: 3000, iLow: 401, iHigh: 500 },
   ],
   co: [
-    // In mg/m³
+    // In mg/m³ (8-hr average)
     { cLow: 0, cHigh: 1.0, iLow: 0, iHigh: 50 },
     { cLow: 1.1, cHigh: 2.0, iLow: 51, iHigh: 100 },
     { cLow: 2.1, cHigh: 10.0, iLow: 101, iHigh: 200 },
@@ -97,6 +117,7 @@ export const CPCB_BREAKPOINTS: Record<string, PollutantBreakpoint[]> = {
     { cLow: 34.0, cHigh: 60.0, iLow: 401, iHigh: 500 },
   ],
   o3: [
+    // In µg/m³ (8-hr / 1-hr average)
     { cLow: 0, cHigh: 50, iLow: 0, iHigh: 50 },
     { cLow: 51, cHigh: 100, iLow: 51, iHigh: 100 },
     { cLow: 101, cHigh: 168, iLow: 101, iHigh: 200 },
@@ -105,12 +126,29 @@ export const CPCB_BREAKPOINTS: Record<string, PollutantBreakpoint[]> = {
     { cLow: 748, cHigh: 1000, iLow: 401, iHigh: 500 },
   ],
   nh3: [
+    // In µg/m³ (24-hr average)
     { cLow: 0, cHigh: 200, iLow: 0, iHigh: 50 },
     { cLow: 201, cHigh: 400, iLow: 51, iHigh: 100 },
     { cLow: 401, cHigh: 800, iLow: 101, iHigh: 200 },
     { cLow: 801, cHigh: 1200, iLow: 201, iHigh: 300 },
     { cLow: 1201, cHigh: 1800, iLow: 301, iHigh: 400 },
     { cLow: 1800, cHigh: 3000, iLow: 401, iHigh: 500 },
+  ],
+  pb: [
+    // Lead in µg/m³ (24-hr average) - CPCB NAQI Schedule (MoEFCC Guidelines 2014)
+    // Discrete regulatory breakpoint intervals (0-0.5, 0.6-1.0, 1.1-2.0, 2.1-3.0, 3.1-3.5, 3.6-5.0):
+    // Band 1 (Good): 0 to 0.5 -> 0 to 50
+    // Band 2 (Satisfactory): 0.6 to 1.0 -> 51 to 100
+    // Band 3 (Moderate): 1.1 to 2.0 -> 101 to 200
+    // Band 4 (Poor): 2.1 to 3.0 -> 201 to 300
+    // Band 5 (Very Poor): 3.1 to 3.5 -> 301 to 400
+    // Band 6 (Severe): 3.6 to 5.0 -> 401 to 500 (resolves overlapping boundary at 3.5)
+    { cLow: 0, cHigh: 0.5, iLow: 0, iHigh: 50 },
+    { cLow: 0.6, cHigh: 1.0, iLow: 51, iHigh: 100 },
+    { cLow: 1.1, cHigh: 2.0, iLow: 101, iHigh: 200 },
+    { cLow: 2.1, cHigh: 3.0, iLow: 201, iHigh: 300 },
+    { cLow: 3.1, cHigh: 3.5, iLow: 301, iHigh: 400 },
+    { cLow: 3.6, cHigh: 5.0, iLow: 401, iHigh: 500 },
   ],
 };
 
@@ -125,17 +163,54 @@ export function getCpcbCategory(aqi: number): CpcbCategory {
 
 /**
  * Calculates linear sub-index for a single pollutant based on CPCB breakpoints.
+ * Enforces explicit unit checking: never assumes or guesses units from numerical magnitude.
+ * 
+ * Strict Invariants:
+ * 1. CO requires an explicit unit ('mg/m3' or 'ug/m3'). Untyped CO returns null.
+ * 2. Never applies numeric magnitude heuristics (>50) to infer units.
+ * 3. Particulates and criteria gases require valid µg/m³ units when unit is provided.
+ * 
+ * @param pollutantKey Pollutant key ('pm25', 'pm10', 'no2', 'so2', 'co', 'o3', 'nh3', 'pb')
+ * @param concentration Numeric concentration value
+ * @param unit Optional explicit measurement unit (e.g., 'mg/m3', 'ug/m3')
  */
-export function calculateSubIndex(pollutantKey: string, concentration: number): number | null {
+export function calculateSubIndex(
+  pollutantKey: string,
+  concentration: number,
+  unit?: string | null
+): number | null {
   if (concentration < 0 || !Number.isFinite(concentration)) return null;
 
-  const breakpoints = CPCB_BREAKPOINTS[pollutantKey];
+  const key = pollutantKey.toLowerCase().trim();
+  const breakpoints = CPCB_BREAKPOINTS[key];
   if (!breakpoints || breakpoints.length === 0) return null;
 
-  // Handle CO unit: if > 100, assuming input is in µg/m³, convert to mg/m³
   let conc = concentration;
-  if (pollutantKey === 'co' && conc > 50) {
-    conc = conc / 1000;
+
+  // Handle CO unit: CPCB standard breakpoints are defined in mg/m³.
+  // Strict invariant: CO requires an explicit verified unit.
+  // Never guess unit from numerical magnitude (eliminates `if (!unit && conc > 50)`).
+  if (key === 'co') {
+    if (!unit) {
+      // Untyped CO without explicit unit must not contribute to AQI calculations
+      return null;
+    }
+    const u = unit.toLowerCase().trim();
+    if (u === 'ug/m3' || u === 'µg/m³' || u === 'ug/m^3' || u === 'micrograms/m3') {
+      conc = conc / 1000;
+    } else if (u === 'mg/m3' || u === 'mg/m³' || u === 'mg/m^3' || u === 'milligrams/m3') {
+      conc = concentration;
+    } else {
+      // Unsupported or unverified unit for CO
+      return null;
+    }
+  } else if (unit) {
+    // For non-CO criteria pollutants, standard unit must be µg/m³
+    const u = unit.toLowerCase().trim();
+    if (u !== 'ug/m3' && u !== 'µg/m³' && u !== 'ug/m^3' && u !== 'micrograms/m3') {
+      // Unsupported unit for particulate or non-CO gas (e.g. ppm, mg/m3 for PM2.5)
+      return null;
+    }
   }
 
   // Exact 0 concentration is 0 sub-index
@@ -154,36 +229,53 @@ export function calculateSubIndex(pollutantKey: string, concentration: number): 
 
 /**
  * Calculates complete Indian National Air Quality Index (CPCB NAQI).
- * Enforces the official CPCB minimum data sufficiency criteria:
+ * Enforces the official CPCB statutory criteria:
  * 1. At least 3 pollutants must be monitored.
  * 2. At least one of the monitored pollutants MUST be PM2.5 or PM10.
+ * 3. Distinguishes statutory 24-hr compliance from indicative snapshots.
  */
 export function calculateComprehensiveCpcbNaqi(input: PollutantInput): CpcbNaqiCalculationResult {
   const subIndices: Record<string, SubIndexResult> = {};
   const missingRequirements: string[] = [];
 
-  const candidates: Array<{ key: string; name: string; val?: number | null }> = [
-    { key: 'pm25', name: 'PM2.5', val: input.pm25 },
-    { key: 'pm10', name: 'PM10', val: input.pm10 },
-    { key: 'no2', name: 'NO2', val: input.no2 },
-    { key: 'so2', name: 'SO2', val: input.so2 },
-    { key: 'co', name: 'CO', val: input.co },
-    { key: 'o3', name: 'Ozone', val: input.o3 },
-    { key: 'nh3', name: 'NH3', val: input.nh3 },
+  const candidates: Array<{
+    key: string;
+    name: string;
+    val?: number | null;
+    unit: string | null;
+    avgPeriod: string;
+  }> = [
+    { key: 'pm25', name: 'PM2.5', val: input.pm25, unit: input.units?.pm25 || 'µg/m³', avgPeriod: '24-hr' },
+    { key: 'pm10', name: 'PM10', val: input.pm10, unit: input.units?.pm10 || 'µg/m³', avgPeriod: '24-hr' },
+    { key: 'no2', name: 'NO2', val: input.no2, unit: input.units?.no2 || 'µg/m³', avgPeriod: '24-hr' },
+    { key: 'so2', name: 'SO2', val: input.so2, unit: input.units?.so2 || 'µg/m³', avgPeriod: '24-hr' },
+    {
+      key: 'co',
+      name: 'CO',
+      val: input.co,
+      unit: input.coUnit || input.units?.co || null,
+      avgPeriod: '8-hr',
+    },
+    { key: 'o3', name: 'Ozone', val: input.o3, unit: input.units?.o3 || 'µg/m³', avgPeriod: '8-hr' },
+    { key: 'nh3', name: 'NH3', val: input.nh3, unit: input.units?.nh3 || 'µg/m³', avgPeriod: '24-hr' },
+    { key: 'pb', name: 'Lead', val: input.pb, unit: input.units?.pb || 'µg/m³', avgPeriod: '24-hr' },
   ];
 
   let maxSubIndex = -1;
   let dominant = '';
 
-  for (const { key, name, val } of candidates) {
+  for (const { key, name, val, unit, avgPeriod } of candidates) {
     if (val !== undefined && val !== null && Number.isFinite(val) && val >= 0) {
-      const subIdx = calculateSubIndex(key, val);
-      if (subIdx !== null) {
+      // CO strictly requires explicit unit; other pollutants require verified µg/m³
+      const subIdx = calculateSubIndex(key, val, unit);
+      if (subIdx !== null && unit !== null) {
         subIndices[key] = {
           pollutant: name,
           concentration: val,
           subIndex: subIdx,
           category: getCpcbCategory(subIdx),
+          unit,
+          averagingPeriod: avgPeriod,
         };
         if (subIdx > maxSubIndex) {
           maxSubIndex = subIdx;
@@ -216,11 +308,40 @@ export function calculateComprehensiveCpcbNaqi(input: PollutantInput): CpcbNaqiC
       missingRequirements: ['No valid pollutant concentrations available.'],
       notes: 'Insufficient telemetry to calculate National AQI.',
       classification: 'unavailable',
+      isOfficialPublished: false,
     };
   }
 
   const aqi = maxSubIndex >= 0 ? maxSubIndex : null;
   const category = aqi !== null ? getCpcbCategory(aqi) : null;
+
+  // Check averaging period requirements (Defect 4):
+  // Statutory compliance requires affirmative evidence:
+  // - 24-hr (1440 min) for PM2.5, PM10, NO2, SO2, NH3, Pb.
+  // - 8-hr (480 min) for CO, O3.
+  // Never default missing boolean or unknown averaging periods to statutory compliant.
+  let isAveragingVerified = false;
+  if (input.is24HourAveraged === true) {
+    isAveragingVerified = true;
+  } else if (input.averagingPeriods) {
+    let allCountedMatch = true;
+    for (const countedKey of Object.keys(subIndices)) {
+      const period = input.averagingPeriods[countedKey];
+      if (countedKey === 'co' || countedKey === 'o3') {
+        if (period !== 480) allCountedMatch = false;
+      } else {
+        if (period !== 1440) allCountedMatch = false;
+      }
+    }
+    isAveragingVerified = allCountedMatch && Object.keys(subIndices).length > 0;
+  }
+
+  let classification: CpcbClassification = 'indicative_subindex';
+  if (isDataSufficient && isAveragingVerified) {
+    classification = 'statutory_compliant';
+  } else if (isDataSufficient && !isAveragingVerified) {
+    classification = 'indicative_snapshot';
+  }
 
   return {
     aqi,
@@ -230,9 +351,12 @@ export function calculateComprehensiveCpcbNaqi(input: PollutantInput): CpcbNaqiC
     isDataSufficient,
     monitoredPollutantCount: monitoredCount,
     missingRequirements,
-    classification: isDataSufficient ? 'statutory_compliant' : 'indicative_subindex',
-    notes: isDataSufficient
+    classification,
+    isOfficialPublished: false,
+    notes: classification === 'statutory_compliant'
       ? `Statutory CPCB NAQI compliant (${monitoredCount} pollutants; dominant: ${dominant}).`
+      : classification === 'indicative_snapshot'
+      ? `Indicative snapshot AQI (${monitoredCount} pollutants monitored, but instantaneous/hourly snapshot rather than verified statutory 24-hr/8-hr averages).`
       : `Indicative sub-index based on ${monitoredCount} available pollutants (${missingRequirements.join('; ')}).`,
   };
 }
