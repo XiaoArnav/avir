@@ -13,9 +13,51 @@ export type DataProvenance =
 export type TelemetryStatus = 
   | 'loading' 
   | 'success' 
+  | 'partial'
   | 'stale' 
   | 'unavailable' 
   | 'error';
+
+export type FieldValidationStatus = 'valid' | 'unavailable' | 'rejected';
+
+export interface TelemetryFieldMetadata<T = number> {
+  value: T | null;
+  unit: string;
+  provider: string;
+  classification: DataProvenance;
+  status: FieldValidationStatus;
+  rejectionReason?: string;
+}
+
+export interface AtmosphericFieldMeasurements {
+  pm25: TelemetryFieldMetadata<number>;
+  pm10: TelemetryFieldMetadata<number>;
+  usAqi: TelemetryFieldMetadata<number>;
+  boundaryLayerHeight: TelemetryFieldMetadata<number>;
+  co?: TelemetryFieldMetadata<number>;
+  no2?: TelemetryFieldMetadata<number>;
+  so2?: TelemetryFieldMetadata<number>;
+  o3?: TelemetryFieldMetadata<number>;
+  temperature?: TelemetryFieldMetadata<number>;
+  humidity?: TelemetryFieldMetadata<number>;
+  windSpeed?: TelemetryFieldMetadata<number>;
+  windDirection?: TelemetryFieldMetadata<number>;
+}
+
+export interface TelemetryLocationMetadata {
+  latitude: number;
+  longitude: number;
+  cityName?: string;
+  timezone: string;
+}
+
+export interface TelemetryCacheMetadata {
+  isCached: boolean;
+  isStale: boolean;
+  originalTimestamp?: string;
+  cachedAt?: string;
+  ttlMs?: number;
+}
 
 export type AQICategory = 
   | 'Good'
@@ -136,6 +178,13 @@ export interface AtmosphericMetrics {
   isStale?: boolean;
   errorMessage?: string;
   
+  // Section 1 Telemetry Contract Metadata
+  fields?: AtmosphericFieldMeasurements;
+  location?: TelemetryLocationMetadata;
+  cacheMetadata?: TelemetryCacheMetadata;
+  freshness?: 'fresh' | 'stale' | 'expired' | 'unavailable';
+  errorType?: 'network' | 'timeout' | 'rate_limit' | 'validation' | 'unknown';
+
   cpcbAqi?: number | null;
   cpcbCategory?: string | null;
   sourceAttribution?: string;

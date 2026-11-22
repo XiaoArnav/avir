@@ -124,4 +124,440 @@ describe('Telemetry & Geocoding Service', () => {
       ).rejects.toThrow();
     });
   });
+
+  describe('Step 1 Telemetry Contract Integrity — 16 Mandated Scenarios', () => {
+    function mockFetch(aqData: any, weatherData: any = {}, aqOk = true, weatherOk = true, aqStatus = 200) {
+      return vi.spyOn(global, 'fetch').mockImplementation(async (url: any) => {
+        const urlStr = String(url);
+        if (urlStr.includes('air-quality')) {
+          if (!aqOk) {
+            return {
+              ok: false,
+              status: aqStatus,
+              statusText: aqStatus === 429 ? 'Too Many Requests' : 'Internal Server Error',
+              json: async () => aqData,
+            } as any;
+          }
+          return {
+            ok: true,
+            status: 200,
+            statusText: 'OK',
+            json: async () => aqData,
+          } as any;
+        }
+        if (urlStr.includes('forecast')) {
+          if (!weatherOk) {
+            return {
+              ok: false,
+              status: 500,
+              statusText: 'Internal Server Error',
+              json: async () => weatherData,
+            } as any;
+          }
+          return {
+            ok: true,
+            status: 200,
+            statusText: 'OK',
+            json: async () => weatherData,
+          } as any;
+        }
+        return {
+          ok: false,
+          status: 404,
+          statusText: 'Not Found',
+          json: async () => ({}),
+        } as any;
+      });
+    }
+
+    it('1. Complete valid provider response produces success status and typed field metadata', async () => {
+      const spy = mockFetch(
+        {
+          current: {
+            time: '2026-11-22T08:00',
+            pm2_5: 45.2,
+            pm10: 82.1,
+            us_aqi: 125,
+            carbon_monoxide: 450,
+            nitrogen_dioxide: 28,
+            sulphur_dioxide: 12,
+            ozone: 35,
+          },
+          timezone: 'Asia/Kolkata',
+        },
+        {
+          current: {
+            time: '2026-11-22T08:00',
+            temperature_2m: 22.4,
+            relative_humidity_2m: 55,
+            wind_speed_10m: 12.3,
+            wind_direction_10m: 290,
+          },
+          hourly: {
+            time: ['2026-11-22T08:00'],
+            boundary_layer_height: [600],
+          },
+          timezone: 'Asia/Kolkata',
+        }
+      );
+
+      const metrics = await fetchLiveAtmosphericMetrics(28.61, 77.21, { forceRefresh: true });
+
+      expect(metrics.status).toBe('success');
+      expect(metrics.pm25).toBe(45.2);
+      expect(metrics.pm10).toBe(82.1);
+      expect(metrics.usAqi).toBe(125);
+      expect(metrics.temperature).toBe(22.4);
+      expect(metrics.boundaryLayerHeight).toBe(600);
+      expect(metrics.fields?.pm25.status).toBe('valid');
+      expect(metrics.fields?.pm10.status).toBe('valid');
+      expect(metrics.fields?.usAqi.status).toBe('valid');
+      expect(metrics.fields?.boundaryLayerHeight.status).toBe('valid');
+      expect(metrics.fields?.temperature?.status).toBe('valid');
+      expect(metrics.freshness).toBe('fresh');
+      spy.mockRestore();
+    });
+
+    it('2. Missing PM2.5 is preserved as null and unavailable status, never fabricated', async () => {
+      const spy = mockFetch(
+        {
+          current: {
+            time: '2026-11-22T08:00',
+            pm10: 82.1,
+            us_aqi: 125,
+          },
+          timezone: 'Asia/Kolkata',
+        },
+        {
+          current: { temperature_2m: 22 },
+          hourly: { boundary_layer_height: [500] },
+        }
+      );
+
+      const metrics = await fetchLiveAtmosphericMetrics(28.61, 77.21, { forceRefresh: true });
+
+      expect(metrics.pm25).toBeNull();
+      expect(metrics.fields?.pm25.status).toBe('unavailable');
+      expect(metrics.fields?.pm25.value).toBeNull();
+      spy.mockRestore();
+    });
+
+    it('3. Missing PM10 is preserved as null and never multiplied from PM2.5', async () => {
+      const spy = mockFetch(
+        {
+          current: {
+            time: '2026-11-22T08:00',
+            pm2_5: 50.0,
+            us_aqi: 137,
+          },
+          timezone: 'Asia/Kolkata',
+        },
+        {
+          current: { temperature_2m: 22 },
+          hourly: { boundary_layer_height: [500] },
+        }
+      );
+
+      const metrics = await fetchLiveAtmosphericMetrics(28.61, 77.21, { forceRefresh: true });
+
+      expect(metrics.pm10).toBeNull();
+      expect(metrics.fields?.pm10.status).toBe('unavailable');
+      expect(metrics.fields?.pm10.value).toBeNull();
+      expect(metrics.pm10).not.toBe(70); // Never 50 * 1.4!
+      spy.mockRestore();
+    });
+
+    it('4. Missing US AQI is derived cleanly from PM2.5 and classified as derived_calculation', async () => {
+      const spy = mockFetch(
+        {
+          current: {
+            time: '2026-11-22T08:00',
+            pm2_5: 35.4, // EPA breakpoint: 35.4 ug/m3 corresponds to 100 AQI
+          },
+          timezone: 'Asia/Kolkata',
+        },
+        {
+          current: { temperature_2m: 22 },
+          hourly: { boundary_layer_height: [500] },
+        }
+      );
+
+      const metrics = await fetchLiveAtmosphericMetrics(28.61, 77.21, { forceRefresh: true });
+
+      expect(metrics.usAqi).toBe(100);
+      expect(metrics.fields?.usAqi.classification).toBe('derived_calculation');
+      expect(metrics.fields?.usAqi.provider).toBe('Avir Derived (EPA Breakpoints)');
+      expect(metrics.fields?.usAqi.status).toBe('valid');
+      spy.mockRestore();
+    });
+
+    it('5. Valid zero concentration (0 ug/m3 clean air) is treated as valid, never missing', async () => {
+      const spy = mockFetch(
+        {
+          current: {
+            time: '2026-11-22T08:00',
+            pm2_5: 0,
+            pm10: 0,
+            us_aqi: 0,
+          },
+          timezone: 'Asia/Kolkata',
+        },
+        {
+          current: { temperature_2m: 20 },
+          hourly: { boundary_layer_height: [600] },
+        }
+      );
+
+      const metrics = await fetchLiveAtmosphericMetrics(28.61, 77.21, { forceRefresh: true });
+
+      expect(metrics.pm25).toBe(0);
+      expect(metrics.pm10).toBe(0);
+      expect(metrics.usAqi).toBe(0);
+      expect(metrics.fields?.pm25.status).toBe('valid');
+      expect(metrics.fields?.pm25.value).toBe(0);
+      spy.mockRestore();
+    });
+
+    it('6. Invalid negative concentration is rejected and retains null value', async () => {
+      const spy = mockFetch(
+        {
+          current: {
+            time: '2026-11-22T08:00',
+            pm2_5: -15,
+            pm10: -25,
+          },
+          timezone: 'Asia/Kolkata',
+        },
+        {
+          current: { temperature_2m: 20 },
+        }
+      );
+
+      const metrics = await fetchLiveAtmosphericMetrics(28.61, 77.21, { forceRefresh: true });
+
+      expect(metrics.pm25).toBeNull();
+      expect(metrics.pm10).toBeNull();
+      expect(metrics.fields?.pm25.status).toBe('rejected');
+      expect(metrics.fields?.pm25.rejectionReason).toContain('negative');
+      expect(metrics.fields?.pm10.status).toBe('rejected');
+      spy.mockRestore();
+    });
+
+    it('7. NaN and Infinity pollutant values are safely rejected', async () => {
+      const spy = mockFetch(
+        {
+          current: {
+            time: '2026-11-22T08:00',
+            pm2_5: NaN,
+            pm10: Infinity,
+          },
+          timezone: 'Asia/Kolkata',
+        },
+        {
+          current: { temperature_2m: 20 },
+        }
+      );
+
+      const metrics = await fetchLiveAtmosphericMetrics(28.61, 77.21, { forceRefresh: true });
+
+      expect(metrics.pm25).toBeNull();
+      expect(metrics.pm10).toBeNull();
+      expect(metrics.fields?.pm25.status).toBe('rejected');
+      expect(metrics.fields?.pm10.status).toBe('rejected');
+      spy.mockRestore();
+    });
+
+    it('8. Malformed JSON or API error payload produces validation error type', async () => {
+      const spy = mockFetch(
+        { error: true, reason: 'Invalid parameters requested from provider' },
+        {},
+        true // returns 200 but error body
+      );
+
+      const metrics = await fetchLiveAtmosphericMetrics(28.61, 77.21, { forceRefresh: true });
+
+      expect(metrics.status).toBe('error');
+      expect(metrics.errorType).toBe('validation');
+      expect(metrics.errorMessage).toContain('Malformed or invalid');
+      spy.mockRestore();
+    });
+
+    it('9. Provider timeout produces timeout error type', async () => {
+      const timeoutError = new Error('Gateway Timeout');
+      timeoutError.name = 'TimeoutError';
+      const spy = vi.spyOn(global, 'fetch').mockRejectedValue(timeoutError);
+
+      const metrics = await fetchLiveAtmosphericMetrics(28.61, 77.21, { forceRefresh: true });
+
+      expect(metrics.status).toBe('error');
+      expect(metrics.errorType).toBe('timeout');
+      expect(metrics.errorMessage).toContain('timed out');
+      spy.mockRestore();
+    });
+
+    it('10. HTTP 429 Rate Limit produces rate_limit error type without infinite retries', async () => {
+      const spy = mockFetch(
+        { error: 'Rate limit exceeded' },
+        {},
+        false, // not ok
+        false,
+        429 // status 429
+      );
+
+      const metrics = await fetchLiveAtmosphericMetrics(28.61, 77.21, { forceRefresh: true });
+
+      expect(metrics.status).toBe('error');
+      expect(metrics.errorType).toBe('rate_limit');
+      expect(metrics.errorMessage).toContain('rate limit');
+      spy.mockRestore();
+    });
+
+    it('11. Failed optional weather request results in partial response', async () => {
+      const spy = mockFetch(
+        {
+          current: {
+            time: '2026-11-22T08:00',
+            pm2_5: 45.0,
+            pm10: 80.0,
+            us_aqi: 124,
+          },
+          timezone: 'Asia/Kolkata',
+        },
+        {},
+        true, // AQ succeeds
+        false // Weather fails (500)
+      );
+
+      const metrics = await fetchLiveAtmosphericMetrics(28.61, 77.21, { forceRefresh: true });
+
+      expect(metrics.status).toBe('partial');
+      expect(metrics.pm25).toBe(45.0);
+      expect(metrics.temperature).toBeNull();
+      expect(metrics.boundaryLayerHeight).toBeNull();
+      expect(metrics.availability?.weather).toBe(false);
+      expect(metrics.availability?.blh).toBe(false);
+      spy.mockRestore();
+    });
+
+    it('12. Valid cached result retains fresh status and marks isCached: true', async () => {
+      const spy = mockFetch({
+        current: {
+          time: '2026-11-22T08:00',
+          pm2_5: 35.0,
+          us_aqi: 99,
+        },
+        timezone: 'Asia/Kolkata',
+      });
+
+      // Populate cache
+      await fetchLiveAtmosphericMetrics(19.07, 72.87, { forceRefresh: true });
+
+      // Second fetch should read from cache
+      const cachedMetrics = await fetchLiveAtmosphericMetrics(19.07, 72.87);
+
+      expect(cachedMetrics.freshness).toBe('fresh');
+      expect(cachedMetrics.cacheMetadata?.isCached).toBe(true);
+      expect(cachedMetrics.cacheMetadata?.isStale).toBe(false);
+      spy.mockRestore();
+    });
+
+    it('13. Expired cached result falls back to status stale upon network failure', async () => {
+      const originalTimestamp = '2026-11-21T06:00:00Z';
+      telemetryCache.set('telemetry:22.57,88.36', {
+        status: 'success',
+        provenance: 'modeled_forecast',
+        timestamp: originalTimestamp,
+        retrievedAt: originalTimestamp,
+        timezone: 'Asia/Kolkata',
+        usAqi: 155,
+        pm25: 65.0,
+        pm10: 110.0,
+        boundaryLayerHeight: 300,
+        isThermalInversionActive: false,
+        isLive: true,
+      }, -1000); // Expired immediately
+
+      const spy = vi.spyOn(global, 'fetch').mockRejectedValue(new Error('Network failure'));
+      const staleMetrics = await fetchLiveAtmosphericMetrics(22.57, 88.36); // Kolkata
+
+      expect(staleMetrics.status).toBe('stale');
+      expect(staleMetrics.isStale).toBe(true);
+      expect(staleMetrics.freshness).toBe('stale');
+      expect(staleMetrics.cacheMetadata?.isStale).toBe(true);
+      spy.mockRestore();
+    });
+
+    it('14. Stale fallback preserves original measurement timestamp rather than current time', async () => {
+      const originalTimestamp = '2026-11-20T04:30:00Z';
+      telemetryCache.set('telemetry:26.45,80.33', {
+        status: 'success',
+        provenance: 'modeled_forecast',
+        timestamp: originalTimestamp,
+        retrievedAt: originalTimestamp,
+        timezone: 'Asia/Kolkata',
+        usAqi: 210,
+        pm25: 160.0,
+        pm10: 240.0,
+        boundaryLayerHeight: 150,
+        isThermalInversionActive: true,
+        isLive: true,
+      }, -1000);
+
+      const spy = vi.spyOn(global, 'fetch').mockRejectedValue(new Error('Connection dropped'));
+      const staleMetrics = await fetchLiveAtmosphericMetrics(26.45, 80.33); // Kanpur
+
+      expect(staleMetrics.timestamp).toBe(originalTimestamp);
+      expect(staleMetrics.cacheMetadata?.originalTimestamp).toBe(originalTimestamp);
+      spy.mockRestore();
+    });
+
+    it('15. Correct location metadata is populated including coordinates, cityName, and timezone', async () => {
+      const spy = mockFetch({
+        current: { time: '2026-11-22T08:00', pm2_5: 40, us_aqi: 112 },
+        timezone: 'Asia/Kolkata',
+      });
+
+      const metrics = await fetchLiveAtmosphericMetrics(28.61, 77.21, {
+        forceRefresh: true,
+        cityName: 'Delhi-NCR',
+      });
+
+      expect(metrics.location?.latitude).toBe(28.61);
+      expect(metrics.location?.longitude).toBe(77.21);
+      expect(metrics.location?.cityName).toBe('Delhi-NCR');
+      expect(metrics.location?.timezone).toBe('Asia/Kolkata');
+      spy.mockRestore();
+    });
+
+    it('16. Zero-fabrication guarantee: missing PM10 is never fabricated or copied from PM2.5', async () => {
+      const spy = mockFetch({
+        current: {
+          time: '2026-11-22T08:00',
+          pm2_5: 85.0,
+          // pm10 completely omitted
+        },
+        timezone: 'Asia/Kolkata',
+      });
+
+      const metrics = await fetchLiveAtmosphericMetrics(28.61, 77.21, { forceRefresh: true });
+
+      expect(metrics.pm10).toBeNull();
+      expect(metrics.fields?.pm10.status).toBe('unavailable');
+      expect(metrics.fields?.pm10.value).toBeNull();
+      expect(metrics.pm10).not.toBe(85.0);
+      expect(metrics.pm10).not.toBe(85.0 * 1.4);
+      spy.mockRestore();
+    });
+
+    it('Runtime coordinate validation rejects out-of-bounds latitude and longitude', async () => {
+      const invalidLatMetrics = await fetchLiveAtmosphericMetrics(95.0, 77.2);
+      expect(invalidLatMetrics.status).toBe('error');
+      expect(invalidLatMetrics.errorType).toBe('validation');
+      expect(invalidLatMetrics.errorMessage).toContain('Invalid coordinates');
+
+      const invalidLonMetrics = await fetchLiveAtmosphericMetrics(28.6, 200.0);
+      expect(invalidLonMetrics.status).toBe('error');
+      expect(invalidLonMetrics.errorType).toBe('validation');
+    });
+  });
 });
