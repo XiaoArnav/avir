@@ -481,7 +481,7 @@ export function buildMultiSourceFeeds(params: {
   pm25: number;
   usAqi: number;
   cpcbAqi?: number | null;
-  boundaryLayerHeight: number;
+  boundaryLayerHeight?: number | null;
   isThermalInversion: boolean;
   groundStation?: GroundStationMetadata | null;
 }): MultiSourceTelemetryFeed[] {

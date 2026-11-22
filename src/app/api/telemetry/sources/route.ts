@@ -1,9 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
-  fetchOpenAqSources,
-  OPENAQ_MIN_RADIUS_KM,
-  OPENAQ_MAX_RADIUS_KM,
+  fetchOpenAqProviderResult,
 } from '@/services/providers/openaq-provider';
+import {
+  OPENAQ_MIN_RADIUS_KM,
+  OPENAQ_DEFAULT_RADIUS_KM,
+  OPENAQ_MAX_RADIUS_KM,
+} from '@/config/environmental-sources';
+
+/**
+ * Strict floating point parser.
+ * Rejects non-numeric suffixes (e.g. "25abc"), whitespace-separated tokens, NaN, and Infinity.
+ */
+function parseStrictFloat(val: string | null): number | null {
+  if (!val) return null;
+  const trimmed = val.trim();
+  // Validates standard floating point string: optional minus, digits, optional decimal point with digits
+  if (!/^-?\d+(\.\d+)?$/.test(trimmed)) {
+    return null;
+  }
+  const num = Number(trimmed);
+  return Number.isFinite(num) ? num : null;
+}
 
 export async function GET(req: NextRequest) {
   try {
@@ -12,57 +30,67 @@ export async function GET(req: NextRequest) {
     const lonParam = searchParams.get('lon');
     const radiusParam = searchParams.get('radius');
 
-    if (!latParam || !lonParam) {
+    if (latParam === null || lonParam === null) {
       return NextResponse.json(
         { error: 'Missing required query parameters: "lat" and "lon" are required.' },
         { status: 400 }
       );
     }
 
-    const lat = parseFloat(latParam);
-    const lon = parseFloat(lonParam);
-    const radius = radiusParam ? parseFloat(radiusParam) : OPENAQ_MAX_RADIUS_KM;
+    const lat = parseStrictFloat(latParam);
+    const lon = parseStrictFloat(lonParam);
 
     // Strict boundary and numeric validation
-    if (isNaN(lat) || !Number.isFinite(lat) || lat < -90 || lat > 90) {
+    if (lat === null || lat < -90 || lat > 90) {
       return NextResponse.json(
-        { error: 'Invalid latitude: must be a finite number between -90 and 90.' },
+        { error: 'Invalid latitude: must be a strict numeric value between -90 and 90.' },
         { status: 400 }
       );
     }
 
-    if (isNaN(lon) || !Number.isFinite(lon) || lon < -180 || lon > 180) {
+    if (lon === null || lon < -180 || lon > 180) {
       return NextResponse.json(
-        { error: 'Invalid longitude: must be a finite number between -180 and 180.' },
+        { error: 'Invalid longitude: must be a strict numeric value between -180 and 180.' },
         { status: 400 }
       );
     }
 
-    if (
-      isNaN(radius) ||
-      !Number.isFinite(radius) ||
-      radius < OPENAQ_MIN_RADIUS_KM ||
-      radius > OPENAQ_MAX_RADIUS_KM
-    ) {
-      return NextResponse.json(
-        {
-          error: `Invalid radius: must be a finite number between ${OPENAQ_MIN_RADIUS_KM} and ${OPENAQ_MAX_RADIUS_KM} kilometers (OpenAQ API v3 maximum supported search radius is 25 km).`,
-        },
-        { status: 400 }
-      );
+    let radius = OPENAQ_DEFAULT_RADIUS_KM;
+    if (radiusParam !== null) {
+      const parsedRadius = parseStrictFloat(radiusParam);
+      if (
+        parsedRadius === null ||
+        parsedRadius < OPENAQ_MIN_RADIUS_KM ||
+        parsedRadius > OPENAQ_MAX_RADIUS_KM
+      ) {
+        return NextResponse.json(
+          {
+            error: `Invalid radius: must be a strict numeric value between ${OPENAQ_MIN_RADIUS_KM} and ${OPENAQ_MAX_RADIUS_KM} kilometers (OpenAQ API v3 maximum supported search radius is ${OPENAQ_MAX_RADIUS_KM} km).`,
+          },
+          { status: 400 }
+        );
+      }
+      radius = parsedRadius;
     }
 
     // Call server-side OpenAQ provider
-    const sources = await fetchOpenAqSources({
+    const providerResult = await fetchOpenAqProviderResult({
       latitude: lat,
       longitude: lon,
       radiusKm: radius,
     });
 
     const response = NextResponse.json({
-      sources,
-      retrievedAt: new Date().toISOString(),
-      count: sources.length,
+      provider: providerResult.provider,
+      status: providerResult.status,
+      sources: providerResult.sources,
+      retrievedAt: providerResult.retrievedAt,
+      count: providerResult.count,
+      activeCount: providerResult.activeCount,
+      activePm25Count: providerResult.activePm25Count,
+      activePm10Count: providerResult.activePm10Count,
+      availableStationCount: providerResult.availableStationCount,
+      errorCode: providerResult.errorCode,
     });
 
     // Cache-Control headers: 5 min edge cache, 10 min stale-while-revalidate

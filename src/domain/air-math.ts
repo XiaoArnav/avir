@@ -206,8 +206,12 @@ export function getGrapStage(aqi?: number | null): GrapStageInfo {
 /**
  * Evaluates whether a meteorological thermal inversion layer is trapping ground pollutants.
  * Inversion criteria: nocturnal/early-morning contraction of planetary boundary layer (< 200m).
+ * Safely handles null or undefined boundary layer heights without artificial numeric defaults.
  */
-export function isThermalInversion(boundaryLayerHeight: number, hour: number): boolean {
+export function isThermalInversion(boundaryLayerHeight: number | null | undefined, hour: number): boolean {
+  if (boundaryLayerHeight === null || boundaryLayerHeight === undefined || !Number.isFinite(boundaryLayerHeight)) {
+    return false;
+  }
   if (boundaryLayerHeight < 150) return true;
   const isNocturnalOrMorning = hour >= 20 || hour <= 9;
   return isNocturnalOrMorning && boundaryLayerHeight < 250;
