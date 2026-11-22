@@ -122,68 +122,84 @@ export function calculateCigaretteEquivalence(pm25?: number | null): number | nu
 }
 
 export interface GrapStageInfo {
-  stage: 'Stage I' | 'Stage II' | 'Stage III' | 'Stage IV' | 'Normal';
+  stage: 'Stage I' | 'Stage II' | 'Stage III' | 'Stage IV' | 'Normal' | 'Unavailable';
   label: string;
   color: string;
   badgeBg: string;
   advisory: string;
+  isStatutoryOrderVerified: boolean;
+  benchmarkType: 'indicative_threshold' | 'unverified';
 }
 
 /**
- * Maps Indian AQI to CAQM Graded Response Action Plan (GRAP) emergency stages.
+ * Maps numerical AQI to CAQM Graded Response Action Plan (GRAP) threshold criteria.
+ * Important: This evaluates numerical threshold equivalence only.
+ * Formal statutory enforcement requires an official notification from CAQM.
  */
 export function getGrapStage(aqi?: number | null): GrapStageInfo {
-  if (aqi === null || aqi === undefined) {
+  if (aqi === null || aqi === undefined || !Number.isFinite(aqi) || aqi < 0) {
     return {
-      stage: 'Normal',
-      label: 'GRAP Baseline',
+      stage: 'Unavailable',
+      label: 'GRAP Status Unverified',
       color: 'text-stone-400',
       badgeBg: 'bg-stone-500/10 border-stone-500/20 text-stone-400',
-      advisory: 'Awaiting verified AQI telemetry for statutory emergency stage declaration.',
+      advisory: 'Awaiting verified atmospheric telemetry for numerical threshold evaluation.',
+      isStatutoryOrderVerified: false,
+      benchmarkType: 'unverified',
     };
   }
   if (aqi > 450) {
     return {
       stage: 'Stage IV',
-      label: 'Stage IV (Severe+ / Emergency)',
+      label: 'Stage IV Numerical Threshold (Indicative)',
       color: 'text-rose-400',
       badgeBg: 'bg-rose-500/20 border-rose-500/50 text-rose-300',
-      advisory: 'Ban on commercial truck entry, 50% office WFH, hybrid/closed physical schools.',
+      advisory: 'Ambient index exceeds CAQM Stage IV numerical criteria (AQI > 450). Statutory enforcement depends on formal CAQM gazette notification.',
+      isStatutoryOrderVerified: false,
+      benchmarkType: 'indicative_threshold',
     };
   }
   if (aqi >= 401) {
     return {
       stage: 'Stage III',
-      label: 'Stage III (Severe Smog)',
+      label: 'Stage III Numerical Threshold (Indicative)',
       color: 'text-purple-400',
       badgeBg: 'bg-purple-500/20 border-purple-500/50 text-purple-300',
-      advisory: 'Ban on non-essential construction, BS-III petrol & BS-IV diesel vehicle restrictions.',
+      advisory: 'Ambient index reaches CAQM Stage III criteria (AQI 401–450). General guideline: avoid outdoor exertion and minimize non-essential driving.',
+      isStatutoryOrderVerified: false,
+      benchmarkType: 'indicative_threshold',
     };
   }
   if (aqi >= 301) {
     return {
       stage: 'Stage II',
-      label: 'Stage II (Very Poor)',
+      label: 'Stage II Numerical Threshold (Indicative)',
       color: 'text-orange-400',
       badgeBg: 'bg-orange-500/20 border-orange-500/50 text-orange-300',
-      advisory: 'Mechanical vacuum sweeping, diesel generator restrictions, increased parking fees.',
+      advisory: 'Ambient index reaches CAQM Stage II criteria (AQI 301–400). General guideline: enhance indoor filtration and avoid peak inversion windows.',
+      isStatutoryOrderVerified: false,
+      benchmarkType: 'indicative_threshold',
     };
   }
   if (aqi >= 201) {
     return {
       stage: 'Stage I',
-      label: 'Stage I (Poor)',
+      label: 'Stage I Numerical Threshold (Indicative)',
       color: 'text-yellow-400',
       badgeBg: 'bg-yellow-500/20 border-yellow-500/50 text-yellow-300',
-      advisory: 'Anti-dust water sprinkling on road corridors, strict fines on open trash burning.',
+      advisory: 'Ambient index reaches CAQM Stage I criteria (AQI 201–300). General guideline: suppress local dust and curb open burning.',
+      isStatutoryOrderVerified: false,
+      benchmarkType: 'indicative_threshold',
     };
   }
   return {
     stage: 'Normal',
-    label: 'Normal Ambient Air',
+    label: 'Normal Ambient Air Benchmark',
     color: 'text-emerald-400',
     badgeBg: 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300',
-    advisory: 'Standard baseline monitoring; outdoor activities permissible for healthy individuals.',
+    advisory: 'Ambient index is below emergency GRAP activation thresholds (AQI ≤ 200).',
+    isStatutoryOrderVerified: false,
+    benchmarkType: 'indicative_threshold',
   };
 }
 

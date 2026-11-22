@@ -17,11 +17,11 @@ export interface WorldMetroDef {
 }
 
 export interface WorldCityItem extends WorldMetroDef {
-  usAqi: number;
-  pm25: number;
+  usAqi: number | null;
+  pm25: number | null;
   category: AQICategory;
-  rank?: number;
-  lastUpdated?: string;
+  rank?: number | null;
+  lastUpdated?: string | null;
   isLive?: boolean;
 }
 
@@ -83,6 +83,7 @@ export function buildBatchCoordinatesUrl(cities: WorldMetroDef[]): string {
 
 /**
  * Parses batch Open-Meteo response array and correlates with original world metros.
+ * Strictly preserves authentic zero clean-air values, and keeps missing measurements null.
  */
 export function parseBatchTelemetryResponse(
   cities: WorldMetroDef[],
@@ -93,11 +94,11 @@ export function parseBatchTelemetryResponse(
   return cities.map((city, idx) => {
     const raw = responseData[idx] || {};
     const current = raw.current || {};
-    const hasUsAqi = typeof current.us_aqi === 'number' && Number.isFinite(current.us_aqi);
-    const hasPm25 = typeof current.pm2_5 === 'number' && Number.isFinite(current.pm2_5);
+    const hasUsAqi = typeof current.us_aqi === 'number' && Number.isFinite(current.us_aqi) && current.us_aqi >= 0;
+    const hasPm25 = typeof current.pm2_5 === 'number' && Number.isFinite(current.pm2_5) && current.pm2_5 >= 0;
 
-    const pm25 = hasPm25 ? Math.round(current.pm2_5 * 10) / 10 : 0;
-    const usAqi = hasUsAqi ? current.us_aqi : (hasPm25 ? calculateAQIFromPM25(pm25) : 0);
+    const pm25 = hasPm25 ? Math.round(current.pm2_5 * 10) / 10 : null;
+    const usAqi = hasUsAqi ? current.us_aqi : (pm25 !== null ? calculateAQIFromPM25(pm25) : null);
     const category = getAQICategory(usAqi);
 
     return {
@@ -106,7 +107,7 @@ export function parseBatchTelemetryResponse(
       pm25,
       category,
       isLive: hasUsAqi || hasPm25,
-      lastUpdated: current.time || new Date().toISOString(),
+      lastUpdated: current.time || null,
     };
   });
 }
@@ -130,16 +131,18 @@ export async function fetchAllWorldCities(signal?: AbortSignal): Promise<WorldCi
     const dataList = Array.isArray(rawList) ? rawList : [rawList];
     const parsed = parseBatchTelemetryResponse(WORLD_METROS, dataList);
 
-    // Filter out cities with invalid/0 readings if batch had missing elements
-    const valid = parsed.filter(c => c.usAqi > 0 || c.pm25 > 0);
-    const citiesToRank = valid.length > 0 ? valid : parsed;
+    // Retain authentic readings (including valid zero pollution). Cities with null AQI are not ranked.
+    const valid = parsed.filter(c => typeof c.usAqi === 'number' && Number.isFinite(c.usAqi));
+    const unavailable = parsed.filter(c => c.usAqi === null);
 
-    // Sort by default most polluted first and assign rank
-    const sorted = filterAndSortWorldCities(citiesToRank, '', 'All', 'All', 'most_polluted');
-    const ranked = sorted.map((c, i) => ({ ...c, rank: i + 1 }));
+    // Sort valid cities by most polluted first and assign rank
+    const sorted = filterAndSortWorldCities(valid, '', 'All', 'All', 'most_polluted');
+    const rankedValid = sorted.map((c, i) => ({ ...c, rank: i + 1 }));
+    const rankedUnavailable = unavailable.map(c => ({ ...c, rank: null }));
+    const result = [...rankedValid, ...rankedUnavailable];
 
-    telemetryCache.set(cacheKey, ranked, 1000 * 60 * 10); // 10 minutes TTL
-    return ranked;
+    telemetryCache.set(cacheKey, result, 1000 * 60 * 10); // 10 minutes TTL
+    return result;
   } catch (err: any) {
     if (err?.name === 'AbortError') throw err;
     console.warn('World telemetry batch fetch failed, checking stale cache fallback:', err?.message || err);
@@ -160,6 +163,7 @@ export async function fetchAllWorldCities(signal?: AbortSignal): Promise<WorldCi
 
 /**
  * Filters and sorts world cities according to query, region, severity, and sort order.
+ * Cities with null AQI are never misclassified as clean and are placed at the end of ranked lists.
  */
 export function filterAndSortWorldCities(
   cities: WorldCityItem[],
@@ -183,26 +187,29 @@ export function filterAndSortWorldCities(
     result = result.filter((c) => c.region === region);
   }
 
-  // 3. Severity Filter
+  // 3. Severity Filter (null values do not match numeric severity ranges)
   if (severity !== 'All') {
     switch (severity) {
       case 'hazardous':
-        result = result.filter((c) => c.usAqi >= 300);
+        result = result.filter((c) => typeof c.usAqi === 'number' && c.usAqi >= 300);
         break;
       case 'unhealthy':
-        result = result.filter((c) => c.usAqi >= 150 && c.usAqi < 300);
+        result = result.filter((c) => typeof c.usAqi === 'number' && c.usAqi >= 150 && c.usAqi < 300);
         break;
       case 'moderate':
-        result = result.filter((c) => c.usAqi >= 50 && c.usAqi < 150);
+        result = result.filter((c) => typeof c.usAqi === 'number' && c.usAqi >= 50 && c.usAqi < 150);
         break;
       case 'clean':
-        result = result.filter((c) => c.usAqi < 50);
+        result = result.filter((c) => typeof c.usAqi === 'number' && c.usAqi < 50);
         break;
     }
   }
 
-  // 4. Sort Order
+  // 4. Sort Order (null values always sort to the end)
   result.sort((a, b) => {
+    if (a.usAqi === null && b.usAqi === null) return 0;
+    if (a.usAqi === null) return 1;
+    if (b.usAqi === null) return -1;
     if (sortOrder === 'most_polluted') {
       return b.usAqi - a.usAqi;
     } else {
@@ -214,7 +221,20 @@ export function filterAndSortWorldCities(
 }
 
 /**
+ * Infers geographic region from geocoded country name when available.
+ */
+function inferRegionFromCountry(country: string): 'Asia' | 'Europe' | 'Americas' | 'Middle East & Africa' | 'Oceania' {
+  const c = country.toLowerCase();
+  if (['united states', 'usa', 'canada', 'mexico', 'brazil', 'argentina', 'chile', 'colombia', 'peru'].some(x => c.includes(x))) return 'Americas';
+  if (['united kingdom', 'uk', 'france', 'germany', 'italy', 'spain', 'poland', 'switzerland', 'netherlands', 'sweden', 'norway', 'austria', 'belgium'].some(x => c.includes(x))) return 'Europe';
+  if (['australia', 'new zealand', 'fiji'].some(x => c.includes(x))) return 'Oceania';
+  if (['uae', 'united arab emirates', 'saudi arabia', 'egypt', 'qatar', 'kuwait', 'south africa', 'kenya', 'nigeria', 'morocco', 'oman'].some(x => c.includes(x))) return 'Middle East & Africa';
+  return 'Asia';
+}
+
+/**
  * Searches global cities dynamically via Open-Meteo Geocoding, and fetches their live AQI.
+ * Never fabricates synthetic AQI 75 / PM2.5 22 fallbacks on network or parsing failure.
  */
 export async function searchAndFetchGlobalCity(
   query: string
@@ -227,7 +247,7 @@ export async function searchAndFetchGlobalCity(
     id: loc.id,
     name: loc.name,
     country: loc.country,
-    region: 'Asia', // fallback
+    region: inferRegionFromCountry(loc.country),
     latitude: loc.latitude,
     longitude: loc.longitude,
   }));
@@ -241,11 +261,14 @@ export async function searchAndFetchGlobalCity(
     return parseBatchTelemetryResponse(targets, dataList);
   } catch (err) {
     console.warn('Could not fetch telemetry for search result:', err);
+    // Zero fabrication: Return authentic geographic location with unavailable atmospheric measurements
     return targets.map((t) => ({
       ...t,
-      usAqi: 75,
-      pm25: 22,
-      category: 'Moderate',
+      usAqi: null,
+      pm25: null,
+      category: 'Unavailable' as AQICategory,
+      rank: null,
+      lastUpdated: null,
       isLive: false,
     }));
   }

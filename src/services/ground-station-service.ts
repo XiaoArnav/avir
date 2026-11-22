@@ -106,7 +106,7 @@ export function findNearestCpcbStation(
 export async function fetchSensorCommunityStation(
   latitude: number,
   longitude: number,
-  ambientRhPercent: number = 50,
+  ambientRhPercent?: number | null,
   maxDistanceKm = 25,
   signal?: AbortSignal
 ): Promise<GroundStationMetadata | null> {
@@ -128,7 +128,8 @@ export async function fetchSensorCommunityStation(
       if (!loc || !loc.latitude || !loc.longitude) continue;
       const sLat = parseFloat(loc.latitude);
       const sLon = parseFloat(loc.longitude);
-      if (isNaN(sLat) || isNaN(sLon)) continue;
+      if (isNaN(sLat) || isNaN(sLon) || !Number.isFinite(sLat) || !Number.isFinite(sLon)) continue;
+      if (sLat < -90 || sLat > 90 || sLon < -180 || sLon > 180) continue;
 
       const dist = calculateDistanceKm(latitude, longitude, sLat, sLon);
       if (dist < minDistance && dist <= maxDistanceKm) {
@@ -145,16 +146,32 @@ export async function fetchSensorCommunityStation(
     for (const val of closestNode.sensordatavalues || []) {
       if (val.value_type === 'P2') {
         const parsed = parseFloat(val.value);
-        if (!isNaN(parsed) && parsed >= 0) rawPm25 = parsed;
+        if (!isNaN(parsed) && Number.isFinite(parsed) && parsed >= 0) rawPm25 = parsed;
       } else if (val.value_type === 'P1') {
         const parsed = parseFloat(val.value);
-        if (!isNaN(parsed) && parsed >= 0) rawPm10 = parsed;
+        if (!isNaN(parsed) && Number.isFinite(parsed) && parsed >= 0) rawPm10 = parsed;
       }
     }
 
     if (rawPm25 === null && rawPm10 === null) return null;
 
-    // Apply EPA Barkjohn calibration to raw optical sensor
+    // Check observation timestamp freshness
+    const rawTimestamp = closestNode.timestamp;
+    let observedAt: string | null = null;
+    let isStale = false;
+    if (rawTimestamp) {
+      const parsedTime = Date.parse(rawTimestamp);
+      if (!isNaN(parsedTime)) {
+        observedAt = new Date(parsedTime).toISOString();
+        const ageMs = Date.now() - parsedTime;
+        // Readings older than 24 hours are marked stale
+        if (ageMs > 24 * 60 * 60 * 1000) {
+          isStale = true;
+        }
+      }
+    }
+
+    // Apply EPA Barkjohn calibration only if genuine measured relative humidity is available
     const cal = calibrateCommunitySensorReading(rawPm25, ambientRhPercent, 'sds011');
 
     return {
@@ -165,7 +182,10 @@ export async function fetchSensorCommunityStation(
       longitude: parseFloat(closestNode.location.longitude),
       provider: 'Sensor.Community (Citizen Science)',
       stationType: 'community_optical',
-      lastUpdated: closestNode.timestamp || new Date().toISOString(),
+      stationState: isStale ? 'stale_observation' : 'live_observation',
+      lastUpdated: observedAt || '',
+      observedAt: observedAt,
+      retrievedAt: new Date().toISOString(),
       pm25: cal.calibratedPm25,
       pm10: rawPm10 !== null ? Math.round(rawPm10 * 10) / 10 : null,
       rawPm25,
@@ -180,6 +200,7 @@ export async function fetchSensorCommunityStation(
 
 /**
  * Computes the divergence between ground monitor observation and regional atmospheric model.
+ * Only calculates when authentic ground observation and valid model reading both exist.
  */
 export function calculateGroundModelDelta(
   groundPm25: number | null | undefined,
@@ -188,8 +209,11 @@ export function calculateGroundModelDelta(
   if (
     groundPm25 === null ||
     groundPm25 === undefined ||
+    !Number.isFinite(groundPm25) ||
+    groundPm25 < 0 ||
     modelPm25 === null ||
     modelPm25 === undefined ||
+    !Number.isFinite(modelPm25) ||
     modelPm25 <= 0
   ) {
     return null;
@@ -202,12 +226,12 @@ export function calculateGroundModelDelta(
 
   if (deltaPercent >= 25) {
     divergenceType = 'ground_trapping';
-    narrative = `Ground monitor measures ${deltaPercent}% higher particulate pollution than regional satellite models due to local boundary-layer inversion trapping.`;
+    narrative = `Ground monitor measures ${deltaPercent}% higher particulate pollution than regional model grid. Near-surface emission sources or microclimatic boundary trapping may contribute.`;
   } else if (deltaPercent <= -25) {
     divergenceType = 'model_overestimate';
-    narrative = `Ground monitor measures ${Math.abs(deltaPercent)}% lower pollution than satellite models, indicating localized dispersion or favorable microclimatic winds.`;
+    narrative = `Ground monitor measures ${Math.abs(deltaPercent)}% lower pollution than regional model grid. Local dispersion or favorable microclimatic ventilation observed.`;
   } else {
-    narrative = 'Ground sensor observations and regional atmospheric chemistry models are closely aligned (within 25%).';
+    narrative = 'Ground sensor observation and regional atmospheric chemistry model grid are closely aligned (within 25%).';
   }
 
   return {
@@ -222,13 +246,13 @@ export function calculateGroundModelDelta(
 /**
  * Retrieves the most accurate ground monitoring station for given coordinates.
  * Priority:
- * 1. Official CPCB / State PCB Reference Station (Gold Standard)
- * 2. Sensor.Community Hyperlocal Node (EPA Barkjohn Calibrated)
+ * 1. Official CPCB / State PCB Reference Station (Registered station metadata, honest unavailable observation)
+ * 2. Sensor.Community Hyperlocal Node (EPA Barkjohn Calibrated if humidity available)
  */
 export async function getNearestGroundStation(
   latitude: number,
   longitude: number,
-  ambientRhPercent: number = 50,
+  ambientRhPercent?: number | null,
   options?: { signal?: AbortSignal; modelPm25?: number | null }
 ): Promise<{ station: GroundStationMetadata | null; delta: GroundModelDelta | null }> {
   // Check CPCB official reference station network
@@ -236,6 +260,8 @@ export async function getNearestGroundStation(
   let station: GroundStationMetadata | null = null;
 
   if (cpcbMatch) {
+    // Zero-fabrication: Never multiply model PM2.5 to simulate official CPCB observations!
+    // Since official CAAQMS streaming feeds are not yet connected, record registry metadata with null measurements.
     station = {
       stationId: cpcbMatch.station.id,
       stationName: cpcbMatch.station.name,
@@ -244,10 +270,13 @@ export async function getNearestGroundStation(
       longitude: cpcbMatch.station.longitude,
       provider: cpcbMatch.station.provider,
       stationType: 'official_reference',
-      lastUpdated: new Date().toISOString(),
-      // In production or tests, actual CPCB feeds or calibrated readings populate these
-      pm25: options?.modelPm25 ? Math.round(options.modelPm25 * 1.15 * 10) / 10 : null,
-      pm10: options?.modelPm25 ? Math.round(options.modelPm25 * 1.6 * 10) / 10 : null,
+      stationState: 'registry_only',
+      lastUpdated: '',
+      observedAt: null,
+      retrievedAt: new Date().toISOString(),
+      pm25: null,
+      pm10: null,
+      rawPm25: null,
       isCalibrated: false,
     };
   }
@@ -257,7 +286,7 @@ export async function getNearestGroundStation(
     station = await fetchSensorCommunityStation(latitude, longitude, ambientRhPercent, 25, options?.signal);
   }
 
-  // Calculate ground-model delta
+  // Calculate ground-model delta only when authentic ground measurement exists
   const delta = calculateGroundModelDelta(station?.pm25, options?.modelPm25);
 
   return { station, delta };

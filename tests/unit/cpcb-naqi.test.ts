@@ -97,6 +97,31 @@ describe('Statutory CPCB NAQI 8-Pollutant Calculation Engine', () => {
       expect(result.aqi).toBeNull();
       expect(result.isDataSufficient).toBe(false);
       expect(result.monitoredPollutantCount).toBe(0);
+      expect(result.classification).toBe('unavailable');
+    });
+
+    it('35 & 36. Insufficient pollutant coverage produces indicative_subindex classification', () => {
+      const result = calculateComprehensiveCpcbNaqi({ pm25: 80 }); // Only 1 pollutant
+      expect(result.isDataSufficient).toBe(false);
+      expect(result.classification).toBe('indicative_subindex');
+      expect(result.notes).toContain('Indicative sub-index');
+    });
+
+    it('37 & 38. Valid pollutant zeros remain valid and are not treated as missing', () => {
+      const result = calculateComprehensiveCpcbNaqi({ pm25: 0, no2: 0, so2: 0 });
+      expect(result.isDataSufficient).toBe(true);
+      expect(result.aqi).toBe(0);
+      expect(result.category).toBe('Good');
+      expect(result.classification).toBe('statutory_compliant');
+    });
+
+    it('39. Correct official reference breakpoints pass mathematical tests', () => {
+      // PM2.5 = 30 is max for Good (sub-index 50)
+      expect(calculateSubIndex('pm25', 30)).toBe(50);
+      // PM2.5 = 60 is max for Satisfactory (sub-index 100)
+      expect(calculateSubIndex('pm25', 60)).toBe(100);
+      // PM2.5 = 90 is max for Moderate (sub-index 200)
+      expect(calculateSubIndex('pm25', 90)).toBe(200);
     });
   });
 

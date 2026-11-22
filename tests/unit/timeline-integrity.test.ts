@@ -36,9 +36,12 @@ describe('AtmosphereHero Zero-Fabrication & Timeline Integrity', () => {
     expect(calculateCpcbNaqi(null, null)).toEqual({ aqi: null, category: 'Good' });
     expect(calculateCpcbNaqi(150, 200).aqi).toBeGreaterThan(0);
 
-    const grapNormal = getGrapStage(null);
+    const grapUnavail = getGrapStage(null);
+    expect(grapUnavail.stage).toBe('Unavailable');
+    expect(grapUnavail.label).toContain('Unverified');
+
+    const grapNormal = getGrapStage(50);
     expect(grapNormal.stage).toBe('Normal');
-    expect(grapNormal.label).toBe('GRAP Baseline');
 
     const grapSevere = getGrapStage(420);
     expect(grapSevere.stage).toBe('Stage III');

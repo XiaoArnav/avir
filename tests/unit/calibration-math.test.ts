@@ -53,4 +53,31 @@ describe('US EPA Barkjohn Humidity Calibration Formula', () => {
     expect(res.formula).toContain('Barkjohn');
     expect(res.formula).toContain('pms5003');
   });
+
+  it('B.9: Missing humidity never silently becomes measured 50% RH', () => {
+    const result = applyEpaBarkjohnCalibration(100, null);
+    expect(result).not.toBeNull();
+    expect(result?.rhPercent).toBeNull();
+    expect(result?.applied).toBe(false);
+    expect(result?.formulaName).toContain('Uncalibrated');
+  });
+
+  it('B.10: Calibration is disabled or qualified when required RH input is missing', () => {
+    const res = calibrateCommunitySensorReading(75.0, undefined, 'sds011');
+    expect(res.isCalibrated).toBe(false);
+    expect(res.calibratedPm25).toBe(75.0); // Retains raw concentration
+    expect(res.formula).toContain('Uncalibrated');
+  });
+
+  it('B.11: Raw sensor values remain distinguishable from calibrated values', () => {
+    const rawVal = 120.0;
+    const resCalibrated = calibrateCommunitySensorReading(rawVal, 75, 'sds011');
+    const resUncalibrated = calibrateCommunitySensorReading(rawVal, null, 'sds011');
+
+    expect(resCalibrated.isCalibrated).toBe(true);
+    expect(resCalibrated.calibratedPm25).not.toBe(rawVal);
+
+    expect(resUncalibrated.isCalibrated).toBe(false);
+    expect(resUncalibrated.calibratedPm25).toBe(rawVal);
+  });
 });

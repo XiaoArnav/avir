@@ -7,7 +7,7 @@ import { MultiSourceTelemetryFeed } from '@/domain/types';
 import { MultiSourceInspectorModal } from '@/components/MultiSourceInspectorModal';
 
 describe('Multi-Source Atmospheric Consensus & Uncertainty Engine', () => {
-  it('builds 5 independent open-source reporting feeds', () => {
+  it('15 & 18. Does not multiply one provider into 5 independent sources; labels standards as derived', () => {
     const feeds = buildMultiSourceFeeds({
       pm25: 180,
       usAqi: 230,
@@ -16,42 +16,63 @@ describe('Multi-Source Atmospheric Consensus & Uncertainty Engine', () => {
       isThermalInversion: true,
     });
 
-    expect(feeds.length).toBe(5);
-    const names = feeds.map((f) => f.sourceName);
-    expect(names).toContain('Copernicus Atmosphere (CAMS)');
-    expect(names).toContain('NOAA GFS Aerosol Mesh');
-    expect(names).toContain('CPCB NAQI Benchmark');
-    expect(names).toContain('US EPA AirNow Standard');
-    expect(names).toContain('Surface Sensor Mesh (OpenAQ)');
+    // 1 primary model + derived standards (CPCB, US-EPA)
+    expect(feeds.length).toBeLessThan(5);
+    const primaryModel = feeds.find((f) => f.provenance === 'modeled_forecast');
+    expect(primaryModel).toBeDefined();
+    expect(primaryModel?.sourceName).toContain('Open-Meteo');
+
+    // Standards are derived calculations, NOT independent monitoring feeds
+    const derivedFeeds = feeds.filter((f) => f.provenance === 'derived_calculation');
+    expect(derivedFeeds.length).toBeGreaterThanOrEqual(1);
+    expect(derivedFeeds.some((f) => f.sourceName.includes('CPCB'))).toBe(true);
+    expect(derivedFeeds.some((f) => f.sourceName.includes('US EPA'))).toBe(true);
   });
 
-  it('calculates weighted consensus average, min, max and uncertainty spread', () => {
+  it('16 & 17. Single primary feed does not calculate artificial consensus score or model spread', () => {
+    const feeds = buildMultiSourceFeeds({
+      pm25: 150,
+      usAqi: 200,
+      cpcbAqi: 200,
+      boundaryLayerHeight: 200,
+      isThermalInversion: false,
+    });
+
+    const consensus = calculateMultiSourceConsensus(feeds);
+    // When only 1 independent feed exists:
+    expect(consensus.confidenceScorePercent).toBeNull();
+    expect(consensus.deviationSpread).toBeNull();
+    expect(consensus.agreementLevel).toBe('Single Primary Provider');
+    expect(consensus.summaryNote).toContain('Open-Meteo numerical models');
+  });
+
+  it('calculates weighted consensus average, min, max and spread when 2+ genuinely independent feeds exist', () => {
     const mockFeeds: MultiSourceTelemetryFeed[] = [
       {
-        id: 'cams',
-        sourceName: 'Copernicus CAMS',
-        provider: 'ECMWF',
+        id: 'model-primary',
+        sourceName: 'Open-Meteo Model',
+        provider: 'Open-Meteo',
         aqi: 200,
         pm25: 150,
         confidence: 'High',
-        standard: 'EU-CAQI',
-        description: 'Reanalysis',
+        standard: 'US-EPA',
+        description: 'Atmospheric model',
         provenance: 'modeled_forecast',
       },
       {
-        id: 'noaa',
-        sourceName: 'NOAA GFS',
-        provider: 'NOAA',
-        aqi: 210,
-        pm25: 160,
+        id: 'ground-ref',
+        sourceName: 'Ground Truth Monitor',
+        provider: 'CPCB CAAQMS',
+        aqi: 215,
+        pm25: 165,
         confidence: 'High',
         standard: 'US-EPA',
-        description: 'Aerosol mesh',
-        provenance: 'modeled_forecast',
+        description: 'Physical ground monitor',
+        provenance: 'observed',
       },
       {
-        id: 'cpcb',
-        sourceName: 'CPCB NAQI',
+        id: 'cpcb-standard',
+        sourceName: 'CPCB Standard',
         provider: 'CPCB',
         aqi: 205,
         pm25: 155,
@@ -60,77 +81,56 @@ describe('Multi-Source Atmospheric Consensus & Uncertainty Engine', () => {
         description: 'India standard',
         provenance: 'derived_calculation',
       },
-      {
-        id: 'epa',
-        sourceName: 'US EPA',
-        provider: 'EPA',
-        aqi: 202,
-        pm25: 152,
-        confidence: 'High',
-        standard: 'US-EPA',
-        description: 'AirNow',
-        provenance: 'derived_calculation',
-      },
-      {
-        id: 'openaq',
-        sourceName: 'Surface Mesh',
-        provider: 'OpenAQ',
-        aqi: 215,
-        pm25: 165,
-        confidence: 'Calibrated',
-        standard: 'US-EPA',
-        description: 'Ground sensor',
-        provenance: 'observed',
-      },
     ];
 
     const consensus = calculateMultiSourceConsensus(mockFeeds);
 
+    // Derived feeds are excluded from independent consensus calculation
     expect(consensus.aqiMin).toBe(200);
     expect(consensus.aqiMax).toBe(215);
     expect(consensus.consensusAqi).toBeGreaterThanOrEqual(200);
     expect(consensus.consensusAqi).toBeLessThanOrEqual(215);
     expect(consensus.deviationSpread).toBe(8); // (215 - 200) / 2 = 7.5 -> 8
-    expect(consensus.confidenceScorePercent).toBeGreaterThanOrEqual(90);
+    expect(consensus.confidenceScorePercent).not.toBeNull();
     expect(consensus.agreementLevel).toBe('High Consensus');
-    expect(consensus.summaryNote).toContain('consensus');
+    expect(consensus.summaryNote).toContain('independent feeds');
   });
 
-  it('detects high inversion variance when surface ground sensors deviate from satellite reanalysis', () => {
+  it('detects high variance when physical ground sensor diverges from regional model grid', () => {
     const divergentFeeds: MultiSourceTelemetryFeed[] = [
       {
         id: 'satellite-reanalysis',
-        sourceName: 'Copernicus CAMS',
-        provider: 'ECMWF',
+        sourceName: 'Regional Model',
+        provider: 'Open-Meteo',
         aqi: 140,
         pm25: 55,
         confidence: 'High',
-        standard: 'EU-CAQI',
-        description: 'Column average',
+        standard: 'US-EPA',
+        description: 'Model grid',
         provenance: 'modeled_forecast',
       },
       {
         id: 'surface-ground',
-        sourceName: 'Surface Sensor Mesh',
-        provider: 'OpenAQ',
+        sourceName: 'Surface Monitor',
+        provider: 'Sensor.Community',
         aqi: 280,
         pm25: 230,
         confidence: 'Calibrated',
         standard: 'US-EPA',
-        description: 'Ground breathing level',
+        description: 'Ground level',
         provenance: 'observed',
       },
     ];
 
     const consensus = calculateMultiSourceConsensus(divergentFeeds);
 
-    expect(consensus.agreementLevel).toBe('Inversion Spread');
-    expect(consensus.summaryNote).toContain('Thermal Inversion variance');
+    expect(consensus.agreementLevel).toBe('High Divergence');
+    expect(consensus.summaryNote).toContain('divergence');
     expect(consensus.aqiMin).toBe(140);
     expect(consensus.aqiMax).toBe(280);
   });
 
-  it('returns explicit unavailable state and null metrics when feeds are empty', () => {
+  it('19. returns explicit unavailable state and null metrics when feeds are empty', () => {
     const emptyConsensus = calculateMultiSourceConsensus([]);
     expect(emptyConsensus.isUnavailable).toBe(true);
     expect(emptyConsensus.consensusAqi).toBeNull();
@@ -139,13 +139,13 @@ describe('Multi-Source Atmospheric Consensus & Uncertainty Engine', () => {
     expect(emptyConsensus.deviationSpread).toBeNull();
   });
 
-  it('renders MultiSourceInspectorModal cleanly without throwing', () => {
+  it('20. renders MultiSourceInspectorModal cleanly without throwing', () => {
     const modal = MultiSourceInspectorModal({
       isOpen: true,
       onClose: () => {},
       cityName: 'Delhi',
       ensemble: {
-        primaryModel: 'ECMWF CAMS',
+        primaryModel: 'Open-Meteo ECMWF IFS',
         weatherModel: 'NOAA GFS',
         pm25Min: 150,
         pm25Max: 170,

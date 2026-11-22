@@ -466,7 +466,8 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
                 US AQI
               </span>
               <span className="text-xs font-mono text-ink-muted dark:text-zinc-400 mt-0.5">
-                CPCB NAQI: <strong className="text-ink dark:text-zinc-200">{cpcb.aqi !== null ? cpcb.aqi : '—'}</strong> ({cpcb.category})
+                {metrics.cpcbStatus === 'statutory_compliant' ? 'CPCB NAQI' : 'Indicative CPCB Sub-Index'}:{' '}
+                <strong className="text-ink dark:text-zinc-200">{cpcb.aqi !== null ? cpcb.aqi : '—'}</strong> ({cpcb.category})
               </span>
             </div>
           </div>

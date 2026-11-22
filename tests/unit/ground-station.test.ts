@@ -53,7 +53,7 @@ describe('Ground Station Telemetry Service', () => {
       expect(delta).not.toBeNull();
       expect(delta?.deltaPercent).toBe(67);
       expect(delta?.divergenceType).toBe('ground_trapping');
-      expect(delta?.narrative).toContain('inversion trapping');
+      expect(delta?.narrative).toContain('trapping');
     });
 
     it('flags model overestimate when ground sensor is significantly lower than satellite model', () => {
@@ -62,7 +62,7 @@ describe('Ground Station Telemetry Service', () => {
       expect(delta).not.toBeNull();
       expect(delta?.deltaPercent).toBe(-42);
       expect(delta?.divergenceType).toBe('model_overestimate');
-      expect(delta?.narrative).toContain('favorable microclimatic winds');
+      expect(delta?.narrative).toContain('microclimatic');
     });
 
     it('reports aligned when ground and model are within 25% of each other', () => {
@@ -77,13 +77,56 @@ describe('Ground Station Telemetry Service', () => {
     });
   });
 
-  describe('Nearest Ground Station Retrieval', () => {
-    it('retrieves nearest ground station and computes divergence delta', async () => {
+  describe('Nearest Ground Station Retrieval & Zero-Fabrication Integrity', () => {
+    it('1. A known registered CPCB station with no live feed returns no pollutant observation', async () => {
       const res = await getNearestGroundStation(28.6139, 77.2090, 55, { modelPm25: 120 });
       expect(res.station).not.toBeNull();
       expect(res.station?.stationType).toBe('official_reference');
-      expect(res.station?.distanceKm).toBeLessThan(35);
-      expect(res.delta).not.toBeNull();
+      expect(res.station?.stationState).toBe('registry_only');
+      expect(res.station?.pm25).toBeNull();
+      expect(res.station?.pm10).toBeNull();
+    });
+
+    it('2 & 3. Model PM2.5 cannot create official station PM2.5 or PM10 (Zero 1.15x / 1.6x multiplier)', async () => {
+      const res = await getNearestGroundStation(28.6508, 77.3152, 50, { modelPm25: 200 });
+      expect(res.station?.stationName).toContain('Anand Vihar');
+      // Model PM2.5 of 200 must NEVER produce 230 (200*1.15) or 320 (200*1.6)
+      expect(res.station?.pm25).toBeNull();
+      expect(res.station?.pm10).toBeNull();
+      expect(res.station?.pm25).not.toBe(230);
+      expect(res.station?.pm10).not.toBe(320);
+    });
+
+    it('4. Registry-only stations do not receive fake observation timestamps', async () => {
+      const res = await getNearestGroundStation(28.6139, 77.2090, 55, { modelPm25: 100 });
+      expect(res.station?.observedAt).toBeNull();
+    });
+
+    it('5. Registry-only stations have explicit registry_only status', async () => {
+      const res = await getNearestGroundStation(28.6139, 77.2090, 55);
+      expect(res.station?.stationState).toBe('registry_only');
+    });
+
+    it('6. Ground-versus-model delta is unavailable without an authentic ground reading', async () => {
+      const res = await getNearestGroundStation(28.6139, 77.2090, 55, { modelPm25: 120 });
+      // Since station has null PM2.5, divergence delta MUST be null
+      expect(res.delta).toBeNull();
+    });
+
+    it('7. Genuine independent ground readings produce a valid comparison when inputs are valid numbers', () => {
+      const delta = calculateGroundModelDelta(150, 100);
+      expect(delta).not.toBeNull();
+      expect(delta?.groundPm25).toBe(150);
+      expect(delta?.modelPm25).toBe(100);
+      expect(delta?.deltaPercent).toBe(50);
+      expect(delta?.divergenceType).toBe('ground_trapping');
+    });
+
+    it('8. Missing station data does not crash calculation and returns null safely', () => {
+      expect(calculateGroundModelDelta(null, 150)).toBeNull();
+      expect(calculateGroundModelDelta(undefined, 150)).toBeNull();
+      expect(calculateGroundModelDelta(150, null)).toBeNull();
+      expect(calculateGroundModelDelta(-10, 150)).toBeNull();
     });
   });
 });
