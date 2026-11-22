@@ -35,9 +35,9 @@ export const TopNav: React.FC<TopNavProps> = ({
         <div className="flex items-center gap-3">
           <div 
             className="w-10 h-10 rounded-xl bg-white dark:bg-zinc-900 border border-stone-300 dark:border-zinc-800 p-1 flex items-center justify-center shrink-0 select-none transition-transform hover:scale-105 shadow-sm"
-            title="אֲוִיר (Avir) — Hebrew for Air & Atmosphere"
+            title="Avir — Urban Air Quality & Winter Smog Assistant"
           >
-            {/* Embedded Monogram: Merged Hebrew אֲוִיר */}
+            {/* Clean-air emblem monogram */}
             <svg viewBox="0 0 128 128" className="w-full h-full" fill="none" aria-hidden="true">
               <defs>
                 <linearGradient id="nav-glyph" x1="0%" y1="0%" x2="100%" y2="100%">
