@@ -61,6 +61,12 @@ export interface TelemetryCacheMetadata {
 
 export type GroundStationType = 'official_reference' | 'community_optical' | 'user_device';
 
+export type GroundStationState =
+  | 'registry_only'
+  | 'live_observation'
+  | 'stale_observation'
+  | 'measurement_unavailable';
+
 export interface GroundStationMetadata {
   stationId: string | number;
   stationName: string;
@@ -75,6 +81,9 @@ export interface GroundStationMetadata {
   rawPm25?: number | null;
   isCalibrated?: boolean;
   calibrationFormula?: string;
+  stationState?: GroundStationState;
+  observedAt?: string | null;
+  retrievedAt?: string;
   co?: number | null;
   no2?: number | null;
   so2?: number | null;
