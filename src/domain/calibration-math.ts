@@ -18,9 +18,170 @@ export interface CalibrationResult {
   notes?: string;
 }
 
+export interface CalibrationEligibilityCriteria {
+  sensorModel?: string | null;
+  isFirmwareCompensated?: boolean;
+  hasLocalRelativeHumidity: boolean;
+  relativeHumidityPercent?: number | null;
+  rawPm25: number | null;
+  rhMeasuredAt?: string | null;
+  pmMeasuredAt?: string | null;
+}
+
+export interface SensorCalibrationEvaluation {
+  eligible: boolean;
+  reason?: string;
+  recommendedMethod: 'epa_barkjohn' | 'none';
+  calibratedPm25: number | null;
+  rawPm25: number | null;
+  formulaName: string;
+}
+
+/**
+ * Supported low-cost optical particulate sensor models verified for Barkjohn correction.
+ */
+export const BARKJOHN_ELIGIBLE_SENSOR_MODELS = [
+  'plantower pms5003',
+  'plantower pms5003t',
+  'pms5003',
+  'pms5003t',
+  'nova sds011',
+  'sds011',
+];
+
+/**
+ * Checks whether a given sensor model is eligible for EPA Barkjohn correction.
+ */
+export function isSensorModelBarkjohnEligible(model?: string | null): boolean {
+  if (!model) return false;
+  const normalized = model.toLowerCase().trim();
+  return BARKJOHN_ELIGIBLE_SENSOR_MODELS.some((m) => normalized.includes(m));
+}
+
+/**
+ * Evaluates full scientific eligibility for sensor calibration.
+ * Prevents double-calibration, enforces genuine local humidity, and verifies sensor models.
+ */
+export function evaluateSensorCalibrationEligibility(
+  criteria: CalibrationEligibilityCriteria
+): SensorCalibrationEvaluation {
+  const {
+    sensorModel,
+    isFirmwareCompensated,
+    hasLocalRelativeHumidity,
+    relativeHumidityPercent,
+    rawPm25,
+    rhMeasuredAt,
+    pmMeasuredAt,
+  } = criteria;
+
+  if (rawPm25 === null || rawPm25 === undefined || !Number.isFinite(rawPm25) || rawPm25 < 0) {
+    return {
+      eligible: false,
+      reason: 'invalid_raw_pm25',
+      recommendedMethod: 'none',
+      calibratedPm25: null,
+      rawPm25: null,
+      formulaName: 'Invalid sensor output',
+    };
+  }
+
+  // Preserve clean air zero baseline
+  if (rawPm25 === 0) {
+    return {
+      eligible: true,
+      recommendedMethod: 'epa_barkjohn',
+      calibratedPm25: 0,
+      rawPm25: 0,
+      formulaName: 'US EPA Barkjohn (Zero Baseline)',
+    };
+  }
+
+  // Prevent double calibration if firmware has already compensated the reading
+  if (isFirmwareCompensated) {
+    return {
+      eligible: false,
+      reason: 'already_compensated',
+      recommendedMethod: 'none',
+      calibratedPm25: null,
+      rawPm25,
+      formulaName: 'Firmware compensated output — external correction withheld',
+    };
+  }
+
+  // Check sensor model eligibility
+  if (!isSensorModelBarkjohnEligible(sensorModel)) {
+    return {
+      eligible: false,
+      reason: 'unsupported_sensor_model',
+      recommendedMethod: 'none',
+      calibratedPm25: null,
+      rawPm25,
+      formulaName: 'Raw sensor measurement — calibration not verified for this hardware model',
+    };
+  }
+
+  // Verify genuine local relative humidity
+  if (
+    !hasLocalRelativeHumidity ||
+    relativeHumidityPercent === null ||
+    relativeHumidityPercent === undefined ||
+    !Number.isFinite(relativeHumidityPercent)
+  ) {
+    return {
+      eligible: false,
+      reason: 'missing_humidity',
+      recommendedMethod: 'none',
+      calibratedPm25: null,
+      rawPm25,
+      formulaName: 'Raw sensor measurement — ambient relative humidity unavailable',
+    };
+  }
+
+  // Check timestamp compatibility if both timestamps are provided
+  if (rhMeasuredAt && pmMeasuredAt) {
+    const rhTime = new Date(rhMeasuredAt).getTime();
+    const pmTime = new Date(pmMeasuredAt).getTime();
+    if (!isNaN(rhTime) && !isNaN(pmTime)) {
+      const deltaMinutes = Math.abs(rhTime - pmTime) / 60000;
+      if (deltaMinutes > 15) {
+        return {
+          eligible: false,
+          reason: 'incompatible_timestamps',
+          recommendedMethod: 'none',
+          calibratedPm25: null,
+          rawPm25,
+          formulaName: 'Raw sensor measurement — humidity timestamp skew exceeds 15 minutes',
+        };
+      }
+    }
+  }
+
+  // Apply EPA Barkjohn calibration
+  const calResult = applyEpaBarkjohnCalibration(rawPm25, relativeHumidityPercent);
+  if (!calResult || !calResult.applied) {
+    return {
+      eligible: false,
+      reason: 'calculation_failed',
+      recommendedMethod: 'none',
+      calibratedPm25: null,
+      rawPm25,
+      formulaName: 'Raw sensor measurement — calibration not applied',
+    };
+  }
+
+  return {
+    eligible: true,
+    recommendedMethod: 'epa_barkjohn',
+    calibratedPm25: calResult.calibratedPm25,
+    rawPm25,
+    formulaName: `US EPA Barkjohn (${calResult.rhPercent}% RH, ${sensorModel || 'PMS5003'})`,
+  };
+}
+
 /**
  * Applies the US EPA Barkjohn nationwide humidity correction equation
- * to raw optical particle counter (OPC) readings (e.g. Plantower PMS5003, SDS011, SPS30).
+ * to raw optical particle counter (OPC) readings (e.g. Plantower PMS5003, SDS011).
  *
  * Equation:
  * PM2.5_corrected = 0.524 * PM2.5_raw - 0.0862 * RH + 5.75
@@ -68,7 +229,7 @@ export function applyEpaBarkjohnCalibration(
 
   const effectiveRh = Math.min(100, Math.max(0, rhPercent!));
 
-  // Barkjohn equation
+  // Barkjohn equation: 0.524 * PM2.5_raw - 0.0862 * RH + 5.75
   let corrected = 0.524 * rawPm25 - 0.0862 * effectiveRh + 5.75;
 
   // Physical invariant: concentration cannot be negative

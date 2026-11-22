@@ -114,9 +114,9 @@ export interface OfficialGroundProviderResult {
 export interface GroundStationMetadata {
   stationId: string | number;
   stationName: string;
-  distanceKm: number;
-  latitude: number;
-  longitude: number;
+  distanceKm: number | null;
+  latitude: number | null;
+  longitude: number | null;
   provider: string; // e.g. "CPCB (Central Pollution Control Board)", "DPCC", "Sensor.Community", "AirGradient Local"
   stationType: GroundStationType;
   stationState?: GroundStationState;

@@ -511,7 +511,7 @@ export function buildMultiSourceFeeds(params: {
   ) {
     const groundPm25 = groundStation.pm25;
     const groundAqi = calculateAQIFromPM25(groundPm25);
-    const stationLabel = `${groundStation.stationName} (${groundStation.distanceKm}km)`;
+    const stationLabel = `${groundStation.stationName}${groundStation.distanceKm !== null && groundStation.distanceKm !== undefined ? ` (${groundStation.distanceKm}km)` : ''}`;
 
     feeds.push({
       id: `ground-${groundStation.stationId}`,

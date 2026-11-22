@@ -17,6 +17,8 @@ import {
   RefreshCw,
   Info,
   Clock,
+  Radio,
+  MapPinOff,
 } from 'lucide-react';
 
 interface DeviceConnectorModalProps {
@@ -179,7 +181,7 @@ export function DeviceConnectorModal({
     setInfoMessage(null);
 
     try {
-      const result = await hardwareDeviceService.fetchLocalWifiDevice(ipAddress);
+      const result = await hardwareDeviceService.startLocalWifiMonitoring(ipAddress, 10000);
       if (result.error) {
         setErrorMessage(result.error);
       }
@@ -232,7 +234,7 @@ export function DeviceConnectorModal({
                 Connect Hardware Air Monitor
               </h2>
               <p id="device-connector-desc" className="text-xs text-ink-muted dark:text-zinc-400">
-                AirGradient ONE, Project Vaayu, or CanAirIO (ESP32)
+                AirGradient ONE / Open Air, Project Vaayu, or CanAirIO
               </p>
             </div>
           </div>
@@ -287,7 +289,7 @@ export function DeviceConnectorModal({
           {activeTab === 'usb' ? (
             <div className="space-y-3">
               <p className="text-xs text-ink-muted dark:text-zinc-300 leading-relaxed">
-                Connect your ESP32 monitor directly via USB-C. Reads standard newline-delimited JSON telemetry streams at 115200 baud with zero cloud telemetry.
+                Connect your personal monitor directly via USB. Reads verified newline-delimited JSON telemetry at 115200 baud with zero cloud telemetry.
               </p>
 
               {!isWebSerialSupported ? (
@@ -296,7 +298,7 @@ export function DeviceConnectorModal({
                   <div className="space-y-1">
                     <p className="font-semibold">WebSerial Unsupported in This Browser</p>
                     <p className="text-[11px] leading-relaxed text-amber-700 dark:text-amber-400">
-                      WebSerial requires a Chromium-based browser (Google Chrome, Microsoft Edge, Opera, Brave) in a secure context. If you are on Firefox or Safari, please use the <strong>Local Wi-Fi Network</strong> tab.
+                      WebSerial requires a Chromium-based browser (Google Chrome, Microsoft Edge, Opera, Brave) in a secure HTTPS context. If you are on Firefox or Safari, please use the <strong>Local Wi-Fi Network</strong> tab.
                     </p>
                   </div>
                 </div>
@@ -336,16 +338,16 @@ export function DeviceConnectorModal({
           ) : (
             <div className="space-y-3">
               <p className="text-xs text-ink-muted dark:text-zinc-300 leading-relaxed">
-                Poll telemetry from an AirGradient monitor or ESPHome node running an embedded HTTP server on your local Wi-Fi.
+                Connect to an AirGradient ONE or compatible local Wi-Fi air monitor exposing an embedded HTTP server (e.g. <code>/measures/current</code>).
               </p>
 
               {/* HTTPS Mixed Content Notice */}
               <div className="p-3 rounded-xl bg-blue-50/80 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/60 text-xs text-blue-800 dark:text-blue-300 flex items-start gap-2.5">
                 <Info className="w-4 h-4 shrink-0 mt-0.5 text-blue-600 dark:text-blue-400" />
                 <div className="space-y-0.5 text-[11px] leading-relaxed">
-                  <span className="font-semibold block">Browser HTTPS Notice:</span>
+                  <span className="font-semibold block">Browser Local Network Access:</span>
                   <span>
-                    When visiting Avir over HTTPS, browsers restrict direct HTTP requests to local network devices (Mixed Content & Private Network Access). If blocked, use the USB WebSerial tab.
+                    When visiting over HTTPS, modern browsers restrict mixed HTTP requests to private IP addresses. If your browser blocks local requests, grant local network permission or use the USB WebSerial tab.
                   </span>
                 </div>
               </div>
@@ -377,7 +379,7 @@ export function DeviceConnectorModal({
                     ) : (
                       <Wifi className="w-3.5 h-3.5" />
                     )}
-                    <span>Fetch</span>
+                    <span>{isConnected && hardwareDeviceService.getActiveSource() === 'local_wifi' ? 'Polling' : 'Connect'}</span>
                   </button>
                 </div>
               </div>
@@ -394,7 +396,7 @@ export function DeviceConnectorModal({
             </div>
           )}
 
-          {/* Info Notice (e.g. user cancelled selection) */}
+          {/* Info Notice */}
           {infoMessage && (
             <div className="p-3 rounded-xl bg-stone-100 dark:bg-zinc-800/80 border border-stone-200 dark:border-zinc-700 text-xs text-ink-muted dark:text-zinc-300 flex items-center gap-2">
               <Info className="w-4 h-4 shrink-0 text-stone-500" />
@@ -410,20 +412,57 @@ export function DeviceConnectorModal({
             </div>
           )}
 
+          {/* Connected but Awaiting Data State (Honest: Zero Synthetic Readings) */}
+          {connectionState === 'connected_awaiting_data' && !latestPacket && (
+            <div className="p-4 rounded-xl bg-cyan-50/70 dark:bg-cyan-950/30 border border-cyan-200 dark:border-cyan-800/60 text-xs text-cyan-900 dark:text-cyan-200 space-y-1.5 animate-pulse">
+              <div className="flex items-center gap-2 font-semibold">
+                <Radio className="w-4 h-4 text-cyan-600 dark:text-cyan-400" />
+                <span>Device Port Open • Awaiting First Telemetry Frame</span>
+              </div>
+              <p className="text-[11px] text-cyan-800 dark:text-cyan-300 leading-relaxed">
+                Hardware connection is established. Avir is awaiting raw sensor packets over the active data stream. Measurements will appear immediately upon receipt.
+              </p>
+            </div>
+          )}
+
           {/* Live Streaming Packet Inspector */}
           {latestPacket && isConnected && (
             <div className="p-4 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/60 space-y-3">
               <div className="flex items-center justify-between text-xs">
                 <span className="font-semibold text-emerald-800 dark:text-emerald-300 flex items-center gap-1.5">
                   <CheckCircle className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                  <span>Hardware Monitor Connected</span>
+                  <span>
+                    {latestPacket.profile?.name || 'Personal Air Monitor'}
+                  </span>
                 </span>
-                <span className="font-mono text-[10px] px-2 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-300 font-bold uppercase tracking-wider">
-                  {latestPacket.source === 'webserial' ? 'USB WebSerial' : 'Local Wi-Fi'}
+                <span className={`font-mono text-[10px] px-2 py-0.5 rounded font-bold uppercase tracking-wider ${
+                  connectionState === 'stale'
+                    ? 'bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-300'
+                    : 'bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-300'
+                }`}>
+                  {connectionState === 'stale'
+                    ? 'Stale (>30s)'
+                    : latestPacket.source === 'webserial'
+                    ? 'USB Live'
+                    : 'Wi-Fi Live'}
                 </span>
               </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center pt-1 font-mono">
+              {/* Hardware & Calibration Metadata */}
+              <div className="text-[11px] text-emerald-900 dark:text-emerald-300 flex flex-wrap gap-x-3 gap-y-1 font-mono">
+                {latestPacket.deviceId && (
+                  <span>Device ID: <strong>{latestPacket.deviceId}</strong></span>
+                )}
+                <span>Sensor: <strong>{latestPacket.profile?.sensorModel || 'Optical OPC'}</strong></span>
+                {latestPacket.calibrationFormula && (
+                  <span className="text-emerald-700 dark:text-emerald-400">
+                    &bull; {latestPacket.calibrationFormula}
+                  </span>
+                )}
+              </div>
+
+              {/* Measurement Grid */}
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-center pt-1 font-mono">
                 <div className="p-2 rounded-lg bg-white dark:bg-zinc-900 border border-emerald-200/60 dark:border-emerald-800/40">
                   <div className="text-[10px] text-ink-muted dark:text-zinc-400">PM2.5</div>
                   <div className="text-sm font-bold text-ink dark:text-white">
@@ -454,22 +493,35 @@ export function DeviceConnectorModal({
                   </div>
                   <div className="text-[9px] text-stone-500">°C</div>
                 </div>
+                <div className="p-2 rounded-lg bg-white dark:bg-zinc-900 border border-emerald-200/60 dark:border-emerald-800/40">
+                  <div className="text-[10px] text-ink-muted dark:text-zinc-400">HUM</div>
+                  <div className="text-sm font-bold text-ink dark:text-white">
+                    {latestPacket.humidity !== null && latestPacket.humidity !== undefined
+                      ? `${latestPacket.humidity}%`
+                      : '--'}
+                  </div>
+                  <div className="text-[9px] text-stone-500">RH</div>
+                </div>
               </div>
 
               {/* Timestamp distinction: observation vs reception */}
-              <div className="text-[10px] text-emerald-800/90 dark:text-emerald-300/80 font-mono flex items-center justify-between pt-1 border-t border-emerald-200/50 dark:border-emerald-800/40">
+              <div className="text-[10px] text-emerald-800/90 dark:text-emerald-300/80 font-mono flex flex-wrap items-center justify-between gap-1 pt-1 border-t border-emerald-200/50 dark:border-emerald-800/40">
                 <span className="flex items-center gap-1">
                   <Clock className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
                   <span>
-                    {latestPacket.observedAt ? 'Device Observed Time' : 'Reception Time'}:
+                    {latestPacket.observedAt ? 'Device Observed Time:' : 'Reception Time (Device untimed):'}
                   </span>
+                  <strong>
+                    {new Date(latestPacket.observedAt || latestPacket.receivedAt).toLocaleTimeString([], {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      second: '2-digit',
+                    })}
+                  </strong>
                 </span>
-                <span>
-                  {new Date(latestPacket.observedAt || latestPacket.receivedAt).toLocaleTimeString([], {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    second: '2-digit',
-                  })}
+                <span className="flex items-center gap-1 text-[9px] text-stone-500 dark:text-zinc-400">
+                  <MapPinOff className="w-3 h-3 text-stone-400" />
+                  <span>Location: Unconfigured (Indoor / BYOD)</span>
                 </span>
               </div>
             </div>

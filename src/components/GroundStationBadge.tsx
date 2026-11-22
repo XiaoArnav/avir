@@ -98,7 +98,11 @@ export function GroundStationBadge({
               </span>
 
               <span className="font-mono text-[10px] text-ink-muted dark:text-zinc-400">
-                {station.distanceKm > 0 ? `· ${station.distanceKm} km` : '· Colocated'}
+                {station.distanceKm !== null && station.distanceKm !== undefined
+                  ? station.distanceKm > 0
+                    ? `· ${station.distanceKm} km`
+                    : '· Colocated'
+                  : '· Location unconfigured'}
               </span>
 
               <span
@@ -218,7 +222,9 @@ export function GroundStationBadge({
             </div>
             <div className="p-2 rounded-lg bg-stone-50 dark:bg-zinc-800/60 border border-stone-200/60 dark:border-zinc-700/60">
               <span className="text-[10px] text-ink-muted dark:text-zinc-400 block">Distance to User</span>
-              <span className="text-sm font-bold text-ink dark:text-white">{station.distanceKm} km</span>
+              <span className="text-sm font-bold text-ink dark:text-white">
+                {station.distanceKm !== null && station.distanceKm !== undefined ? `${station.distanceKm} km` : 'Unavailable'}
+              </span>
             </div>
             <div className="p-2 rounded-lg bg-stone-50 dark:bg-zinc-800/60 border border-stone-200/60 dark:border-zinc-700/60">
               <span className="text-[10px] text-ink-muted dark:text-zinc-400 block">Sensor Type</span>
@@ -247,7 +253,8 @@ export function GroundStationBadge({
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         onDeviceConnected={() => {
-          if (onRefresh) onRefresh();
+          // Hardware monitor is updated reactively via hardwareDeviceService subscription.
+          // Do not trigger full atmospheric API refetch per incoming sensor packet.
         }}
       />
     </>
