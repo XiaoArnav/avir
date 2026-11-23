@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { TopNav } from '@/components/TopNav';
 import { MetroRail } from '@/components/MetroRail';
 import { AtmosphereHero } from '@/components/AtmosphereHero';
@@ -23,6 +23,9 @@ import { SettingsModal } from '@/components/SettingsModal';
 import { RwaBulletinModal } from '@/components/RwaBulletinModal';
 import { ScienceExplainerModal } from '@/components/ScienceExplainerModal';
 import { MultiSourceInspectorModal } from '@/components/MultiSourceInspectorModal';
+import { VerifiedAdvisoryPanel } from '@/components/VerifiedAdvisoryPanel';
+import { resolveOfficialGrapStatus } from '@/services/advisories/grap-status-resolver';
+import { RequestCoordinator } from '@/lib/async/request-coordinator';
 import {
   AtmosphericMetrics,
   UserVulnerabilityProfile,
@@ -78,10 +81,17 @@ export default function Home() {
     }
   }, [isDarkMode]);
 
-  // Load telemetry when city changes with AbortController for race-free city transitions
+  // Coordinated request manager preventing race conditions and stale response leaks
+  const coordinatorRef = useRef<RequestCoordinator>(new RequestCoordinator());
+
+  // Load telemetry when city changes with RequestCoordinator generation protection
   useEffect(() => {
-    const controller = new AbortController();
     let isMounted = true;
+    const ctx = coordinatorRef.current.beginTelemetryRequest(
+      selectedCity.latitude,
+      selectedCity.longitude,
+      selectedCity.name
+    );
 
     async function loadTelemetry() {
       setIsTelemetryLoading(true);
@@ -89,38 +99,62 @@ export default function Home() {
         const data = await fetchLiveAtmosphericMetrics(
           selectedCity.latitude,
           selectedCity.longitude,
-          { signal: controller.signal, cityName: selectedCity.name }
+          { signal: ctx.signal, cityName: selectedCity.name }
         );
-        if (isMounted) {
-          setMetrics(data);
-          // Only generate plan if data is available and not in error, and required measurements exist
-          if (data.status !== 'error' && data.usAqi !== null && data.pm25 !== null) {
-            const initialPlan = await generateAirQualityPlan({
-              city: selectedCity.name,
-              metrics: data,
-              profile,
-              roomSizeSqFt,
-              customRoutine,
-              geminiApiKey,
-            });
-            if (isMounted) setPlan(initialPlan);
-          } else {
-            if (isMounted) setPlan(null);
+
+        if (!isMounted || !coordinatorRef.current.isTelemetryResponseValid(ctx)) {
+          return;
+        }
+
+        setMetrics(data);
+
+        // Only generate plan if data is available and not in error, and required measurements exist
+        if (data.status !== 'error' && data.usAqi !== null && data.pm25 !== null) {
+          const planCtx = coordinatorRef.current.beginPlanRequest({
+            cityName: selectedCity.name,
+            metricsTimestamp: data.timestamp,
+            usAqi: data.usAqi,
+            pm25: data.pm25,
+            profileId: `${profile.ageGroup}:${profile.hasAsthmaOrRespiratory ? 'resp' : 'norm'}:${profile.hasCardiovascularCondition ? 'cardio' : 'nocardio'}:${profile.isPregnant ? 'preg' : 'nopreg'}:${profile.isOutdoorWorker ? 'outdoor' : 'indoor'}`,
+            ageGroup: profile.ageGroup,
+            hasAsthmaOrRespiratory: profile.hasAsthmaOrRespiratory,
+            hasCardiovascularCondition: profile.hasCardiovascularCondition,
+            isPregnant: profile.isPregnant,
+            isOutdoorWorker: profile.isOutdoorWorker,
+            roomSizeSqFt,
+            customRoutine,
+          });
+
+          const initialPlan = await generateAirQualityPlan({
+            city: selectedCity.name,
+            metrics: data,
+            profile,
+            roomSizeSqFt,
+            customRoutine,
+            geminiApiKey,
+          });
+
+          if (isMounted && coordinatorRef.current.isPlanResponseValid(planCtx)) {
+            setPlan(initialPlan);
           }
+        } else {
+          setPlan(null);
         }
       } catch (err: any) {
         if (err?.name !== 'AbortError') {
           console.error('Failed to load telemetry:', err);
         }
       } finally {
-        if (isMounted) setIsTelemetryLoading(false);
+        if (isMounted && coordinatorRef.current.isTelemetryResponseValid(ctx)) {
+          setIsTelemetryLoading(false);
+        }
       }
     }
 
     loadTelemetry();
     return () => {
       isMounted = false;
-      controller.abort();
+      coordinatorRef.current.abortAll();
     };
   }, [selectedCity]);
 
@@ -133,17 +167,41 @@ export default function Home() {
     setSelectedCity(loc);
   };
 
-  // Handle manual live telemetry refresh & dependent plan recalculation
+  // Handle manual live telemetry refresh & dependent plan recalculation with generation protection
   const refreshTelemetry = async () => {
     setIsTelemetryLoading(true);
+    const ctx = coordinatorRef.current.beginTelemetryRequest(
+      selectedCity.latitude,
+      selectedCity.longitude,
+      selectedCity.name
+    );
+
     try {
       const data = await fetchLiveAtmosphericMetrics(
         selectedCity.latitude,
         selectedCity.longitude,
-        { forceRefresh: true, cityName: selectedCity.name }
+        { forceRefresh: true, cityName: selectedCity.name, signal: ctx.signal }
       );
+
+      if (!coordinatorRef.current.isTelemetryResponseValid(ctx)) return;
+
       setMetrics(data);
       if (data.status !== 'error' && data.usAqi !== null && data.pm25 !== null) {
+        const planCtx = coordinatorRef.current.beginPlanRequest({
+          cityName: selectedCity.name,
+          metricsTimestamp: data.timestamp,
+          usAqi: data.usAqi,
+          pm25: data.pm25,
+          profileId: `${profile.ageGroup}:${profile.hasAsthmaOrRespiratory ? 'resp' : 'norm'}:${profile.hasCardiovascularCondition ? 'cardio' : 'nocardio'}:${profile.isPregnant ? 'preg' : 'nopreg'}:${profile.isOutdoorWorker ? 'outdoor' : 'indoor'}`,
+          ageGroup: profile.ageGroup,
+          hasAsthmaOrRespiratory: profile.hasAsthmaOrRespiratory,
+          hasCardiovascularCondition: profile.hasCardiovascularCondition,
+          isPregnant: profile.isPregnant,
+          isOutdoorWorker: profile.isOutdoorWorker,
+          roomSizeSqFt,
+          customRoutine,
+        });
+
         const updatedPlan = await generateAirQualityPlan({
           city: selectedCity.name,
           metrics: data,
@@ -152,21 +210,43 @@ export default function Home() {
           customRoutine,
           geminiApiKey,
         });
-        setPlan(updatedPlan);
+
+        if (coordinatorRef.current.isPlanResponseValid(planCtx)) {
+          setPlan(updatedPlan);
+        }
       } else {
         setPlan(null);
       }
-    } catch (err) {
-      console.error('Failed to reload telemetry:', err);
+    } catch (err: any) {
+      if (err?.name !== 'AbortError') {
+        console.error('Failed to reload telemetry:', err);
+      }
     } finally {
-      setIsTelemetryLoading(false);
+      if (coordinatorRef.current.isTelemetryResponseValid(ctx)) {
+        setIsTelemetryLoading(false);
+      }
     }
   };
 
-  // Handle manual plan regeneration
+  // Handle manual plan regeneration with generation protection
   const handleGeneratePlan = async () => {
     if (!metrics || metrics.status === 'error' || metrics.usAqi === null || metrics.pm25 === null) return;
     setIsPlanGenerating(true);
+    const planCtx = coordinatorRef.current.beginPlanRequest({
+      cityName: selectedCity.name,
+      metricsTimestamp: metrics.timestamp,
+      usAqi: metrics.usAqi,
+      pm25: metrics.pm25,
+      profileId: `${profile.ageGroup}:${profile.hasAsthmaOrRespiratory ? 'resp' : 'norm'}:${profile.hasCardiovascularCondition ? 'cardio' : 'nocardio'}:${profile.isPregnant ? 'preg' : 'nopreg'}:${profile.isOutdoorWorker ? 'outdoor' : 'indoor'}`,
+      ageGroup: profile.ageGroup,
+      hasAsthmaOrRespiratory: profile.hasAsthmaOrRespiratory,
+      hasCardiovascularCondition: profile.hasCardiovascularCondition,
+      isPregnant: profile.isPregnant,
+      isOutdoorWorker: profile.isOutdoorWorker,
+      roomSizeSqFt,
+      customRoutine,
+    });
+
     try {
       const updatedPlan = await generateAirQualityPlan({
         city: selectedCity.name,
@@ -176,9 +256,12 @@ export default function Home() {
         customRoutine,
         geminiApiKey,
       });
-      setPlan(updatedPlan);
-      // Seamlessly switch to Daily Plan to view optimized results
-      setActiveTab('routine');
+
+      if (coordinatorRef.current.isPlanResponseValid(planCtx)) {
+        setPlan(updatedPlan);
+        // Seamlessly switch to Daily Plan to view optimized results
+        setActiveTab('routine');
+      }
     } catch (err) {
       console.error('Plan generation failed:', err);
     } finally {
@@ -187,6 +270,14 @@ export default function Home() {
   };
 
   const aqiCategory = metrics?.usAqi !== null && metrics?.usAqi !== undefined ? getAQICategory(metrics.usAqi) : 'Unavailable';
+
+  const officialGrapStatus = resolveOfficialGrapStatus(undefined, {
+    cityName: selectedCity.name,
+    admin1: selectedCity.admin1,
+    countryCode: selectedCity.countryCode,
+    latitude: selectedCity.latitude,
+    longitude: selectedCity.longitude,
+  });
 
   const reductionPercentage =
     plan?.impactMetrics?.totalInhaledBaselineUg !== null &&
@@ -304,11 +395,20 @@ export default function Home() {
 
               <FamilyProfileForm
                 profile={profile}
-                onChangeProfile={setProfile}
+                onChangeProfile={(newProfile) => {
+                  coordinatorRef.current.invalidatePendingPlans();
+                  setProfile(newProfile);
+                }}
                 roomSizeSqFt={roomSizeSqFt}
-                onChangeRoomSize={setRoomSizeSqFt}
+                onChangeRoomSize={(newSize) => {
+                  coordinatorRef.current.invalidatePendingPlans();
+                  setRoomSizeSqFt(newSize);
+                }}
                 customRoutine={customRoutine}
-                onChangeCustomRoutine={setCustomRoutine}
+                onChangeCustomRoutine={(newRoutine) => {
+                  coordinatorRef.current.invalidatePendingPlans();
+                  setCustomRoutine(newRoutine);
+                }}
                 onSubmit={handleGeneratePlan}
                 isLoading={isPlanGenerating}
               />
@@ -342,24 +442,30 @@ export default function Home() {
           </div>
         )}
 
-        {/* Tab 4: Community & RWA Circular Hub */}
+        {/* Tab 4: Community Action & Verified Advisories */}
         {activeTab === 'rwa' && (
           <div className="space-y-6 animate-in fade-in duration-300">
+            {/* Official Regulatory Status Panel */}
+            <VerifiedAdvisoryPanel
+              status={officialGrapStatus}
+              cityName={selectedCity.name}
+            />
+
             <div className="rounded-2xl glass-panel p-6 sm:p-8 space-y-4 border border-stone-300 dark:border-zinc-800 bg-white/95 dark:bg-[#0c0c0e]/95 shadow-sm transition-colors">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-stone-200 dark:border-zinc-800">
                 <div>
                   <h2 className="text-xl font-bold text-ink dark:text-white tracking-tight">
-                    Community Action &amp; Society Circular Hub
+                    Community Action &amp; Verified Advisories
                   </h2>
                   <p className="text-xs text-ink-muted dark:text-zinc-400 mt-1">
-                    Mobilize your residential apartment society, school council, or neighborhood RWA to enforce CAQM anti-smog protocols.
+                    Review verified official directives and prepare evidence-based community air-quality guidance.
                   </p>
                 </div>
                 <button
                   onClick={() => setIsRwaModalOpen(true)}
-                  className="px-4 py-2 rounded-xl bg-ink hover:bg-stone-800 text-white dark:bg-white dark:hover:bg-zinc-200 dark:text-black text-xs font-bold transition-all shadow-md self-start sm:self-auto active:scale-95"
+                  className="px-4 py-2 rounded-xl bg-ink hover:bg-stone-800 text-white dark:bg-white dark:hover:bg-zinc-200 dark:text-black text-xs font-bold transition-all shadow-md self-start sm:self-auto active:scale-95 cursor-pointer"
                 >
-                  Open Official Notice Generator &rarr;
+                  Open Community Guidance Generator &rarr;
                 </button>
               </div>
 
@@ -367,19 +473,19 @@ export default function Home() {
                 <div className="p-4 rounded-xl bg-stone-50 dark:bg-zinc-900/60 border border-stone-200 dark:border-zinc-800 space-y-1.5">
                   <div className="font-bold text-ink dark:text-white">1. School &amp; Play Hours</div>
                   <p className="text-ink-muted dark:text-zinc-400">
-                    Never conduct physical sports before 10:00 AM during winter inversions. Shift outdoor recess to 1:30 PM.
+                    Schedule high-intensity outdoor athletics during midday solar dispersion windows. Avoid strenuous outdoor exertion during nocturnal thermal inversions.
                   </p>
                 </div>
                 <div className="p-4 rounded-xl bg-stone-50 dark:bg-zinc-900/60 border border-stone-200 dark:border-zinc-800 space-y-1.5">
                   <div className="font-bold text-ink dark:text-white">2. Guard Post Protection</div>
                   <p className="text-ink-muted dark:text-zinc-400">
-                    Distribute reusable N95 respirators to night-duty estate guards and sanitation teams directly exposed to cold ground air.
+                    Distribute certified, well-fitted N95 respirators to night-duty estate guards and sanitation teams directly exposed to ground inversion air.
                   </p>
                 </div>
                 <div className="p-4 rounded-xl bg-stone-50 dark:bg-zinc-900/60 border border-stone-200 dark:border-zinc-800 space-y-1.5">
                   <div className="font-bold text-ink dark:text-white">3. Society Common Area Filtration</div>
                   <p className="text-ink-muted dark:text-zinc-400">
-                    Place low-cost Corsi-Rosenthal boxes in society clubhouses and reading rooms to maintain safe community clean-air zones.
+                    Deploy mechanical HEPA or low-cost Corsi-Rosenthal filtration in clubhouses, libraries, and indoor community centers to maintain clean-air refuges.
                   </p>
                 </div>
               </div>

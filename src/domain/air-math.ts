@@ -393,9 +393,10 @@ export interface GrapStageInfo {
 /**
  * Maps numerical AQI to CAQM Graded Response Action Plan (GRAP) threshold criteria.
  * Important: This evaluates numerical threshold equivalence only.
- * Formal statutory enforcement requires an official notification from CAQM.
+ * Formal statutory enforcement requires an authentic notification from CAQM.
+ * To resolve legally binding official GRAP status, use resolveOfficialGrapStatus().
  */
-export function getGrapStage(aqi?: number | null): GrapStageInfo {
+export function getIndicativeGrapThreshold(aqi?: number | null): GrapStageInfo {
   if (aqi === null || aqi === undefined || !Number.isFinite(aqi) || aqi < 0) {
     return {
       stage: 'Unavailable',
@@ -461,6 +462,12 @@ export function getGrapStage(aqi?: number | null): GrapStageInfo {
     benchmarkType: 'indicative_threshold',
   };
 }
+
+/**
+ * Backward-compatible alias for getIndicativeGrapThreshold.
+ * Note: Purely evaluates numerical criteria; does not determine statutory legal orders.
+ */
+export const getGrapStage = getIndicativeGrapThreshold;
 
 /**
  * Evaluates whether a meteorological thermal inversion layer is trapping ground pollutants.

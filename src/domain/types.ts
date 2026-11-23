@@ -195,10 +195,18 @@ export interface HourlyAtmosphericPoint {
   boundaryLayerHeight: number | null;
   temperature?: number | null;
   humidity?: number | null;
+  relativeHumidity?: number | null;
   windSpeed?: number | null;
   isForecast: boolean;    // true if future hour, false if past/current observation
-  isSafeVentingWindow: boolean;
-  isStagnantDispersion: boolean; // low boundary layer height (<200m)
+  isSafeVentingWindow?: boolean;
+  isStagnantDispersion?: boolean; // low boundary layer height (<200m)
+  validAtUtc?: string;
+  timezone?: string;
+  localDisplayTime?: string;
+  localDisplayDate?: string;
+  completeness?: 'complete' | 'partial' | 'unavailable';
+  sourceAttribution?: string;
+  isModel?: boolean;
 }
 
 // ---------------------------------------------------------------------------
