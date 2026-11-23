@@ -415,6 +415,7 @@ describe('AVIR STEP 03 FINAL PRODUCTION CLOSURE — Comprehensive Verification G
   // ==========================================
   describe('Group D: Comparison Integrity & Parity (31-40)', () => {
     const timestamp = '2026-11-22T08:00:00Z';
+    const refNow = new Date('2026-11-22T09:00:00Z').getTime();
     const model = createOpenMeteoModelRecord({
       pm25: 120,
       timestamp,
@@ -447,13 +448,13 @@ describe('AVIR STEP 03 FINAL PRODUCTION CLOSURE — Comprehensive Verification G
         measurements: [{ pollutant: 'pm25', value: 120, unit: 'ug/m3', observedAt: timestamp, averagingPeriodMinutes: 60 }],
       };
 
-      const result = compareEnvironmentalSources([anchorPpm, groundUgM3], 'pm25');
+      const result = compareEnvironmentalSources([anchorPpm, groundUgM3], 'pm25', refNow);
       expect(result.mode).toBe('mode_b_incompatible');
       expect(result.incompatibilityReasons?.some(r => r.includes('Unsupported anchor unit'))).toBe(true);
     });
 
     it('32. Exactly 1 source yields Mode A with zero artificial spread or consensus', () => {
-      const result = compareEnvironmentalSources([model], 'pm25');
+      const result = compareEnvironmentalSources([model], 'pm25', refNow);
       expect(result.mode).toBe('mode_a_single_source');
       expect(result.status).toBe('insufficient_sources');
       expect(result.absoluteDifferenceUgM3).toBeNull();
@@ -477,7 +478,7 @@ describe('AVIR STEP 03 FINAL PRODUCTION CLOSURE — Comprehensive Verification G
         provenance: { licenseOrAttribution: 'OpenAQ', isModel: false, limitations: [] },
       };
 
-      const result = compareEnvironmentalSources([model, groundStation], 'pm25');
+      const result = compareEnvironmentalSources([model, groundStation], 'pm25', refNow);
       expect(result.mode).toBe('mode_c_comparable');
       expect(result.absoluteDifferenceUgM3).toBe(25); // 145 - 120
       expect(result.summary).toContain('differ by 25 µg/m³');
@@ -518,7 +519,7 @@ describe('AVIR STEP 03 FINAL PRODUCTION CLOSURE — Comprehensive Verification G
         provenance: { licenseOrAttribution: 'CPCB', isModel: false, limitations: [] },
       };
 
-      const result = compareEnvironmentalSources([model, ground1, ground2], 'pm25');
+      const result = compareEnvironmentalSources([model, ground1, ground2], 'pm25', refNow);
       expect(result.mode).toBe('mode_c_comparable');
       expect(result.eligibleSourceIds.length).toBe(3);
       expect(result.summary).toContain('3 comparable PM2.5 sources are available');
@@ -546,7 +547,7 @@ describe('AVIR STEP 03 FINAL PRODUCTION CLOSURE — Comprehensive Verification G
         provenance: { licenseOrAttribution: 'OpenAQ', isModel: false, limitations: [] },
       };
 
-      const result = compareEnvironmentalSources([model, highGround], 'pm25');
+      const result = compareEnvironmentalSources([model, highGround], 'pm25', refNow);
       expect(result.divergenceReason).toContain('Possible reasons include differing geographic sampling locations');
       expect(result.divergenceReason).toContain('instrument sensing principles');
     });

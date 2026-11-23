@@ -1188,9 +1188,10 @@ describe('AVIR Step 4 Critical Corrective Hotfix (Groups A–H)', () => {
         { state: 'Delhi', city: 'Delhi', station: 'Station A', pollutant_id: 'PM2.5', pollutant_avg: 90, pollutant_unit: 'ug/m3', last_update: '22-11-2026 18:00:00' },
         { state: 'Delhi', city: 'Delhi', station: 'Station B', pollutant_id: 'PM10', pollutant_avg: 150, pollutant_unit: 'ug/m3', last_update: '22-11-2026 18:00:00' },
       ];
+      const nowRef = new Date('2026-11-23T12:00:00+05:30');
       const sources = normalizeDataGovInRecords(records);
-      const activePm25 = getActivePhysicalSources(sources, 'pm25');
-      const activePm10 = getActivePhysicalSources(sources, 'pm10');
+      const activePm25 = getActivePhysicalSources(sources, 'pm25', nowRef);
+      const activePm10 = getActivePhysicalSources(sources, 'pm10', nowRef);
 
       expect(activePm25).toHaveLength(1);
       expect(activePm10).toHaveLength(1);

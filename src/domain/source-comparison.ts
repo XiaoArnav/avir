@@ -233,10 +233,10 @@ export function getSourceTimestamp(
  */
 export function compareEnvironmentalSources(
   rawSources: EnvironmentalSourceRecord[],
-  targetPollutant: 'pm25' | 'pm10' = 'pm25'
+  targetPollutant: 'pm25' | 'pm10' = 'pm25',
+  now: number = Date.now()
 ): SourceComparison {
   const sources = deduplicateEnvironmentalSources(rawSources);
-  const now = Date.now();
 
   // Find all sources that report the target pollutant with valid non-negative values
   const candidates: Array<{

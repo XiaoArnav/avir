@@ -7,6 +7,7 @@ import { AtmosphereHero } from '@/components/AtmosphereHero';
 import { SegmentedTabs, ActiveTabId } from '@/components/SegmentedTabs';
 import { CityPicker } from '@/components/CityPicker';
 import { FamilyProfileForm } from '@/components/FamilyProfileForm';
+import { RoutineBuilder } from '@/components/RoutineBuilder';
 import { RoutineShifter } from '@/components/RoutineShifter';
 import { IAQStudio } from '@/components/IAQStudio';
 import { ImpactScorecard } from '@/components/ImpactScorecard';
@@ -327,11 +328,27 @@ export default function Home() {
           />
         )}
 
-        {/* Tab 2: Dynamic Routine Shifter */}
-        {activeTab === 'routine' && plan && (
+        {/* Tab 2: Dynamic Routine Shifter & Personal Schedule Builder */}
+        {activeTab === 'routine' && (
           <div className="space-y-8 animate-in fade-in duration-300">
-            <ImpactScorecard plan={plan} />
-            <RoutineShifter routineShifts={plan.routineShifts} />
+            <RoutineBuilder
+              currentPm25={metrics?.pm25 ?? null}
+              onOptimizeClick={async () => {
+                if (metrics && metrics.pm25 !== null) {
+                  const updatedPlan = await generateAirQualityPlan({
+                    city: selectedCity.name,
+                    metrics,
+                    profile,
+                    roomSizeSqFt,
+                    customRoutine,
+                  });
+                  setPlan(updatedPlan);
+                }
+              }}
+              isOptimizing={isTelemetryLoading}
+            />
+            {plan && <ImpactScorecard plan={plan} />}
+            {plan && <RoutineShifter routineShifts={plan.routineShifts} />}
           </div>
         )}
 

@@ -317,7 +317,8 @@ describe('AVIR STEP 3 CORRECTIVE — Group D: Comparison Integrity & Parity (30-
       provenance: { licenseOrAttribution: 'OpenAQ', isModel: false, limitations: [] },
     };
 
-    const result = compareEnvironmentalSources([model, cpcbOriginal, openAqMirror], 'pm25');
+    const refNow = new Date('2026-11-22T09:00:00Z').getTime();
+    const result = compareEnvironmentalSources([model, cpcbOriginal, openAqMirror], 'pm25', refNow);
     // Duplicated station is deduplicated, leaving exactly 2 distinct sources compared
     expect(result.sourcesCompared.length).toBe(2);
     expect(result.mode).toBe('mode_c_comparable');
@@ -350,7 +351,8 @@ describe('AVIR STEP 3 CORRECTIVE — Group D: Comparison Integrity & Parity (30-
       provenance: { licenseOrAttribution: 'AirNow Gov', isModel: false, limitations: [] },
     };
 
-    const result = compareEnvironmentalSources([model, groundStation], 'pm25');
+    const refNow = new Date('2026-11-22T09:00:00Z').getTime();
+    const result = compareEnvironmentalSources([model, groundStation], 'pm25', refNow);
 
     expect(result.mode).toBe('mode_c_comparable');
     expect(result.status).toBe('comparable');
@@ -404,7 +406,8 @@ describe('AVIR STEP 3 CORRECTIVE — Group D: Comparison Integrity & Parity (30-
       provenance: { licenseOrAttribution: 'P2', isModel: false, limitations: [] },
     };
 
-    const result = compareEnvironmentalSources([model, eligibleGround, distantGround], 'pm25');
+    const refNow = new Date('2026-11-22T09:00:00Z').getTime();
+    const result = compareEnvironmentalSources([model, eligibleGround, distantGround], 'pm25', refNow);
 
     expect(result.mode).toBe('mode_c_comparable');
     expect(result.eligibleSourceIds).toEqual(['open-meteo-atmospheric-model', 'ground-1']);

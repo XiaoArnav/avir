@@ -1,135 +1,286 @@
 'use client';
 
 import React, { useState } from 'react';
-import { CorsiRosenthalBoxSpec } from '@/domain/types';
-import { calculateCorsiRosenthalBox } from '@/domain/air-math';
-import { Wrench, Zap, DollarSign, Timer, CheckCircle2, Sparkles } from 'lucide-react';
+import {
+  calculateAch,
+  calculateRoomDimensions,
+  calculateWellMixedDecay,
+  convertCadr,
+  CFM_TO_M3_PER_HOUR,
+} from '@/domain/indoor-air-types';
+import {
+  calculateDiyPurifierBillOfMaterials,
+  DIY_PURIFIER_PRESETS,
+} from '@/services/indoor-air/indoor-air-service';
+import { Wrench, Zap, DollarSign, Timer, CheckCircle2, Sparkles, Settings2 } from 'lucide-react';
 
 interface IAQStudioProps {
-  spec: CorsiRosenthalBoxSpec;
+  initialRoomVolumeM3?: number;
+  spec?: {
+    roomVolumeM3?: number;
+    numberOfFilters?: number;
+    airChangesPerHour?: number;
+    clearingHalfLifeMinutes?: number;
+    estimatedCostINR?: number;
+  };
 }
 
-export const IAQStudio: React.FC<IAQStudioProps> = ({ spec: initialSpec }) => {
-  const [filterCount, setFilterCount] = useState<4 | 5>(initialSpec.numberOfFilters || 4);
-  const activeSpec = calculateCorsiRosenthalBox(initialSpec.roomVolumeM3, filterCount);
+export const IAQStudio: React.FC<IAQStudioProps> = ({ initialRoomVolumeM3 = 45, spec }) => {
+  const effectiveInitialVolume = spec?.roomVolumeM3 || initialRoomVolumeM3;
+  const [selectedPresetId, setSelectedPresetId] = useState<string>('cr-box-4-filter');
+  const [customCadrCfm, setCustomCadrCfm] = useState<number>(450);
+  const [unit, setUnit] = useState<'metric' | 'imperial'>('metric');
+  const [roomLength, setRoomLength] = useState<number>(unit === 'metric' ? 5 : 16);
+  const [roomWidth, setRoomWidth] = useState<number>(unit === 'metric' ? 3.5 : 12);
+  const [roomHeight, setRoomHeight] = useState<number>(unit === 'metric' ? 2.6 : 8.5);
+  const [showCostEditor, setShowCostEditor] = useState<boolean>(false);
+  const [customFanCost, setCustomFanCost] = useState<number>(1500);
+  const [customFilterCost, setCustomFilterCost] = useState<number>(1600);
+  const [customTapeCost, setCustomTapeCost] = useState<number>(350);
+  const [customCommercialCost, setCustomCommercialCost] = useState<number>(14000);
+
+  // Derive room dimensions
+  let room;
+  try {
+    room = calculateRoomDimensions(roomLength, roomWidth, roomHeight, unit);
+  } catch {
+    room = { floorAreaM2: 17.5, volumeM3: initialRoomVolumeM3, unit, length: 5, width: 3.5, height: 2.6 };
+  }
+
+  // Active preset
+  const activePreset = DIY_PURIFIER_PRESETS.find(p => p.id === selectedPresetId) || DIY_PURIFIER_PRESETS[0];
+  const effectiveCadrCfm = selectedPresetId === 'custom' ? customCadrCfm : activePreset.cadrCfm;
+  const effectiveCadrM3H = Math.round(effectiveCadrCfm * CFM_TO_M3_PER_HOUR * 10) / 10;
+
+  // Scientific calculations
+  const achResult = calculateAch(effectiveCadrM3H, room.volumeM3);
+  const decayResult = calculateWellMixedDecay(150, achResult.ach);
+  const bom = calculateDiyPurifierBillOfMaterials(
+    selectedPresetId,
+    showCostEditor
+      ? {
+          boxFanCost: customFanCost,
+          filtersCost: customFilterCost,
+          shroudTapeCost: customTapeCost,
+          commercialPurifierComparisonCost: customCommercialCost,
+        }
+      : undefined
+  );
 
   return (
     <section 
-      aria-label="Corsi-Rosenthal Box IAQ Studio"
+      aria-label="Indoor Air-Cleaning Studio"
       className="rounded-2xl glass-panel p-6 sm:p-8 border border-stone-300 dark:border-zinc-800 bg-white/95 dark:bg-[#0c0c0e]/95 space-y-6 shadow-sm transition-colors"
     >
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-stone-200 dark:border-zinc-800/80 pb-5">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-stone-200 dark:border-zinc-800/80 pb-5">
         <div>
           <div className="flex items-center gap-2 text-xs font-mono text-ink-muted dark:text-zinc-400 uppercase tracking-wider mb-1">
             <Sparkles className="w-3.5 h-3.5 text-sage-600 dark:text-zinc-300" />
-            <span>Affordable Clean Home Air</span>
+            <span>Indoor Air Engineering Studio</span>
           </div>
           <h2 className="text-xl sm:text-2xl font-extrabold text-ink dark:text-white tracking-tight flex items-center gap-2">
-            <span>Build a ₹2,950 Air Cleaner (DIY Box Fan)</span>
+            <span>Air-Cleaner Sizing &amp; Particle Decay</span>
           </h2>
           <p className="text-xs text-ink-muted dark:text-zinc-400 mt-1 max-w-2xl leading-relaxed">
-            Tape 4 furnace filters to a regular 20-inch box fan. Delivers 490 CFM of clean air—matching an ₹18,000 branded purifier at a fraction of the cost.
+            Calculate real Air Changes per Hour (ACH), exponential particulate half-life clearance, and custom bill-of-materials for residential filtration.
           </p>
         </div>
 
-        {/* Filter Toggle Switch - Adaptive Duo */}
-        <div className="flex items-center gap-1 p-1 rounded-xl bg-stone-100 dark:bg-zinc-900 border border-stone-300 dark:border-zinc-800 self-start sm:self-auto shadow-xs">
+        {/* Preset Selector */}
+        <div className="flex flex-wrap items-center gap-1.5 p-1 rounded-xl bg-stone-100 dark:bg-zinc-900 border border-stone-300 dark:border-zinc-800 self-start sm:self-auto shadow-xs">
+          {DIY_PURIFIER_PRESETS.map((preset) => (
+            <button
+              key={preset.id}
+              onClick={() => setSelectedPresetId(preset.id)}
+              className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                selectedPresetId === preset.id
+                  ? 'bg-ink text-white font-bold dark:bg-white dark:text-black shadow-sm'
+                  : 'text-ink-muted hover:text-ink dark:text-zinc-400 dark:hover:text-white'
+              }`}
+            >
+              {preset.name.split(' ')[0]} ({preset.cadrCfm} CFM)
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Room Dimensions & Unit Configuration */}
+      <div className="p-4 rounded-xl bg-stone-50 dark:bg-zinc-900/60 border border-stone-200 dark:border-zinc-800 flex flex-col md:flex-row md:items-center justify-between gap-4 text-xs">
+        <div className="flex items-center gap-3">
+          <span className="font-bold text-ink dark:text-white">Room Size:</span>
+          <div className="flex items-center gap-2">
+            <label className="flex items-center gap-1">
+              <span>L:</span>
+              <input
+                type="number"
+                min="1"
+                step="0.5"
+                value={roomLength}
+                onChange={(e) => setRoomLength(parseFloat(e.target.value) || 1)}
+                className="w-14 px-1.5 py-0.5 rounded border border-stone-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 font-mono text-center"
+              />
+            </label>
+            <label className="flex items-center gap-1">
+              <span>W:</span>
+              <input
+                type="number"
+                min="1"
+                step="0.5"
+                value={roomWidth}
+                onChange={(e) => setRoomWidth(parseFloat(e.target.value) || 1)}
+                className="w-14 px-1.5 py-0.5 rounded border border-stone-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 font-mono text-center"
+              />
+            </label>
+            <label className="flex items-center gap-1">
+              <span>H:</span>
+              <input
+                type="number"
+                min="1"
+                step="0.1"
+                value={roomHeight}
+                onChange={(e) => setRoomHeight(parseFloat(e.target.value) || 1)}
+                className="w-14 px-1.5 py-0.5 rounded border border-stone-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 font-mono text-center"
+              />
+            </label>
+            <span className="text-ink-muted dark:text-zinc-400">{unit === 'metric' ? 'meters' : 'feet'}</span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-4">
+          <div className="text-ink-muted dark:text-zinc-400">
+            Volume: <span className="font-bold font-mono text-ink dark:text-white">{room.volumeM3} m³</span> ({room.floorAreaM2} m² area)
+          </div>
           <button
-            onClick={() => setFilterCount(4)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-              filterCount === 4
-                ? 'bg-ink text-white font-bold dark:bg-white dark:text-black shadow-sm'
-                : 'text-ink-muted hover:text-ink dark:text-zinc-400 dark:hover:text-white'
-            }`}
+            onClick={() => {
+              const newUnit = unit === 'metric' ? 'imperial' : 'metric';
+              setUnit(newUnit);
+              if (newUnit === 'imperial') {
+                setRoomLength(Math.round(roomLength * 3.28084 * 10) / 10);
+                setRoomWidth(Math.round(roomWidth * 3.28084 * 10) / 10);
+                setRoomHeight(Math.round(roomHeight * 3.28084 * 10) / 10);
+              } else {
+                setRoomLength(Math.round((roomLength / 3.28084) * 10) / 10);
+                setRoomWidth(Math.round((roomWidth / 3.28084) * 10) / 10);
+                setRoomHeight(Math.round((roomHeight / 3.28084) * 10) / 10);
+              }
+            }}
+            className="px-2.5 py-1 rounded border border-stone-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-[11px] font-semibold hover:bg-stone-100 dark:hover:bg-zinc-700"
           >
-            4-Filter Cube (490 CFM Power)
-          </button>
-          <button
-            onClick={() => setFilterCount(5)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-              filterCount === 5
-                ? 'bg-ink text-white font-bold dark:bg-white dark:text-black shadow-sm'
-                : 'text-ink-muted hover:text-ink dark:text-zinc-400 dark:hover:text-white'
-            }`}
-          >
-            5-Filter Cube (580 CFM Extra Power)
+            Switch to {unit === 'metric' ? 'Feet (Imperial)' : 'Meters (Metric)'}
           </button>
         </div>
       </div>
 
       {/* Primary Metrics Grid */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {/* Metric 1: ACH */}
+        {/* Metric 1: ACH (B-008 Elimination: Medical terms replaced with scientific standards) */}
         <div className="rounded-xl p-5 bg-stone-50 dark:bg-zinc-900/60 border border-stone-200 dark:border-zinc-800/80">
           <div className="flex items-center justify-between text-ink-muted dark:text-zinc-400 text-xs mb-1.5">
-            <span className="font-semibold uppercase tracking-wider font-mono text-[11px]">Room Air Washed</span>
+            <span className="font-semibold uppercase tracking-wider font-mono text-[11px]">Clean Air Delivery</span>
             <Zap className="w-4 h-4 text-sage-600 dark:text-zinc-300" />
           </div>
           <div className="text-3xl sm:text-4xl font-extrabold text-ink dark:text-white font-mono tracking-tight tabular-nums">
-            {activeSpec.airChangesPerHour} <span className="text-sm font-sans font-normal text-ink-muted dark:text-zinc-400">times/hr (ACH)</span>
+            {achResult.ach} <span className="text-sm font-sans font-normal text-ink-muted dark:text-zinc-400">ACH</span>
           </div>
           <p className="text-xs text-sage-700 dark:text-zinc-300 mt-2 font-semibold flex items-center gap-1">
-            <CheckCircle2 className="w-3.5 h-3.5 text-sage-600 dark:text-white" />
-            <span>
-              {activeSpec.airChangesPerHour >= 6
-                ? 'Hospital Isolation Grade Clean Air'
-                : 'Exceeds Standard Clean Air Goal (4 ACH)'}
-            </span>
+            <CheckCircle2 className="w-3.5 h-3.5 text-sage-600 dark:text-white shrink-0" />
+            <span>{achResult.evaluationText}</span>
           </p>
         </div>
 
-        {/* Metric 2: Particle Half-Life Clearance */}
+        {/* Metric 2: Particle Clearance Times (50% and 90%) */}
         <div className="rounded-xl p-5 bg-stone-50 dark:bg-zinc-900/60 border border-stone-200 dark:border-zinc-800/80">
           <div className="flex items-center justify-between text-ink-muted dark:text-zinc-400 text-xs mb-1.5">
-            <span className="font-semibold uppercase tracking-wider font-mono text-[11px]">Cuts Smog by Half</span>
+            <span className="font-semibold uppercase tracking-wider font-mono text-[11px]">Clearance Dynamics</span>
             <Timer className="w-4 h-4 text-sage-600 dark:text-zinc-300" />
           </div>
           <div className="text-3xl sm:text-4xl font-extrabold text-ink dark:text-white font-mono tracking-tight tabular-nums">
-            {activeSpec.clearingHalfLifeMinutes} <span className="text-sm font-sans font-normal text-ink-muted dark:text-zinc-400">mins</span>
+            {decayResult.minutesTo50Percent} <span className="text-sm font-sans font-normal text-ink-muted dark:text-zinc-400">mins (50%)</span>
           </div>
           <p className="text-xs text-stone-500 dark:text-zinc-500 mt-2">
-            Time needed to clear 50% of airborne dust from your {activeSpec.roomVolumeM3} m³ room.
+            90% particle clearance in ~{decayResult.minutesTo90Percent} minutes ({decayResult.totalLossRatePerHour}/h total loss rate in sealed {room.volumeM3} m³ room).
           </p>
         </div>
 
-        {/* Metric 3: Cost Comparison */}
+        {/* Metric 3: Cost Comparison (B-007 Elimination: Editable and Dated) */}
         <div className="rounded-xl p-5 bg-stone-50 dark:bg-zinc-900/60 border border-stone-200 dark:border-zinc-800/80">
           <div className="flex items-center justify-between text-ink-muted dark:text-zinc-400 text-xs mb-1.5">
-            <span className="font-semibold uppercase tracking-wider font-mono text-[11px]">Estimated Total Cost</span>
-            <DollarSign className="w-4 h-4 text-sage-600 dark:text-zinc-300" />
+            <span className="font-semibold uppercase tracking-wider font-mono text-[11px]">Estimated Build Cost</span>
+            <button
+              onClick={() => setShowCostEditor(!showCostEditor)}
+              aria-label="Edit component costs"
+              className="p-1 rounded text-ink-muted hover:text-ink dark:text-zinc-400 dark:hover:text-white"
+            >
+              <Settings2 className="w-3.5 h-3.5" />
+            </button>
           </div>
           <div className="text-3xl sm:text-4xl font-extrabold text-ink dark:text-white font-mono tracking-tight tabular-nums">
-            ₹{activeSpec.estimatedCostINR} <span className="text-xs font-sans font-normal text-ink-muted dark:text-zinc-400">vs ₹18,000 Branded</span>
+            ₹{bom.totalDiyCost} <span className="text-xs font-sans font-normal text-ink-muted dark:text-zinc-400">vs ₹{bom.commercialPurifierComparisonCost}</span>
           </div>
           <p className="text-xs text-sage-700 dark:text-zinc-300 mt-2 font-semibold">
-            Delivers 83% financial savings with identical clean air output.
+            {bom.isUserOverridden ? 'Custom user cost estimate' : `Baseline dated ${bom.lastUpdated}`} (~{Math.round(((bom.commercialPurifierComparisonCost - bom.totalDiyCost) / bom.commercialPurifierComparisonCost) * 100)}% savings)
           </p>
         </div>
       </div>
 
-      {/* Assembly Blueprint & Bill of Materials */}
+      {/* Editable Cost Inputs Panel */}
+      {showCostEditor && (
+        <div className="p-4 rounded-xl bg-stone-50 dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 space-y-3 text-xs">
+          <div className="font-bold text-ink dark:text-white">Custom Component Cost Editor (₹ INR)</div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <label className="space-y-1">
+              <span className="text-ink-muted dark:text-zinc-400">Box Fan (₹):</span>
+              <input
+                type="number"
+                value={customFanCost}
+                onChange={(e) => setCustomFanCost(parseInt(e.target.value, 10) || 0)}
+                className="w-full px-2 py-1 rounded border border-stone-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 font-mono"
+              />
+            </label>
+            <label className="space-y-1">
+              <span className="text-ink-muted dark:text-zinc-400">Filters Total (₹):</span>
+              <input
+                type="number"
+                value={customFilterCost}
+                onChange={(e) => setCustomFilterCost(parseInt(e.target.value, 10) || 0)}
+                className="w-full px-2 py-1 rounded border border-stone-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 font-mono"
+              />
+            </label>
+            <label className="space-y-1">
+              <span className="text-ink-muted dark:text-zinc-400">Tape &amp; Shroud (₹):</span>
+              <input
+                type="number"
+                value={customTapeCost}
+                onChange={(e) => setCustomTapeCost(parseInt(e.target.value, 10) || 0)}
+                className="w-full px-2 py-1 rounded border border-stone-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 font-mono"
+              />
+            </label>
+            <label className="space-y-1">
+              <span className="text-ink-muted dark:text-zinc-400">Branded Compare (₹):</span>
+              <input
+                type="number"
+                value={customCommercialCost}
+                onChange={(e) => setCustomCommercialCost(parseInt(e.target.value, 10) || 0)}
+                className="w-full px-2 py-1 rounded border border-stone-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 font-mono"
+              />
+            </label>
+          </div>
+        </div>
+      )}
+
+      {/* Assembly Blueprint & Disclosures */}
       <div className="rounded-xl bg-stone-50 dark:bg-zinc-950 p-5 border border-stone-200 dark:border-zinc-800 space-y-3">
         <h3 className="text-xs font-bold uppercase tracking-wider font-mono text-ink dark:text-zinc-300 flex items-center gap-2">
           <Wrench className="w-4 h-4 text-sage-600 dark:text-zinc-400" />
-          <span>Materials Needed &amp; Easy 20-Minute Setup</span>
+          <span>Physical Setup &amp; Scientific Disclosures</span>
         </h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs text-ink dark:text-zinc-300">
-          <div className="p-3 rounded-lg bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 shadow-xs">
-            <div className="font-bold text-ink dark:text-white mb-0.5">1. Box Fan (₹1,400)</div>
-            <p className="text-ink-muted dark:text-zinc-400 text-[11px]">20-inch 3-speed domestic box fan (Usha/Bajaj/generic).</p>
-          </div>
-          <div className="p-3 rounded-lg bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 shadow-xs">
-            <div className="font-bold text-ink dark:text-white mb-0.5">2. {filterCount}× MERV-13 Filters (₹1,400)</div>
-            <p className="text-ink-muted dark:text-zinc-400 text-[11px]">20×20×1 inch HVAC pleated filters (captures 0.3–1.0µm).</p>
-          </div>
-          <div className="p-3 rounded-lg bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 shadow-xs">
-            <div className="font-bold text-ink dark:text-white mb-0.5">3. Duct Tape &amp; Shroud (₹150)</div>
-            <p className="text-ink-muted dark:text-zinc-400 text-[11px]">Cardboard shroud circle taped over corners to stop backdraft.</p>
-          </div>
-          <div className="p-3 rounded-lg bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 shadow-xs">
-            <div className="font-bold text-ink dark:text-white mb-0.5">4. Assembly (15 Mins)</div>
-            <p className="text-ink-muted dark:text-zinc-400 text-[11px]">Tape filters in cube format, arrows pointing inward toward fan.</p>
-          </div>
+        <p className="text-xs text-ink-muted dark:text-zinc-400 leading-relaxed">
+          {activePreset.description}
+        </p>
+        <div className="pt-2 text-[11px] text-stone-500 dark:text-zinc-500 space-y-1">
+          <div>* <strong>Well-mixed model disclosure:</strong> Assumes uniform spatial air mixing, closed windows, and no continuous internal particle generation (e.g. smoking, deep-frying).</div>
+          <div>* <strong>Regulatory clarification:</strong> Standard residential purifiers do not provide hospital negative-pressure isolation. High ACH provides rapid aerosol dilution in ordinary living spaces.</div>
         </div>
       </div>
     </section>
