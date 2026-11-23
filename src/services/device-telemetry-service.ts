@@ -10,13 +10,16 @@
  * - No default (0, 0) coordinates: Unlocated monitors preserve null coordinates.
  * - Strict separation of device observation time (observedAt) vs reception time (receivedAt).
  * - Bounded buffers and safe stream lifecycle to prevent memory leaks or hung readers.
- * - Non-overlapping cancellable polling sessions.
+ * - Non-overlapping cancellable polling sessions with strict session generation tokens.
+ * - Exponential backoff on Wi-Fi poll failures.
+ * - Streaming TextDecoder to prevent chunk concatenation bugs.
  */
 
 import { GroundStationMetadata, EnvironmentalSourceRecord, SourceMeasurement } from '@/domain/types';
 import {
   DeviceProfile,
   DeviceTransportType,
+  DeviceIdentityStatus,
   VERIFIED_DEVICE_PROFILES,
 } from './devices/device-profiles';
 import {
@@ -27,6 +30,7 @@ import {
   validateDeviceAddress,
   ValidatedDeviceAddress,
 } from './devices/wifi-address-validator';
+import { DeviceCalibrationStatus } from '@/domain/calibration-math';
 
 export type DeviceConnectionState =
   | 'unsupported'             // Browser lacks WebSerial or is in an insecure context
@@ -54,11 +58,14 @@ export interface DeviceTelemetryPacket {
   // Step 5 Additions
   profile?: DeviceProfile;
   deviceId?: string | null;
+  identityStatus?: DeviceIdentityStatus;
   verifiedPacket?: VerifiedDevicePacket;
   rawPm25?: number | null;
   calibratedPm25?: number | null;
   calibrationApplied?: boolean;
   calibrationFormula?: string | null;
+  calibrationStatus?: DeviceCalibrationStatus;
+  diagnosticSnippet?: string;
 }
 
 export type DevicePacketListener = (packet: DeviceTelemetryPacket) => void;
@@ -76,6 +83,7 @@ export class HardwareDeviceService {
   private activeSource: 'webserial' | 'local_wifi' | null = null;
   private activeProfile?: DeviceProfile;
   private sessionId = '';
+  private sessionGeneration = 0; // Monotonic counter for session isolation
 
   // USB physical disconnection listener handle
   private serialDisconnectHandler: ((event: any) => void) | null = null;
@@ -85,6 +93,7 @@ export class HardwareDeviceService {
   private wifiPollTimer: any = null;
   private isWifiPolling = false;
   private activeWifiHost = '';
+  private consecutiveWifiFailures = 0;
 
   // Stale detection watchdog
   private staleWatchdogTimer: any = null;
@@ -112,7 +121,31 @@ export class HardwareDeviceService {
   }
 
   /**
-   * Returns whether a device is actively connected.
+   * Checks if a transport channel (USB port or Wi-Fi poller) is currently open.
+   */
+  isTransportOpen(): boolean {
+    return Boolean(
+      this.activePort ||
+      (this.activeSource === 'local_wifi' && (this.isWifiPolling || this.wifiAbortController))
+    );
+  }
+
+  /**
+   * Checks if the device is currently receiving fresh, non-stale telemetry packets.
+   */
+  isReceivingFreshData(): boolean {
+    return this.connectionState === 'receiving_data';
+  }
+
+  /**
+   * Checks if any observation reading has been received during the active session.
+   */
+  hasLastKnownReading(): boolean {
+    return this.lastPacket !== null;
+  }
+
+  /**
+   * Returns whether a device transport is currently active.
    */
   isConnected(): boolean {
     return (
@@ -145,7 +178,7 @@ export class HardwareDeviceService {
 
   /**
    * Connects to an air monitor via WebSerial over USB.
-   * Triggered strictly upon explicit user interaction (click).
+   * Calls `navigator.serial.requestPort()` synchronously with user gesture to preserve activation.
    */
   async connectUsbDevice(
     baudRate = 115200,
@@ -157,37 +190,18 @@ export class HardwareDeviceService {
       return { success: false, error: err };
     }
 
-    // Clean up any existing connection first
-    await this.disconnect();
-
     this.lastErrorMessage = null;
     this.setConnectionState('requesting_permission');
 
+    let port: any;
     try {
       const nav = navigator as any;
-      const port = await nav.serial.requestPort();
-      this.activePort = port;
-
-      this.setConnectionState('opening_connection');
-      await this.activePort.open({ baudRate });
-
-      this.activeSource = 'webserial';
-      this.activeProfile = profileId ? VERIFIED_DEVICE_PROFILES[profileId] : undefined;
-      this.sessionId = `serial-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-      this.isReading = true;
-      this.setConnectionState('connected_awaiting_data');
-
-      // Register native physical disconnect listener
-      this.attachSerialDisconnectListener();
-
-      // Start serial read loop
-      this.startSerialReadLoop();
-      return { success: true };
+      // Request port immediately to retain browser user activation
+      port = await nav.serial.requestPort();
     } catch (err: any) {
       const errorName = err?.name || '';
       const errorMsg = err?.message || String(err);
 
-      // Check if user cancelled port selection (not a fatal error)
       if (
         errorName === 'NotFoundError' ||
         errorMsg.includes('No port selected') ||
@@ -201,6 +215,34 @@ export class HardwareDeviceService {
       console.warn('WebSerial connection error:', errorMsg);
       return { success: false, error: errorMsg };
     }
+
+    // Port granted: Clean up previous session safely
+    await this.disconnect();
+
+    try {
+      this.setConnectionState('opening_connection');
+      await port.open({ baudRate });
+
+      this.activePort = port;
+      this.activeSource = 'webserial';
+      this.activeProfile = profileId ? VERIFIED_DEVICE_PROFILES[profileId] : undefined;
+      const currentGen = ++this.sessionGeneration;
+      this.sessionId = `serial-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      this.isReading = true;
+      this.setConnectionState('connected_awaiting_data');
+
+      // Register native physical disconnect listener
+      this.attachSerialDisconnectListener();
+
+      // Start serial read loop with current generation
+      this.startSerialReadLoop(currentGen);
+      return { success: true };
+    } catch (err: any) {
+      const errorMsg = err?.message || String(err);
+      this.setConnectionState('error', errorMsg);
+      console.warn('WebSerial port open error:', errorMsg);
+      return { success: false, error: errorMsg };
+    }
   }
 
   /**
@@ -209,8 +251,6 @@ export class HardwareDeviceService {
   async disconnectUsbDevice(): Promise<void> {
     this.isReading = false;
     this.stopStaleWatchdog();
-
-    // Detach physical disconnect listener
     this.detachSerialDisconnectListener();
 
     if (this.reader) {
@@ -251,6 +291,7 @@ export class HardwareDeviceService {
    * Universal disconnect for any active connection (USB or Wi-Fi).
    */
   async disconnect(): Promise<void> {
+    this.sessionGeneration++; // Invalidate any in-flight requests or timers
     this.stopStaleWatchdog();
     this.stopLocalWifiMonitoring();
     await this.disconnectUsbDevice();
@@ -274,7 +315,8 @@ export class HardwareDeviceService {
 
   /**
    * Starts a continuous, cancellable polling session for a local Wi-Fi monitor.
-   * Respects browser Local Network Access, CORS, and request timeout boundaries.
+   * Respects browser Local Network Access, CORS, request timeout boundaries,
+   * session tokens, and exponential backoff.
    */
   async startLocalWifiMonitoring(
     ipAddress: string,
@@ -290,26 +332,38 @@ export class HardwareDeviceService {
     // Clean up any existing connection first
     await this.disconnect();
 
+    const currentGen = ++this.sessionGeneration;
     this.activeSource = 'local_wifi';
     this.activeWifiHost = validation.cleanHost;
     this.activeProfile = profileId ? VERIFIED_DEVICE_PROFILES[profileId] : undefined;
     this.sessionId = `wifi-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    this.consecutiveWifiFailures = 0;
     this.setConnectionState('opening_connection');
 
     // Create fresh AbortController for this polling session
     this.wifiAbortController = new AbortController();
 
-    // Perform first fetch
-    const firstResult = await this.pollWifiEndpoint(validation.url, this.wifiAbortController.signal);
+    // Start repeating polling session with exponential backoff support
+    this.isWifiPolling = true;
+
+    // Perform first fetch passing generation token
+    const firstResult = await this.pollWifiEndpoint(validation.url, currentGen, this.wifiAbortController.signal);
+
+    // If session was superseded or disconnected while waiting for first fetch, abort
+    if (currentGen !== this.sessionGeneration || !this.isWifiPolling) {
+      return { packet: null, error: 'Session cancelled' };
+    }
 
     if (firstResult.error) {
+      this.consecutiveWifiFailures = 1;
       this.setConnectionState('error', firstResult.error);
+      // Schedule subsequent retry with 1st failure backoff: 15s
+      this.scheduleNextWifiPoll(validation.url, currentGen, 15000);
       return { packet: null, error: firstResult.error };
     }
 
-    // Start repeating polling session
-    this.isWifiPolling = true;
-    this.scheduleNextWifiPoll(validation.url, intervalMs);
+    this.consecutiveWifiFailures = 0;
+    this.scheduleNextWifiPoll(validation.url, currentGen, intervalMs);
 
     return { packet: firstResult.packet };
   }
@@ -319,6 +373,7 @@ export class HardwareDeviceService {
    */
   stopLocalWifiMonitoring(): void {
     this.isWifiPolling = false;
+    this.consecutiveWifiFailures = 0;
     this.stopStaleWatchdog();
 
     if (this.wifiPollTimer) {
@@ -357,7 +412,7 @@ export class HardwareDeviceService {
 
   /**
    * Normalizes heterogeneous JSON telemetry payloads into canonical packet contract.
-   * Enforces zero-fabrication validation and scientific calibration gating.
+   * Enforces zero-fabrication validation, identity status, and scientific calibration gating.
    */
   parseTelemetryPayload(data: any, source: 'webserial' | 'local_wifi'): DeviceTelemetryPacket | null {
     const verified = normalizeDevicePacket(data, {
@@ -438,7 +493,7 @@ export class HardwareDeviceService {
         receivedAt: this.lastPacket.receivedAt,
         rawUncalibratedValue: this.lastPacket.rawPm25,
         calibrationApplied: this.lastPacket.calibrationFormula || null,
-        qualityFlag: this.lastPacket.calibrationApplied ? 'calibrated' : 'raw',
+        qualityFlag: this.connectionState === 'stale' ? 'suspect' : (this.lastPacket.calibrationApplied ? 'calibrated' : 'raw'),
       });
     }
 
@@ -449,7 +504,7 @@ export class HardwareDeviceService {
         unit: 'ug/m3',
         observedAt: this.lastPacket.observedAt,
         receivedAt: this.lastPacket.receivedAt,
-        qualityFlag: 'raw',
+        qualityFlag: this.connectionState === 'stale' ? 'suspect' : 'raw',
       });
     }
 
@@ -542,11 +597,14 @@ export class HardwareDeviceService {
       source,
       profile: verified.profile,
       deviceId: verified.deviceId,
+      identityStatus: verified.identityStatus,
       verifiedPacket: verified,
       rawPm25: verified.rawPm25,
       calibratedPm25: verified.calibratedPm25,
       calibrationApplied: verified.calibrationApplied,
       calibrationFormula: verified.calibrationFormula,
+      calibrationStatus: verified.calibrationStatus,
+      diagnosticSnippet: verified.diagnosticSnippet,
     };
   }
 
@@ -606,6 +664,7 @@ export class HardwareDeviceService {
 
   private async pollWifiEndpoint(
     url: string,
+    sessionGeneration: number,
     signal?: AbortSignal
   ): Promise<{ packet: DeviceTelemetryPacket | null; error?: string }> {
     try {
@@ -621,12 +680,23 @@ export class HardwareDeviceService {
 
       let res: Response;
       try {
-        res = await fetch(url, { signal: fetchController.signal });
+        const fetchOptions: RequestInit = { signal: fetchController.signal };
+        // Support Chromium Local Network Access targetAddressSpace hint when available
+        try {
+          (fetchOptions as any).targetAddressSpace = 'local';
+        } catch {}
+
+        res = await fetch(url, fetchOptions);
       } finally {
         clearTimeout(timeoutId);
         if (combinedSignal) {
           combinedSignal.removeEventListener('abort', onAbort);
         }
+      }
+
+      // Check session isolation: if session changed during fetch, discard
+      if (sessionGeneration !== this.sessionGeneration || signal?.aborted) {
+        return { packet: null, error: 'Session superseded or aborted' };
       }
 
       if (!res.ok) {
@@ -635,6 +705,12 @@ export class HardwareDeviceService {
       }
 
       const data = await res.json();
+
+      // Re-verify session after parsing
+      if (sessionGeneration !== this.sessionGeneration || signal?.aborted) {
+        return { packet: null, error: 'Session superseded or aborted' };
+      }
+
       const packet = this.parseTelemetryPayload(data, 'local_wifi');
 
       if (!packet) {
@@ -648,6 +724,10 @@ export class HardwareDeviceService {
       this.notifyPacketListeners(packet);
       return { packet };
     } catch (err: any) {
+      if (sessionGeneration !== this.sessionGeneration || signal?.aborted) {
+        return { packet: null, error: 'Session superseded or aborted' };
+      }
+
       const isHttps = typeof window !== 'undefined' && window.location.protocol === 'https:';
       const isFailedFetch = err?.name === 'TypeError' || err?.message?.includes('Failed to fetch');
       let friendlyError = err?.message || 'Connection failed.';
@@ -662,50 +742,74 @@ export class HardwareDeviceService {
     }
   }
 
-  private scheduleNextWifiPoll(url: string, intervalMs: number): void {
-    if (!this.isWifiPolling || !this.wifiAbortController) return;
+  private scheduleNextWifiPoll(url: string, sessionGeneration: number, intervalMs: number): void {
+    if (!this.isWifiPolling || !this.wifiAbortController || sessionGeneration !== this.sessionGeneration) return;
 
     this.wifiPollTimer = setTimeout(async () => {
-      if (!this.isWifiPolling || !this.wifiAbortController) return;
+      if (!this.isWifiPolling || !this.wifiAbortController || sessionGeneration !== this.sessionGeneration) return;
 
-      const result = await this.pollWifiEndpoint(url, this.wifiAbortController.signal);
-      if (result.error && this.isWifiPolling) {
-        // If consecutive errors happen, don't immediately drop; stale watchdog handles freshness
-        console.warn(`Wi-Fi poll failure for ${this.activeWifiHost}:`, result.error);
+      const result = await this.pollWifiEndpoint(url, sessionGeneration, this.wifiAbortController.signal);
+      if (sessionGeneration !== this.sessionGeneration || !this.isWifiPolling) return;
+
+      let nextInterval = intervalMs;
+      if (result.error) {
+        this.consecutiveWifiFailures++;
+        // Bounded exponential backoff policy:
+        // 1 failure: 15 seconds
+        // 2 failures: 30 seconds
+        // 3+ failures: 60 seconds (capped)
+        if (this.consecutiveWifiFailures === 1) {
+          nextInterval = 15000;
+        } else if (this.consecutiveWifiFailures === 2) {
+          nextInterval = 30000;
+        } else {
+          nextInterval = 60000;
+        }
+        console.warn(`Wi-Fi poll failure for ${this.activeWifiHost} (consecutive: ${this.consecutiveWifiFailures}):`, result.error);
+      } else {
+        this.consecutiveWifiFailures = 0;
+        nextInterval = 10000; // Reset to standard 10s interval on success
       }
 
       // Schedule subsequent poll
-      if (this.isWifiPolling) {
-        this.scheduleNextWifiPoll(url, intervalMs);
+      if (this.isWifiPolling && sessionGeneration === this.sessionGeneration) {
+        this.scheduleNextWifiPoll(url, sessionGeneration, nextInterval);
       }
     }, intervalMs);
   }
 
-  private async startSerialReadLoop(): Promise<void> {
+  private async startSerialReadLoop(sessionGeneration: number): Promise<void> {
     if (!this.activePort || !this.activePort.readable) return;
 
     try {
-      if (typeof (window as any)?.TextDecoderStream === 'function') {
-        const textDecoder = new (window as any).TextDecoderStream();
-        this.activePort.readable.pipeTo(textDecoder.writable);
-        this.reader = textDecoder.readable.getReader();
-      } else if (typeof this.activePort.readable.getReader === 'function') {
+      const textDecoder = new TextDecoder('utf-8', { fatal: false });
+
+      if (typeof this.activePort.readable.getReader === 'function') {
         this.reader = this.activePort.readable.getReader();
       } else {
-        // Readable stream not available in this test environment
         return;
       }
 
       let buffer = '';
       const MAX_BUFFER_SIZE = 16384; // 16 KB bounded buffer
 
-      while (this.isReading) {
+      while (this.isReading && sessionGeneration === this.sessionGeneration) {
         const { value, done } = await this.reader.read();
-        if (done) break;
-        if (value) {
-          buffer += value;
 
-          // Prevent unbounded buffer accumulation if device sends line without newline
+        // Check if stream closed naturally by device or cable removal
+        if (done) {
+          break;
+        }
+
+        if (value) {
+          // Decode Uint8Array chunk with streaming mode to support split UTF-8 sequences
+          const chunkText = typeof value === 'string'
+            ? value
+            : textDecoder.decode(value, { stream: true });
+
+          buffer += chunkText;
+
+          // Prevent unbounded buffer accumulation
           if (buffer.length > MAX_BUFFER_SIZE) {
             buffer = buffer.slice(-4096);
           }
@@ -720,6 +824,8 @@ export class HardwareDeviceService {
             if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
               try {
                 const parsed = JSON.parse(trimmed);
+                if (sessionGeneration !== this.sessionGeneration || !this.isReading) return;
+
                 const packet = this.parseTelemetryPayload(parsed, 'webserial');
                 if (packet) {
                   this.lastPacket = packet;
@@ -734,14 +840,32 @@ export class HardwareDeviceService {
           }
         }
       }
+
+      // Clean stream termination: reached EOF/done
+      if (this.isReading && sessionGeneration === this.sessionGeneration) {
+        this.isReading = false;
+        this.stopStaleWatchdog();
+        this.detachSerialDisconnectListener();
+        this.setConnectionState('disconnected');
+      }
     } catch (err: any) {
       console.warn('WebSerial stream closed or encountered error:', err?.message || err);
-      if (this.isReading) {
+      if (this.isReading && sessionGeneration === this.sessionGeneration) {
+        this.isReading = false;
+        this.stopStaleWatchdog();
+        this.detachSerialDisconnectListener();
         this.setConnectionState('error', err?.message || 'Device stream interrupted');
       }
     } finally {
-      if (this.activeSource === 'webserial' && !this.isReading) {
-        this.setConnectionState('disconnected');
+      if (sessionGeneration === this.sessionGeneration) {
+        if (this.reader) {
+          try {
+            if (typeof this.reader.releaseLock === 'function') {
+              this.reader.releaseLock();
+            }
+          } catch {}
+          this.reader = null;
+        }
       }
     }
   }

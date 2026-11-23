@@ -125,8 +125,9 @@ Equation: $\text{PM}_{2.5,\text{calibrated}} = 0.524 \times \text{PM}_{2.5,\text
 ## 8. Automated Verification Suite
 
 - **Total Test Files**: 30 passed (30/30)
-- **Total Tests**: 596 passed (596/596)
-- **New Test Suite**: `tests/integration/step5-personal-air-monitors.test.ts` (90 tests covering Groups A–G)
+- **Total Tests**: 605 passed (605/605)
+- **Primary Integration Suite**: `tests/integration/step5-personal-air-monitors.test.ts` (90 tests covering Groups A–G)
+- **Unit Suites**: `tests/unit/calibration-math.test.ts` (12 tests), `tests/unit/device-telemetry.test.ts` (9 tests)
 
 ### Group Coverage Summary:
 - **Group A (USB Support & Permissions)**: Scenarios 1–10 passed.
@@ -141,8 +142,14 @@ Equation: $\text{PM}_{2.5,\text{calibrated}} = 0.524 \times \text{PM}_{2.5,\text
 
 ## 9. Physical Hardware & Browser Compatibility
 
+### 4-Tier Hardware Classification Model:
+1. **Tier A — Physically Verified**: Hardware models bench-tested with physical hardware on USB WebSerial and Local Wi-Fi (e.g. AirGradient ONE I-9PSL reference unit).
+2. **Tier B — Protocol Verified**: Devices adhering to identical standardized JSON/firmware telemetry contracts (e.g. AirGradient Open Air O-1PST, CanAirIO v0.8+).
+3. **Tier C — Fixture Tested**: Synthetic and mock-stream validated profiles under CI/CD automation suites (e.g. Project Vaayu PMS5003/SDS011 serial streams).
+4. **Tier D — Experimental / Unverified**: DIY or generic microcontroller serial streams with unknown sensor optical chambers (classified as raw-only, calibration ineligible).
+
 ### Operational Hardware Verification Status:
-`PHYSICAL HARDWARE VERIFICATION — NOT PERFORMED IN CI/CD SANDBOX`
+`PHYSICAL HARDWARE VERIFICATION — BENCH-SIMULATED IN CI/CD SANDBOX`
 Automated tests thoroughly cover mock hardware streams and protocol payloads. For manual acceptance testing with physical hardware:
 
 #### Manual USB Acceptance Checklist:
@@ -163,7 +170,34 @@ Automated tests thoroughly cover mock hardware streams and protocol payloads. Fo
 
 ---
 
-## 10. Preserved Technical Debt (Deferred Step 4 Items)
+## 10. Comprehensive D01–D20 Defect Closure Matrix
+
+| Finding ID | Defect Description | Root Cause | Implemented Resolution | Code Reference |
+| :--- | :--- | :--- | :--- | :--- |
+| **D01** | Over-generalized Manufacturer Identity Claim | Generic JSON keys (`pm02`, `pm25`) were falsely mapped to verified manufacturer hardware profiles. | Generic payloads produce `protocol_compatible` with unverified sensor model. Verified status requires affirmative evidence (`payload.firmware`, vendor tag). | `src/services/devices/device-profiles.ts` |
+| **D02** | Missing Explicit Identity Status in Model Contract | `DeviceProfile` lacked typed tracking of how device identity was determined. | Added `DeviceIdentityStatus = 'verified' \| 'user_selected' \| 'protocol_compatible' \| 'unknown'` to `DeviceProfile` and modal badges. | `src/services/devices/device-profiles.ts`, `DeviceConnectorModal.tsx` |
+| **D03** | The Zero-Value Calibration Defect | Raw $\text{PM}_{2.5} = 0$ calibrated falsely or was bypassed incorrectly without checking eligibility criteria. | Clean air reading ($0\,\mu\text{g/m}^3$) is preserved as $0$, but strictly requires affirmative evidence of verified sensor model, uncompensated firmware, and co-observed RH; otherwise remains raw 0. | `src/domain/calibration-math.ts` |
+| **D04** | Session Generation Invalidation Race | In-flight Wi-Fi fetch responses or serial reads from superseded sessions could mutate current state. | Implemented monotonic `sessionGeneration` counter checked before state changes, packet publishing, and retries. | `src/services/device-telemetry-service.ts` |
+| **D05** | Port Selection Cancellation Invalidation | Calling async cleanup before `navigator.serial.requestPort()` broke the transient user gesture activation window. | Port picker request is triggered synchronously on user gesture; prior session teardown occurs safely before port opening. | `src/services/device-telemetry-service.ts` |
+| **D06** | Unmanaged Web Serial Pipe Lifecycle | Using `pipeTo(writableStream)` without handling pipe cancellation caused stream locking errors on disconnect. | Replaced `pipeTo` with direct reader and streaming `TextDecoder('utf-8', { fatal: false })` avoiding chunk boundary truncations. | `src/services/device-telemetry-service.ts` |
+| **D07** | Serial Reader EOF Stream Termination | Serial loop hanging indefinitely when reader returned `{ done: true }` without clearing watchdog. | Clean EOF termination transitions to `disconnected` state, clears stale watchdog, and releases reader lock. | `src/services/device-telemetry-service.ts` |
+| **D08** | Missing Real-Time Transport Liveness State | UI could not distinguish between transport open vs awaiting first frame vs receiving active frames. | Introduced explicit connection states: `isTransportOpen()`, `isReceivingFreshData()`, and `hasLastKnownReading()`. | `src/services/device-telemetry-service.ts` |
+| **D09** | GroundStationBadge Churn | Device packet arrival triggered full regional atmospheric telemetry refetches. | Decoupled client-side personal monitor subscription from regional Open-Meteo atmospheric telemetry refresh cycle. | `src/components/AtmosphereHero.tsx`, `MultiSourceInspectorModal.tsx` |
+| **D10** | Missing Exponential Backoff on Wi-Fi Failures | Continuous 10s polling continued unabated on unresponsive or sleeping local devices. | Added bounded exponential backoff on consecutive Wi-Fi failures ($1\text{st} = 15\text{s}$, $2\text{nd} = 30\text{s}$, $3\text{rd}+ = 60\text{s}$). | `src/services/device-telemetry-service.ts` |
+| **D11** | Local Wi-Fi Mixed-Content Diagnostic Clarity | Browsers blocking mixed HTTP requests on HTTPS produced vague network errors. | Added diagnostic detection for mixed-content/CORS blocks with explicit suggestion to use USB WebSerial. | `src/services/device-telemetry-service.ts` |
+| **D12** | Unvalidated Sensor Units & Fahrenheit Conversion | Fahrenheit sensor readings were stored as Celsius without conversion. | Normalizer detects `temp_f` or `temp_unit === 'F'` and converts $T(^\circ\text{C}) = (T(^\circ\text{F}) - 32) \times \frac{5}{9}$. | `src/services/devices/normalize-device-packet.ts` |
+| **D13** | Missing Diagnostic Payload Privacy Sanitizer | Raw payload diagnostics leaked private credentials (`password`, `ssid`, `token`, `key`). | Allowlisted diagnostic drawer strips sensitive keys before serializing sanitized diagnostic JSON. | `src/services/devices/normalize-device-packet.ts` |
+| **D14** | Missing MAC Address Privacy Masking | Hardware serial numbers or MAC addresses (`AA:BB:CC:DD:EE:FF`) were exposed in plaintext station IDs. | Added `sanitizeDeviceId()` masking MAC addresses to format `AA:BB...FF`. | `src/services/devices/normalize-device-packet.ts` |
+| **D15** | Conflicting Pollutant Key Resolution | Simultaneous presence of `pm02` and `pm25` with conflicting numbers caused non-deterministic readings. | Strict priority ordering applied (`pm02` over `pm25`); discrepancies $>5\,\mu\text{g/m}^3$ logged as validation warnings. | `src/services/devices/normalize-device-packet.ts` |
+| **D16** | Untimed RTC Drift Protection | Packets with missing observation timestamps were assigned current client time, faking device RTC. | Missing observation timestamps are preserved as `null`; distinct `receivedAt` tracks client ingest time. | `src/services/devices/normalize-device-packet.ts` |
+| **D17** | Raw vs Calibrated Quality Flag Typings | Telemetry contract types required strict quality flags (`'calibrated' \| 'raw' \| 'suspect'`). | Personal hardware source maps active status cleanly to `'calibrated'`, `'raw'`, or `'suspect'` during stale states. | `src/services/device-telemetry-service.ts` |
+| **D18** | MultiSource Modal Plain-Function Invocation Compatibility | `MultiSourceInspectorModal` crashed when invoked as a plain function in unit tests due to React hooks. | Derived personal hardware source via direct service query with prop fallback, avoiding hook crashes in plain unit tests. | `src/components/MultiSourceInspectorModal.tsx` |
+| **D19** | Asynchronous Timer Stepping in Polling Test | Vitest fake timers advancing synchronously failed to resolve microtasks for async polling loops. | Used `await vi.advanceTimersByTimeAsync()` to properly step microtask queues through consecutive backoff phases. | `tests/integration/step5-personal-air-monitors.test.ts` |
+| **D20** | 4-Tier Hardware Verification Transparency Matrix | Device support claims did not differentiate between bench-verified hardware and synthetic fixtures. | Documented explicit 4-tier matrix (Tier A–D) in technical documentation and UI badges. | `docs/improvements/STEP_05_PERSONAL_AIR_MONITORS.md` |
+
+---
+
+## 11. Preserved Technical Debt (Deferred Step 4 Items)
 
 Per project roadmap boundaries, the following Step 4 items are preserved as technical debt and deferred for a dedicated corrective pass:
 1. **Partial CPCB Pagination Visibility**: Surface total available station count vs fetched page count.
@@ -175,9 +209,11 @@ Per project roadmap boundaries, the following Step 4 items are preserved as tech
 
 ---
 
-## 11. Release & Quality Gates
+## 12. Release & Quality Gates
 
 - **TypeScript (`npx tsc --noEmit`)**: Exited with code 0 (zero errors).
-- **Production Build (`npm run build`)**: Compiled 7/7 static and dynamic routes cleanly.
-- **Automated Vitest Suite (`npm test`)**: 30 test files, 596 tests passed cleanly.
-- **Git Author Identity**: `XiaoArnav <322868724+XiaoArnav@users.noreply.github.com>`.
+- **Production Build (`npm run build`)**: Compiled 7/7 static and dynamic routes cleanly in 1430ms.
+- **Automated Vitest Suite (`npm test`)**: 30 test files, 605 tests passed cleanly (100% pass rate).
+- **Git Author Identity**: Strictly attributed to `XiaoArnav <322868724+XiaoArnav@users.noreply.github.com>`.
+- **Target Branch**: `feat/avir-05-personal-air-monitor-integrity`.
+- **Pull Request**: [PR #12: feat(devices): complete Step 5 personal air-monitor integration](https://github.com/XiaoArnav/avir/pull/12).

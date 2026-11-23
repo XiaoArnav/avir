@@ -18,6 +18,16 @@ export interface CalibrationResult {
   notes?: string;
 }
 
+export interface DeviceCalibrationStatus {
+  eligible: boolean;
+  applied: boolean;
+  rawValue: number | null;
+  correctedValue: number | null;
+  methodId: string | null;
+  sourceReference: string | null;
+  reason: string | null;
+}
+
 export interface CalibrationEligibilityCriteria {
   sensorModel?: string | null;
   isFirmwareCompensated?: boolean;
@@ -26,19 +36,29 @@ export interface CalibrationEligibilityCriteria {
   rawPm25: number | null;
   rhMeasuredAt?: string | null;
   pmMeasuredAt?: string | null;
+  units?: {
+    pm25?: string;
+    humidity?: string;
+  };
+  identityStatus?: 'verified' | 'user_selected' | 'protocol_compatible' | 'unknown';
 }
 
 export interface SensorCalibrationEvaluation {
   eligible: boolean;
-  reason?: string;
+  applied: boolean;
+  reason?: string | null;
   recommendedMethod: 'epa_barkjohn' | 'none';
   calibratedPm25: number | null;
   rawPm25: number | null;
   formulaName: string;
+  methodId: string | null;
+  sourceReference: string | null;
 }
 
 /**
  * Supported low-cost optical particulate sensor models verified for Barkjohn correction.
+ * Barkjohn nationwide equation was empirically derived and validated for Plantower PMS5003
+ * and similar optical particle counters (e.g. Nova SDS011) in ambient aerosol regimes.
  */
 export const BARKJOHN_ELIGIBLE_SENSOR_MODELS = [
   'plantower pms5003',
@@ -60,7 +80,8 @@ export function isSensorModelBarkjohnEligible(model?: string | null): boolean {
 
 /**
  * Evaluates full scientific eligibility for sensor calibration.
- * Prevents double-calibration, enforces genuine local humidity, and verifies sensor models.
+ * Prevents double-calibration, enforces genuine local humidity, verifies sensor models,
+ * and fixes the zero-value bug where zero baseline was accepted without hardware verification.
  */
 export function evaluateSensorCalibrationEligibility(
   criteria: CalibrationEligibilityCriteria
@@ -73,27 +94,36 @@ export function evaluateSensorCalibrationEligibility(
     rawPm25,
     rhMeasuredAt,
     pmMeasuredAt,
+    units,
+    identityStatus,
   } = criteria;
 
   if (rawPm25 === null || rawPm25 === undefined || !Number.isFinite(rawPm25) || rawPm25 < 0) {
     return {
       eligible: false,
+      applied: false,
       reason: 'invalid_raw_pm25',
       recommendedMethod: 'none',
       calibratedPm25: null,
       rawPm25: null,
       formulaName: 'Invalid sensor output',
+      methodId: null,
+      sourceReference: null,
     };
   }
 
-  // Preserve clean air zero baseline
-  if (rawPm25 === 0) {
+  // Check measurement units if provided: must be standard µg/m³
+  if (units?.pm25 && units.pm25 !== 'ug/m3' && units.pm25 !== 'µg/m³') {
     return {
-      eligible: true,
-      recommendedMethod: 'epa_barkjohn',
-      calibratedPm25: 0,
-      rawPm25: 0,
-      formulaName: 'US EPA Barkjohn (Zero Baseline)',
+      eligible: false,
+      applied: false,
+      reason: 'unsupported_units',
+      recommendedMethod: 'none',
+      calibratedPm25: null,
+      rawPm25,
+      formulaName: `Raw sensor measurement — unsupported concentration units (${units.pm25})`,
+      methodId: null,
+      sourceReference: null,
     };
   }
 
@@ -101,11 +131,29 @@ export function evaluateSensorCalibrationEligibility(
   if (isFirmwareCompensated) {
     return {
       eligible: false,
+      applied: false,
       reason: 'already_compensated',
       recommendedMethod: 'none',
       calibratedPm25: null,
       rawPm25,
       formulaName: 'Firmware compensated output — external correction withheld',
+      methodId: null,
+      sourceReference: null,
+    };
+  }
+
+  // Check device identity status: an unverified protocol-compatible or unknown device cannot receive Barkjohn
+  if (identityStatus === 'protocol_compatible' || identityStatus === 'unknown') {
+    return {
+      eligible: false,
+      applied: false,
+      reason: 'unverified_device_identity',
+      recommendedMethod: 'none',
+      calibratedPm25: null,
+      rawPm25,
+      formulaName: 'Raw sensor measurement — hardware model unverified, calibration unavailable',
+      methodId: null,
+      sourceReference: null,
     };
   }
 
@@ -113,11 +161,14 @@ export function evaluateSensorCalibrationEligibility(
   if (!isSensorModelBarkjohnEligible(sensorModel)) {
     return {
       eligible: false,
+      applied: false,
       reason: 'unsupported_sensor_model',
       recommendedMethod: 'none',
       calibratedPm25: null,
       rawPm25,
       formulaName: 'Raw sensor measurement — calibration not verified for this hardware model',
+      methodId: null,
+      sourceReference: null,
     };
   }
 
@@ -130,11 +181,14 @@ export function evaluateSensorCalibrationEligibility(
   ) {
     return {
       eligible: false,
+      applied: false,
       reason: 'missing_humidity',
       recommendedMethod: 'none',
       calibratedPm25: null,
       rawPm25,
       formulaName: 'Raw sensor measurement — ambient relative humidity unavailable',
+      methodId: null,
+      sourceReference: null,
     };
   }
 
@@ -147,14 +201,31 @@ export function evaluateSensorCalibrationEligibility(
       if (deltaMinutes > 15) {
         return {
           eligible: false,
+          applied: false,
           reason: 'incompatible_timestamps',
           recommendedMethod: 'none',
           calibratedPm25: null,
           rawPm25,
           formulaName: 'Raw sensor measurement — humidity timestamp skew exceeds 15 minutes',
+          methodId: null,
+          sourceReference: null,
         };
       }
     }
+  }
+
+  // Zero-value handling: only when all prerequisites pass, a genuine zero baseline is preserved as 0
+  if (rawPm25 === 0) {
+    return {
+      eligible: true,
+      applied: true,
+      recommendedMethod: 'epa_barkjohn',
+      calibratedPm25: 0,
+      rawPm25: 0,
+      formulaName: 'US EPA Barkjohn (Zero Baseline)',
+      methodId: 'epa_barkjohn',
+      sourceReference: 'Barkjohn et al. (2021) AMT 14:4617-4637',
+    };
   }
 
   // Apply EPA Barkjohn calibration
@@ -162,20 +233,43 @@ export function evaluateSensorCalibrationEligibility(
   if (!calResult || !calResult.applied) {
     return {
       eligible: false,
+      applied: false,
       reason: 'calculation_failed',
       recommendedMethod: 'none',
       calibratedPm25: null,
       rawPm25,
       formulaName: 'Raw sensor measurement — calibration not applied',
+      methodId: null,
+      sourceReference: null,
     };
   }
 
   return {
     eligible: true,
+    applied: true,
     recommendedMethod: 'epa_barkjohn',
     calibratedPm25: calResult.calibratedPm25,
     rawPm25,
     formulaName: `US EPA Barkjohn (${calResult.rhPercent}% RH, ${sensorModel || 'PMS5003'})`,
+    methodId: 'epa_barkjohn',
+    sourceReference: 'Barkjohn et al. (2021) AMT 14:4617-4637',
+  };
+}
+
+/**
+ * Converts a SensorCalibrationEvaluation into a standardized DeviceCalibrationStatus.
+ */
+export function getDeviceCalibrationStatus(
+  evaluation: SensorCalibrationEvaluation
+): DeviceCalibrationStatus {
+  return {
+    eligible: evaluation.eligible,
+    applied: evaluation.applied,
+    rawValue: evaluation.rawPm25,
+    correctedValue: evaluation.calibratedPm25,
+    methodId: evaluation.methodId,
+    sourceReference: evaluation.sourceReference,
+    reason: evaluation.reason || null,
   };
 }
 
@@ -200,21 +294,7 @@ export function applyEpaBarkjohnCalibration(
 
   const hasValidRh = rhPercent !== null && rhPercent !== undefined && Number.isFinite(rhPercent);
 
-  // If concentration is 0 (clean air), calibrated is 0
-  if (rawPm25 === 0) {
-    return {
-      rawPm25: 0,
-      calibratedPm25: 0,
-      rhPercent: hasValidRh ? Math.min(100, Math.max(0, rhPercent!)) : null,
-      correctionFactor: 1.0,
-      formulaName: 'US EPA Barkjohn (Zero Baseline)',
-      applied: true,
-      notes: 'Clean zero concentration baseline preserved.',
-    };
-  }
-
-  // Never invent 50% RH if ambient humidity is missing.
-  // Barkjohn is strictly humidity-dependent: without measured RH, retain raw reading uncalibrated.
+  // If ambient humidity is missing, Barkjohn cannot be applied: retain raw reading uncalibrated
   if (!hasValidRh) {
     return {
       rawPm25: Math.round(rawPm25 * 10) / 10,
@@ -228,6 +308,19 @@ export function applyEpaBarkjohnCalibration(
   }
 
   const effectiveRh = Math.min(100, Math.max(0, rhPercent!));
+
+  // If concentration is 0 (clean air), calibrated is 0
+  if (rawPm25 === 0) {
+    return {
+      rawPm25: 0,
+      calibratedPm25: 0,
+      rhPercent: effectiveRh,
+      correctionFactor: 1.0,
+      formulaName: 'US EPA Barkjohn (Zero Baseline)',
+      applied: true,
+      notes: 'Clean zero concentration baseline preserved.',
+    };
+  }
 
   // Barkjohn equation: 0.524 * PM2.5_raw - 0.0862 * RH + 5.75
   let corrected = 0.524 * rawPm25 - 0.0862 * effectiveRh + 5.75;

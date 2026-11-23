@@ -218,28 +218,66 @@ describe('AVIR — Step 5 Personal Air-Monitor Integration (90 Scenarios)', () =
       expect(packet?.humidity).toBe(55);
     });
 
-    it('12. Fragmented JSON chunks across boundaries assemble cleanly', () => {
-      const chunk1 = '{"pm02": 45.2, "pm10": 6';
-      const chunk2 = '8.0, "rco2": 820}\n';
-      const full = chunk1 + chunk2;
-      const parsed = JSON.parse(full.trim());
+    it('12. Fragmented JSON chunks across boundaries assemble cleanly in stream reader', async () => {
+      let index = 0;
+      const chunks = [
+        new TextEncoder().encode('{"pm02": 45.2, "pm10": 6'),
+        new TextEncoder().encode('8.0, "rco2": 820}\n'),
+      ];
+      const mockReader = {
+        read: vi.fn().mockImplementation(async () => {
+          if (index < chunks.length) {
+            return { value: chunks[index++], done: false };
+          }
+          return { value: undefined, done: true };
+        }),
+        releaseLock: vi.fn(),
+        cancel: vi.fn().mockResolvedValue(undefined),
+      };
+      const mockPort = {
+        open: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+        readable: { getReader: () => mockReader },
+      };
+      mockNavigatorSerial({ requestPort: vi.fn().mockResolvedValue(mockPort), addEventListener: vi.fn() });
 
-      const packet = normalizeDevicePacket(parsed, { sessionId: 's1', transport: 'webserial' });
-      expect(packet).not.toBeNull();
-      expect(packet?.pm25).toBe(45.2);
-      expect(packet?.pm10).toBe(68.0);
+      const service = new HardwareDeviceService();
+      await service.connectUsbDevice();
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(service.getLastPacket()?.pm25).toBe(45.2);
+      expect(service.getLastPacket()?.pm10).toBe(68.0);
     });
 
-    it('13. Multiple packets in one read are split and latest is retained', () => {
-      const line1 = JSON.stringify({ pm02: 40.0, rco2: 800 });
-      const line2 = JSON.stringify({ pm02: 45.0, rco2: 850 });
+    it('13. Multiple packets in one read are split and latest is retained', async () => {
+      let index = 0;
+      const chunks = [
+        new TextEncoder().encode('{"pm02": 40.0, "rco2": 800}\n{"pm02": 45.0, "rco2": 850}\n'),
+      ];
+      const mockReader = {
+        read: vi.fn().mockImplementation(async () => {
+          if (index < chunks.length) {
+            return { value: chunks[index++], done: false };
+          }
+          return { value: undefined, done: true };
+        }),
+        releaseLock: vi.fn(),
+        cancel: vi.fn().mockResolvedValue(undefined),
+      };
+      const mockPort = {
+        open: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+        readable: { getReader: () => mockReader },
+      };
+      mockNavigatorSerial({ requestPort: vi.fn().mockResolvedValue(mockPort), addEventListener: vi.fn() });
+
       const service = new HardwareDeviceService();
+      await service.connectUsbDevice();
 
-      const p1 = service.parseTelemetryPayload(JSON.parse(line1), 'webserial');
-      const p2 = service.parseTelemetryPayload(JSON.parse(line2), 'webserial');
+      await new Promise((r) => setTimeout(r, 10));
 
-      expect(p1?.pm25).toBe(40.0);
-      expect(p2?.pm25).toBe(45.0);
+      expect(service.getLastPacket()?.pm25).toBe(45.0);
     });
 
     it('14. Malformed JSON chunk is safely ignored without throwing fatal error', () => {
@@ -535,11 +573,42 @@ describe('AVIR — Step 5 Personal Air-Monitor Integration (90 Scenarios)', () =
       expect(service.getLastPacket()).toBeNull();
     });
 
-    it('40. Bounded retry and non-crashing poll errors', async () => {
+    it('40. Bounded exponential backoff increases retry intervals on consecutive failures', async () => {
+      vi.useFakeTimers();
       const service = new HardwareDeviceService();
-      vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Temporary timeout')));
-      const res = await service.startLocalWifiMonitoring('192.168.1.50');
-      expect(res.packet).toBeNull();
+      let pollCount = 0;
+
+      vi.stubGlobal('fetch', vi.fn().mockImplementation(() => {
+        pollCount++;
+        return Promise.reject(new Error('Device offline'));
+      }));
+
+      await service.startLocalWifiMonitoring('192.168.1.50', 10000);
+      expect(pollCount).toBe(1); // Initial poll failed
+
+      // 1st failure backoff: 15 seconds
+      await vi.advanceTimersByTimeAsync(10000);
+      expect(pollCount).toBe(1); // 10s not enough
+
+      await vi.advanceTimersByTimeAsync(5000); // reaches 15s
+      expect(pollCount).toBe(2);
+
+      // 2nd failure backoff: 30 seconds
+      await vi.advanceTimersByTimeAsync(15000);
+      expect(pollCount).toBe(2);
+
+      await vi.advanceTimersByTimeAsync(15000); // reaches 30s
+      expect(pollCount).toBe(3);
+
+      // 3rd failure backoff: capped at 60s
+      await vi.advanceTimersByTimeAsync(30000);
+      expect(pollCount).toBe(3);
+
+      await vi.advanceTimersByTimeAsync(30000); // reaches 60s
+      expect(pollCount).toBe(4);
+
+      service.stopLocalWifiMonitoring();
+      vi.useRealTimers();
     });
 
     it('41. Stale data detection after timeout transition to stale', () => {
@@ -563,21 +632,42 @@ describe('AVIR — Step 5 Personal Air-Monitor Integration (90 Scenarios)', () =
       expect(listener).not.toHaveBeenCalled();
     });
 
-    it('43. Old device session request cannot overwrite new device session', async () => {
+    it('43. Old device session delayed request cannot overwrite new device session', async () => {
       const service = new HardwareDeviceService();
-      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-        ok: true,
-        json: vi.fn().mockResolvedValue({ pm02: 30 }),
+
+      let resolveDeviceA: any;
+      const deviceAPromise = new Promise((resolve) => {
+        resolveDeviceA = resolve;
+      });
+
+      vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => {
+        if (url.includes('192.168.1.50')) {
+          return deviceAPromise;
+        }
+        // Device B resolves immediately with PM2.5 = 45
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ pm02: 45, rco2: 600 }),
+        });
       }));
 
-      await service.startLocalWifiMonitoring('192.168.1.50');
-      const session1 = (service as any).sessionId;
+      // Connect Device A (request starts but does not resolve yet)
+      const connectAPromise = service.startLocalWifiMonitoring('192.168.1.50');
 
+      // User switches to Device B while Device A request is pending
       await service.startLocalWifiMonitoring('192.168.1.60');
-      const session2 = (service as any).sessionId;
+      expect(service.getLastPacket()?.pm25).toBe(45);
 
-      expect(session1).not.toBe(session2);
-      expect((service as any).activeWifiHost).toBe('192.168.1.60');
+      // Now Device A's delayed request finally resolves with PM2.5 = 200
+      resolveDeviceA({
+        ok: true,
+        json: async () => ({ pm02: 200, rco2: 999 }),
+      });
+      await connectAPromise;
+
+      // Assert that Avir strictly retained Device B's value of 45 and was not contaminated!
+      expect(service.getLastPacket()?.pm25).toBe(45);
+      expect(service.getActiveSource()).toBe('local_wifi');
     });
   });
 
@@ -834,13 +924,25 @@ describe('AVIR — Step 5 Personal Air-Monitor Integration (90 Scenarios)', () =
     });
 
     it('74. Calibration result remains derived, not observed ground-truth', () => {
-      const packet = normalizeDevicePacket(
+      // 1. Bare protocol-compatible packet without manufacturer proof is NOT auto-calibrated
+      const unverifiedPacket = normalizeDevicePacket(
         { pm02: 60, rhum: 65 },
         { sessionId: 's', transport: 'webserial' }
       );
-      expect(packet?.rawPm25).toBe(60);
-      expect(packet?.calibratedPm25).not.toBeNull();
-      expect(packet?.calibrationApplied).toBe(true);
+      expect(unverifiedPacket?.rawPm25).toBe(60);
+      expect(unverifiedPacket?.calibrationApplied).toBe(false);
+      expect(unverifiedPacket?.identityStatus).toBe('protocol_compatible');
+
+      // 2. Verified hardware model with genuine co-observed RH applies Barkjohn while retaining raw input
+      const verifiedPacket = normalizeDevicePacket(
+        { pm02: 60, rhum: 65, firmware: 'AirGradient-ONE-3.1.4' },
+        { sessionId: 's', transport: 'webserial' }
+      );
+      expect(verifiedPacket?.rawPm25).toBe(60);
+      expect(verifiedPacket?.calibratedPm25).not.toBeNull();
+      expect(verifiedPacket?.calibratedPm25).toBeCloseTo(31.6, 1);
+      expect(verifiedPacket?.calibrationApplied).toBe(true);
+      expect(verifiedPacket?.identityStatus).toBe('verified');
     });
   });
 
