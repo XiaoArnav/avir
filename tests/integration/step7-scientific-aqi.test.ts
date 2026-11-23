@@ -100,23 +100,21 @@ describe('AVIR — Step 7 Golden-Reference Verification: Scientifically Correct 
       expect(getAQICategory(aqi)).toBe('VeryUnhealthy');
     });
 
-    it('12. Hazardous ranges reach AQI 400 at 325.4 µg/m³ and AQI 500 at 500.4 µg/m³', () => {
-      // Tier 1 Hazardous: 225.5 - 325.4 -> 301 - 400
+    it('maps revised hazardous concentrations to their index', () => {
       expect(calculateAQIFromPM25(225.5)).toBe(301);
-      expect(calculateAQIFromPM25(325.4)).toBe(400);
+      expect(calculateAQIFromPM25(325.4)).toBe(500);
       expect(getAQICategory(400)).toBe('Hazardous');
 
-      // Tier 2 Hazardous: 325.5 - 500.4 -> 401 - 500
-      expect(calculateAQIFromPM25(325.5)).toBe(401);
-      expect(calculateAQIFromPM25(500.4)).toBe(500);
+      expect(calculateAQIFromPM25(325.5)).toBe(500);
+      expect(calculateAQIFromPM25(500.4)).toBe(849);
       expect(getAQICategory(500)).toBe('Hazardous');
     });
 
-    it('13. Concentrations above 500.4 µg/m³ are capped at AQI 500 per EPA TAD reporting conventions', () => {
+    it('reports values beyond the AQI 500 reference point', () => {
       const aqi550 = calculateAQIFromPM25(550.0);
       const aqi800 = calculateAQIFromPM25(800.0);
-      expect(aqi550).toBe(500);
-      expect(aqi800).toBe(500);
+      expect(aqi550).toBe(947);
+      expect(aqi800).toBe(1445);
       expect(getAQICategory(aqi550)).toBe('Hazardous');
     });
 
@@ -172,7 +170,7 @@ describe('AVIR — Step 7 Golden-Reference Verification: Scientifically Correct 
       expect(detailed.evidence.standard).toBe('US_EPA');
       expect(detailed.evidence.method).toBe('epa_pm25_24h_subindex');
       expect(detailed.evidence.standardVersion).toContain('EPA 2024 PM NAAQS');
-      expect(EPA_PM25_2024_BREAKPOINTS.length).toBe(7);
+      expect(EPA_PM25_2024_BREAKPOINTS.length).toBe(6);
     });
   });
 
@@ -909,8 +907,6 @@ describe('AVIR — Step 7 Golden-Reference Verification: Scientifically Correct 
       expect(EPA_PM25_2024_BREAKPOINTS[4].cHigh).toBe(225.4);
       expect(EPA_PM25_2024_BREAKPOINTS[5].cLow).toBe(225.5);
       expect(EPA_PM25_2024_BREAKPOINTS[5].cHigh).toBe(325.4);
-      expect(EPA_PM25_2024_BREAKPOINTS[6].cLow).toBe(325.5);
-      expect(EPA_PM25_2024_BREAKPOINTS[6].cHigh).toBe(500.4);
     });
   });
 });

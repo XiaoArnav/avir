@@ -319,6 +319,8 @@ export const RoutineBuilder: React.FC<RoutineBuilderProps> = ({
           return (
             <div
               key={act.id}
+              role="group"
+              aria-label={act.name}
               className="p-4 rounded-xl bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800/80 hover:border-stone-300 dark:hover:border-zinc-700 transition-all shadow-xs space-y-3"
             >
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -357,7 +359,7 @@ export const RoutineBuilder: React.FC<RoutineBuilderProps> = ({
                 <div className="flex items-center gap-4 self-end sm:self-auto shrink-0">
                   <div className="text-right">
                     <div className="text-xs font-mono font-bold text-ink dark:text-white">
-                      {exposure.status === 'available' ? `${actExposure?.inhaledMassUg ?? 0} µg` : '—'}
+                      {actExposure ? `${actExposure.inhaledMassUg} µg` : 'Unavailable'}
                     </div>
                     <div className="text-[10px] font-mono text-stone-400 dark:text-zinc-500">
                       inhaled mass
@@ -424,7 +426,7 @@ export const RoutineBuilder: React.FC<RoutineBuilderProps> = ({
                   <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
                     <button
                       onClick={() => handleAcceptShift(act.id, shiftProposal.proposedStart, shiftProposal.proposedEnd)}
-                      className="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-semibold transition-all shadow-xs"
+                      className="min-h-11 px-3 rounded bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold transition-all shadow-xs"
                     >
                       Accept Shift
                     </button>

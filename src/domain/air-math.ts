@@ -100,18 +100,6 @@ export const EPA_PM25_2024_BREAKPOINTS: readonly EpaBreakpointDef[] = [
     cLow: 225.5,
     cHigh: 325.4,
     iLow: 301,
-    iHigh: 400,
-    category: 'Hazardous',
-    standardVersion: 'EPA 2024 PM NAAQS (40 CFR Part 58 App G, May 2024)',
-    regulatorySource: 'US EPA Revised Air Quality Index for Particulate Matter',
-  },
-  {
-    pollutant: 'pm25',
-    unit: 'µg/m³',
-    averagingPeriod: '24-hour',
-    cLow: 325.5,
-    cHigh: 500.4,
-    iLow: 401,
     iHigh: 500,
     category: 'Hazardous',
     standardVersion: 'EPA 2024 PM NAAQS (40 CFR Part 58 App G, May 2024)',
@@ -282,7 +270,7 @@ export function calculateEpaPm25Aqi(
     : EPA_PM25_2024_BREAKPOINTS;
 
   for (const bp of breakpoints) {
-    if (truncated <= bp.cHigh) {
+    if (truncated <= bp.cHigh || (standardVersion === '2024' && bp.category === 'Hazardous')) {
       const aqi = ((bp.iHigh - bp.iLow) / (bp.cHigh - bp.cLow)) * (truncated - bp.cLow) + bp.iLow;
       return Math.round(aqi);
     }
@@ -300,7 +288,7 @@ export function calculateEpaPm25Aqi(
  * 1. Concentrations are truncated to 1 decimal place (0.1 µg/m³) before interpolation.
  * 2. Negative concentrations, NaN, Infinity, null, and undefined return null.
  * 3. Exact 0 concentration returns 0.
- * 4. Concentrations > 500.4 µg/m³ are capped at 500 (upper hazardous bound per EPA TAD).
+ * 4. Above 325.4 µg/m³ the hazardous slope continues per EPA Table 6, footnote 4.
  */
 export function calculateAQIFromPM25(pm25?: number | null): number | null {
   return calculateEpaPm25Aqi(pm25, '2024');
@@ -324,7 +312,7 @@ export function calculateDetailedEpaPm25Aqi(
   const truncated = pm25 !== null && pm25 !== undefined && Number.isFinite(pm25) && pm25 >= 0
     ? truncatePm25Concentration(pm25)
     : null;
-  const isBeyondAqi = truncated !== null && truncated > 500.4;
+  const isBeyondAqi = truncated !== null && truncated > (standardVersion === 'historical' ? 500.4 : 325.4);
 
   const stdName = standardVersion === 'historical'
     ? 'EPA 2012 PM NAAQS (historical)'
@@ -332,7 +320,7 @@ export function calculateDetailedEpaPm25Aqi(
 
   let notes = aqi !== null ? `Calculated via ${stdName}.` : 'Invalid or missing PM2.5 concentration.';
   if (isBeyondAqi) {
-    notes = `Concentration (${truncated} µg/m³) exceeds maximum defined breakpoint (500.4 µg/m³); index capped at 500 per EPA Technical Assistance Document.`;
+    notes = standardVersion === 'historical' ? 'Historical index capped at 500.' : 'Index extrapolated above 500 using EPA Table 6, footnote 4.';
   }
 
   return {

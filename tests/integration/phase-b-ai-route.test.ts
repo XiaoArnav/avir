@@ -89,7 +89,7 @@ describe('Step 16 — Secure AI Planning API Route Integration', () => {
     expect(calledWithClientKey).toBe(false);
   });
 
-  it('Elimination of B-009: Preserves deterministic calculations even when Gemini returns text', async () => {
+  it('falls back when Gemini adds a departure time unsupported by the plan', async () => {
     process.env.GEMINI_API_KEY = 'SERVER_AUTHORIZED_KEY_TEST';
 
     // Mock Gemini API returning an explanation with attempted hallucinated numbers
@@ -134,7 +134,9 @@ describe('Step 16 — Secure AI Planning API Route Integration', () => {
     expect(typeof data.deterministicPlan.baselineExposureUg).toBe('number');
     expect(typeof data.deterministicPlan.optimizedExposureUg).toBe('number');
     expect(data.aiExplanation).toBeDefined();
-    expect(data.aiExplanation.summary).toContain('Shift your outdoor cardio');
+    expect(data.isAiGenerated).toBe(false);
+    expect(data.aiExplanation.summary).toBe(data.deterministicPlan.statusMessage);
+    expect(JSON.stringify(data.aiExplanation)).not.toContain('past 8 AM');
   });
 
   it('Gracefully falls back to deterministic explanation template when GEMINI_API_KEY is unconfigured', async () => {

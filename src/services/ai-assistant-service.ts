@@ -11,11 +11,14 @@ import {
   calculateBerkeleyCigarettes,
 } from '@/domain/air-math';
 import { inspectPromptInjection } from '@/lib/security/sanitizer';
+import { sanitizeUserHealthContext } from '@/services/ai/plan-validator';
+import type { GeneralizedSensitivity } from '@/domain/planning-types';
 
 export interface PlanGenerationRequest {
   city: string;
   metrics: AtmosphericMetrics;
   profile: UserVulnerabilityProfile;
+  generalizedSensitivity?: GeneralizedSensitivity;
   roomSizeSqFt?: number;
   customRoutine?: string;
   geminiApiKey?: string;
@@ -164,8 +167,8 @@ export function generateLocalHeuristicPlan(req: PlanGenerationRequest): Recommen
     ? `Air quality advisory active for ${city} with AQI ${metrics.usAqi} (${aqiCategory}).${inversionClause} High-exposure individuals must prioritize indoor clean air zones and reschedule peak morning workouts.`
     : `Air quality telemetry synchronizing for ${city}.${inversionClause} Follow standard preventive guidelines.`;
 
-  if (profile?.hasAsthmaOrRespiratory || profile?.ageGroup === 'infant') {
-    summaryAdvisory += ' High clinical vulnerability detected: enforce indoor N95 seals and run air cleaning continuously.';
+  if ((req.generalizedSensitivity ?? sanitizeUserHealthContext(profile)) !== 'standard') {
+    summaryAdvisory += ' Your selected vulnerability profile may warrant additional precautions. Follow your local public health advisory.';
   }
 
   return {
@@ -212,7 +215,8 @@ export async function generateAirQualityPlan(req: PlanGenerationRequest): Promis
       const response = await fetch('/api/ai/plan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(req),
+        body: JSON.stringify({ city: req.city, metrics: req.metrics, roomSizeSqFt: req.roomSizeSqFt,
+          customRoutine: req.customRoutine, generalizedSensitivity: sanitizeUserHealthContext(req.profile) }),
       });
 
       if (response.ok) {

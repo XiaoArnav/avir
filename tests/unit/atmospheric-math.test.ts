@@ -23,8 +23,8 @@ describe('Atmospheric Math & Exposure Toxicology Engine', () => {
       expect(calculateAQIFromPM25(55.4)).toBe(150);
       expect(calculateAQIFromPM25(125.4)).toBe(200); // 2024 EPA revised Unhealthy endpoint (formerly 150.4)
       expect(calculateAQIFromPM25(225.4)).toBe(300); // 2024 EPA revised Very Unhealthy endpoint (formerly 250.4)
-      expect(calculateAQIFromPM25(325.4)).toBe(400); // 2024 EPA Hazardous band 1
-      expect(calculateAQIFromPM25(500.4)).toBe(500); // 2024 EPA Hazardous band 2
+      expect(calculateAQIFromPM25(325.4)).toBe(500);
+      expect(calculateAQIFromPM25(500.4)).toBe(849);
     });
 
     it('calculates authentic CPCB NAQI via Indian National Air Quality Index breakpoints', () => {
