@@ -1,7 +1,9 @@
 'use client';
 
 import React, { useEffect, useRef, useCallback } from 'react';
+import { motion, useReducedMotion } from 'motion/react';
 import { X } from 'lucide-react';
+import { springs, duration } from '@/lib/motion-tokens';
 
 export interface UseAccessibleDialogOptions {
   isOpen: boolean;
@@ -116,6 +118,7 @@ export const AccessibleDialog: React.FC<AccessibleDialogProps> = ({
   ariaLabel,
 }) => {
   const dialogRef = useRef<HTMLDivElement>(null);
+  const shouldReduceMotion = useReducedMotion();
   useAccessibleDialog({ isOpen, onClose, dialogRef });
 
   if (!isOpen) return null;
@@ -124,9 +127,13 @@ export const AccessibleDialog: React.FC<AccessibleDialogProps> = ({
   const descId = 'accessible-dialog-desc';
 
   return (
-    <div
+    <motion.div
       role="presentation"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-black/70 backdrop-blur-md animate-in fade-in duration-200"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: shouldReduceMotion ? 0.01 : duration.fast }}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-black/70 backdrop-blur-md"
       onClick={(e) => {
         // Close on backdrop click if clicking directly on overlay
         if (e.target === e.currentTarget) {
@@ -134,7 +141,7 @@ export const AccessibleDialog: React.FC<AccessibleDialogProps> = ({
         }
       }}
     >
-      <div
+      <motion.div
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
@@ -142,6 +149,10 @@ export const AccessibleDialog: React.FC<AccessibleDialogProps> = ({
         aria-describedby={description ? descId : undefined}
         aria-label={ariaLabel}
         tabIndex={-1}
+        initial={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.96, y: 10 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.97, y: 8 }}
+        transition={shouldReduceMotion ? { duration: 0.01 } : springs.gentle}
         className={`w-full ${maxWidthClassName} bg-white dark:bg-zinc-950 border border-stone-300 dark:border-zinc-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] transition-colors focus:outline-none`}
       >
         {/* Header */}
@@ -156,21 +167,23 @@ export const AccessibleDialog: React.FC<AccessibleDialogProps> = ({
               </p>
             )}
           </div>
-          <button
+          <motion.button
             type="button"
             onClick={onClose}
+            whileHover={shouldReduceMotion ? undefined : { scale: 1.08 }}
+            whileTap={shouldReduceMotion ? undefined : { scale: 0.92 }}
             aria-label="Close dialog"
             className="p-2 rounded-xl text-ink-muted hover:text-ink hover:bg-stone-200/80 dark:text-zinc-400 dark:hover:text-white dark:hover:bg-zinc-800 transition-colors focus-visible-ring cursor-pointer"
           >
             <X className="w-5 h-5" />
-          </button>
+          </motion.button>
         </div>
 
         {/* Content body */}
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
           {children}
         </div>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 };

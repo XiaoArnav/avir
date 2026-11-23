@@ -1,9 +1,11 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
 import { HourlyAtmosphericPoint } from '@/domain/types';
 import { analyzeDiurnalRelativeWindows } from '@/services/forecast/hourly-alignment';
-import { Clock, Sun, AlertTriangle, ShieldCheck, TrendingUp, Table } from 'lucide-react';
+import { Clock, Sun, AlertTriangle, TrendingUp, Table } from 'lucide-react';
+import { springs, duration } from '@/lib/motion-tokens';
 
 interface DiurnalForecastTimelineProps {
   hourlyForecast?: HourlyAtmosphericPoint[];
@@ -18,6 +20,8 @@ export const DiurnalForecastTimeline: React.FC<DiurnalForecastTimelineProps> = (
   currentHour = new Date().getHours(),
   cityName,
 }) => {
+  const shouldReduceMotion = useReducedMotion();
+
   // Use unique timestamp key (validAtUtc or time) for stable cross-date identity
   const [selectedKey, setSelectedKey] = useState<string>('');
   const [metricMode, setMetricMode] = useState<ForecastMetricMode>('pm25');
@@ -164,16 +168,6 @@ export const DiurnalForecastTimeline: React.FC<DiurnalForecastTimelineProps> = (
     hourlyForecast.find((p) => (p.validAtUtc || p.time || String(p.hour)) === selectedKey) ||
     hourlyForecast[0];
 
-  const getAqiColor = (aqi: number | null | undefined) => {
-    if (aqi === null || aqi === undefined) return 'text-stone-400 bg-stone-100 dark:bg-zinc-800 border-stone-200 dark:border-zinc-700';
-    if (aqi <= 50) return 'text-emerald-500 bg-emerald-500/10 border-emerald-500/30';
-    if (aqi <= 100) return 'text-yellow-500 bg-yellow-500/10 border-yellow-500/30';
-    if (aqi <= 150) return 'text-orange-500 bg-orange-500/10 border-orange-500/30';
-    if (aqi <= 200) return 'text-rose-500 bg-rose-500/10 border-rose-500/30';
-    if (aqi <= 300) return 'text-purple-500 bg-purple-500/10 border-purple-500/30';
-    return 'text-red-500 bg-red-500/10 border-red-500/30';
-  };
-
   return (
     <div className="bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl p-5 sm:p-6 shadow-sm space-y-6">
       {/* Header with Metric Selector */}
@@ -194,40 +188,57 @@ export const DiurnalForecastTimeline: React.FC<DiurnalForecastTimelineProps> = (
 
         {/* View Mode Toggle: PM2.5 Mass vs US AQI Index */}
         <div className="flex items-center gap-2 self-start sm:self-auto">
-          <div className="flex items-center rounded-xl p-1 bg-stone-100 dark:bg-zinc-800 border border-stone-200 dark:border-zinc-700 text-xs font-semibold">
+          <div className="flex items-center rounded-xl p-1 bg-stone-100 dark:bg-zinc-800 border border-stone-200 dark:border-zinc-700 text-xs font-semibold relative">
             <button
               type="button"
               onClick={() => setMetricMode('pm25')}
-              className={`px-3 py-1 rounded-lg transition-all ${
+              className={`relative z-10 px-3 py-1 rounded-lg transition-colors cursor-pointer ${
                 metricMode === 'pm25'
-                  ? 'bg-white text-ink shadow-xs dark:bg-black dark:text-white'
+                  ? 'text-ink dark:text-white font-bold'
                   : 'text-ink-muted dark:text-zinc-400 hover:text-ink'
               }`}
             >
-              PM2.5 (µg/m³)
+              {metricMode === 'pm25' && (
+                <motion.div
+                  layoutId={shouldReduceMotion ? undefined : 'forecastMetricModePill'}
+                  className="absolute inset-0 bg-white dark:bg-black rounded-lg shadow-xs"
+                  transition={springs.snappy}
+                />
+              )}
+              <span className="relative z-10">PM2.5 (µg/m³)</span>
             </button>
             <button
               type="button"
               onClick={() => setMetricMode('usAqi')}
-              className={`px-3 py-1 rounded-lg transition-all ${
+              className={`relative z-10 px-3 py-1 rounded-lg transition-colors cursor-pointer ${
                 metricMode === 'usAqi'
-                  ? 'bg-white text-ink shadow-xs dark:bg-black dark:text-white'
+                  ? 'text-ink dark:text-white font-bold'
                   : 'text-ink-muted dark:text-zinc-400 hover:text-ink'
               }`}
             >
-              US EPA AQI
+              {metricMode === 'usAqi' && (
+                <motion.div
+                  layoutId={shouldReduceMotion ? undefined : 'forecastMetricModePill'}
+                  className="absolute inset-0 bg-white dark:bg-black rounded-lg shadow-xs"
+                  transition={springs.snappy}
+                />
+              )}
+              <span className="relative z-10">US EPA AQI</span>
             </button>
           </div>
 
-          <button
+          <motion.button
             type="button"
             onClick={() => setShowDataTable(!showDataTable)}
-            className="p-1.5 rounded-xl border border-stone-200 dark:border-zinc-800 text-ink-muted hover:text-ink dark:text-zinc-400 dark:hover:text-white transition-colors"
+            whileTap={shouldReduceMotion ? undefined : { scale: 0.92 }}
+            whileHover={shouldReduceMotion ? undefined : { scale: 1.05 }}
+            transition={springs.snappy}
+            className="p-1.5 rounded-xl border border-stone-200 dark:border-zinc-800 text-ink-muted hover:text-ink dark:text-zinc-400 dark:hover:text-white transition-colors cursor-pointer focus-visible-ring"
             title="Toggle Accessible Tabular View"
             aria-label="Toggle accessible tabular data"
           >
             <Table className="w-4 h-4" />
-          </button>
+          </motion.button>
         </div>
       </div>
 
@@ -341,155 +352,77 @@ export const DiurnalForecastTimeline: React.FC<DiurnalForecastTimelineProps> = (
             </g>
           ))}
         </svg>
+
+        {/* Selected Hour Detail Banner */}
+        {activePoint && (
+          <div className="mt-2 pt-2 border-t border-stone-200 dark:border-zinc-800/80 flex items-center justify-between text-xs font-mono">
+            <div className="flex items-center gap-2">
+              <span className="font-bold text-ink dark:text-white">
+                {activePoint.localDisplayTime || `${activePoint.hour}:00`}
+              </span>
+              <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
+                activePoint.isForecast
+                  ? 'bg-sky-100 dark:bg-sky-950/60 text-sky-800 dark:text-sky-300 border border-sky-300 dark:border-sky-800'
+                  : 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800'
+              }`}>
+                {activePoint.isForecast ? 'Modeled Forecast' : 'Station Observation'}
+              </span>
+            </div>
+            <div className="flex items-center gap-3 text-ink dark:text-zinc-200">
+              <span>PM2.5: <strong>{activePoint.pm25 !== null ? `${activePoint.pm25} µg/m³` : '—'}</strong></span>
+              <span>AQI: <strong>{activePoint.usAqi !== null ? activePoint.usAqi : '—'}</strong></span>
+              {activePoint.boundaryLayerHeight !== null && (
+                <span className="hidden sm:inline">Ceiling: <strong>{activePoint.boundaryLayerHeight}m</strong></span>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Screen Reader Accessible Table (UX19) */}
-      {showDataTable && (
-        <div className="overflow-x-auto rounded-xl border border-stone-200 dark:border-zinc-800 text-xs">
-          <table className="w-full text-left font-mono">
-            <thead className="bg-stone-100 dark:bg-zinc-800/80 text-ink-muted dark:text-zinc-400">
-              <tr>
-                <th className="p-2">Time</th>
-                <th className="p-2">Date</th>
-                <th className="p-2">PM2.5 (µg/m³)</th>
-                <th className="p-2">US AQI</th>
-                <th className="p-2">Mixing Ceiling</th>
-                <th className="p-2">Source</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-stone-200 dark:divide-zinc-800 text-ink dark:text-zinc-200">
-              {hourlyForecast.map((p, idx) => (
-                <tr
-                  key={p.validAtUtc || idx}
-                  className={p.hour === currentHour ? 'bg-emerald-500/10 font-bold' : ''}
-                >
-                  <td className="p-2">{p.localDisplayTime || `${p.hour}:00`}</td>
-                  <td className="p-2">{p.localDisplayDate || 'Today'}</td>
-                  <td className="p-2">{p.pm25 !== null ? `${p.pm25} µg/m³` : '—'}</td>
-                  <td className="p-2">{p.usAqi ?? '—'}</td>
-                  <td className="p-2">{p.boundaryLayerHeight !== null ? `${p.boundaryLayerHeight}m` : '—'}</td>
-                  <td className="p-2 uppercase text-[10px]">{p.isForecast ? 'Forecast' : 'Observed'}</td>
+      <AnimatePresence>
+        {showDataTable && (
+          <motion.div
+            initial={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, height: 0 }}
+            transition={springs.gentle}
+            className="overflow-x-auto rounded-xl border border-stone-200 dark:border-zinc-800 text-xs"
+          >
+            <table className="w-full text-left font-mono">
+              <thead className="bg-stone-100 dark:bg-zinc-800/80 text-ink-muted dark:text-zinc-400">
+                <tr>
+                  <th className="p-2.5">Hour</th>
+                  <th className="p-2.5">PM2.5 (µg/m³)</th>
+                  <th className="p-2.5">US EPA AQI</th>
+                  <th className="p-2.5">Mixing Depth (m)</th>
+                  <th className="p-2.5">Type</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {/* 24-Hour Interactive Timeline Rail */}
-      <div className="relative">
-        <div 
-          role="tablist"
-          aria-label="24-Hour Atmospheric Timeline"
-          className="flex gap-2 overflow-x-auto pb-3 pt-1 scrollbar-thin scrollbar-thumb-stone-300 dark:scrollbar-thumb-zinc-700"
-        >
-          {hourlyForecast.map((point, idx) => {
-            const pointKey = point.validAtUtc || point.time || `${point.hour}-${idx}`;
-            const isSelected = pointKey === selectedKey;
-            const isCurrent = point.hour === currentHour && !point.isForecast;
-            const displayTime = point.localDisplayTime || `${point.hour < 10 ? `0${point.hour}` : point.hour}:00`;
-
-            const prevPoint = idx > 0 ? hourlyForecast[idx - 1] : null;
-            const isNewDay = prevPoint && point.localDisplayDate && prevPoint.localDisplayDate !== point.localDisplayDate;
-
-            return (
-              <React.Fragment key={pointKey}>
-                {isNewDay && (
-                  <div className="flex-shrink-0 flex items-center px-1">
-                    <span className="px-1.5 py-0.5 rounded bg-stone-200 dark:bg-zinc-800 text-[9px] font-mono font-semibold text-ink dark:text-zinc-300 whitespace-nowrap">
-                      {point.localDisplayDate}
-                    </span>
-                  </div>
-                )}
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={isSelected}
-                  onClick={() => setSelectedKey(pointKey)}
-                  className={`flex-shrink-0 flex flex-col items-center p-2.5 rounded-xl border text-center transition-all min-w-[70px] select-none touch-target focus-visible-ring ${
-                    isSelected
-                      ? 'bg-stone-900 dark:bg-white text-white dark:text-black border-transparent shadow-md scale-105'
-                      : 'bg-stone-50 dark:bg-zinc-800/60 border-stone-200 dark:border-zinc-800 hover:bg-stone-100 dark:hover:bg-zinc-800 text-ink dark:text-zinc-300'
-                  }`}
-                >
-                  <div className="flex items-center gap-1 text-[10px] font-mono">
-                    <span>{displayTime}</span>
-                    {isCurrent && (
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" title="Current Hour" />
-                    )}
-                  </div>
-
-                  <div
-                    className={`mt-1.5 text-xs font-mono font-bold px-1.5 py-0.5 rounded border ${
-                      isSelected ? 'bg-white/20 text-white dark:text-black' : getAqiColor(point.usAqi)
-                    }`}
+              </thead>
+              <tbody className="divide-y divide-stone-200 dark:divide-zinc-800">
+                {hourlyForecast.map((pt, i) => (
+                  <tr
+                    key={pt.validAtUtc || pt.time || i}
+                    className="hover:bg-stone-50 dark:hover:bg-zinc-800/40"
                   >
-                    {point.usAqi ?? '--'}
-                  </div>
-
-                  <div className="mt-1 text-[10px] font-mono opacity-80">
-                    {point.pm25 !== null ? `${point.pm25} µg` : '--'}
-                  </div>
-
-                  <div className="mt-1 text-[9px] font-mono opacity-60">
-                    {point.boundaryLayerHeight !== null ? `${point.boundaryLayerHeight}m` : '--'}
-                  </div>
-
-                  {point.isForecast ? (
-                    <span className="mt-1 text-[8px] font-mono text-sky-500 font-bold uppercase">Fcst</span>
-                  ) : point.isModel === false ? (
-                    <span className="mt-1 text-[8px] font-mono text-emerald-500 font-bold uppercase">Obs</span>
-                  ) : (
-                    <span className="mt-1 text-[8px] font-mono text-stone-400 font-bold uppercase">Model</span>
-                  )}
-                </button>
-              </React.Fragment>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Selected Hour Atmospheric Diagnostics Banner */}
-      <div className="p-4 rounded-xl bg-stone-50 dark:bg-zinc-800/50 border border-stone-200 dark:border-zinc-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div className="space-y-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="font-bold text-sm text-ink dark:text-white">
-              {activePoint.localDisplayTime || `${activePoint.hour}:00`} Focus ({activePoint.localDisplayDate || 'Today'})
-            </span>
-            {activePoint.hour === currentHour && !activePoint.isForecast && (
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-bold">
-                Current Hour
-              </span>
-            )}
-            {activePoint.usAqi !== null && activePoint.usAqi <= 150 ? (
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-1">
-                <ShieldCheck className="w-3 h-3" /> Relatively Lower Smog
-              </span>
-            ) : (
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-rose-500/10 text-rose-600 dark:text-rose-400 font-bold flex items-center gap-1">
-                <AlertTriangle className="w-3 h-3" /> Elevated Smog Window
-              </span>
-            )}
-          </div>
-          <p className="text-xs text-ink-muted dark:text-zinc-400 max-w-xl">
-            {activePoint.boundaryLayerHeight !== null
-              ? `Modeled planetary boundary layer height is ~${activePoint.boundaryLayerHeight}m. ${
-                  activePoint.boundaryLayerHeight < 300
-                    ? 'Thermal surface cooling inhibits vertical mixing, confining particulates near ground level.'
-                    : 'Solar convection facilitates atmospheric dispersion.'
-                }`
-              : 'Boundary layer mixing depth is unavailable for this hour.'}
-          </p>
-        </div>
-
-        <div className="text-left sm:text-right text-xs font-mono text-ink-muted dark:text-zinc-400 shrink-0">
-          <div>PM2.5: {activePoint.pm25 !== null ? `${activePoint.pm25} µg/m³` : 'N/A'}</div>
-          <div>US EPA AQI: {activePoint.usAqi ?? 'N/A'}</div>
-          <div className="text-[10px] text-stone-500 dark:text-zinc-500 mt-0.5">
-            {activePoint.isForecast ? 'Numerical Weather & Chemistry Forecast' : 'Modeled Atmospheric Telemetry'}
-          </div>
-        </div>
-      </div>
+                    <td className="p-2.5 font-bold">{pt.localDisplayTime || `${pt.hour}:00`}</td>
+                    <td className="p-2.5">{pt.pm25 !== null ? `${pt.pm25} µg/m³` : 'Unavailable'}</td>
+                    <td className="p-2.5">{pt.usAqi !== null ? pt.usAqi : 'Unavailable'}</td>
+                    <td className="p-2.5">{pt.boundaryLayerHeight !== null ? `${pt.boundaryLayerHeight} m` : 'Unavailable'}</td>
+                    <td className="p-2.5">
+                      <span className={`px-1.5 py-0.5 rounded text-[10px] ${
+                        pt.isForecast ? 'text-sky-600 dark:text-sky-400 font-medium' : 'text-emerald-600 dark:text-emerald-400 font-medium'
+                      }`}>
+                        {pt.isForecast ? 'Forecast' : 'Observed'}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

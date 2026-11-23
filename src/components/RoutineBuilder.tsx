@@ -1,7 +1,9 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
 import { useAccessibleDialog } from '@/components/ui/AccessibleDialog';
+import { springs } from '@/lib/motion-tokens';
 import {
   DailySchedule,
   RoutineActivity,
@@ -66,6 +68,7 @@ export const RoutineBuilder: React.FC<RoutineBuilderProps> = ({
 }) => {
   const [schedule, setSchedule] = useState<DailySchedule>(() => loadScheduleFromStorage());
   const [isEditingModalOpen, setIsEditingModalOpen] = useState(false);
+  const shouldReduceMotion = useReducedMotion();
   const dialogRef = React.useRef<HTMLDivElement>(null);
   const closeEditor = React.useCallback(() => setIsEditingModalOpen(false), []);
   useAccessibleDialog({ isOpen: isEditingModalOpen, onClose: closeEditor, dialogRef });
@@ -207,22 +210,28 @@ export const RoutineBuilder: React.FC<RoutineBuilderProps> = ({
         </div>
 
         <div className="flex items-center gap-2 self-start sm:self-auto">
-          <button
+          <motion.button
             onClick={handleOpenAdd}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition-all"
+            whileHover={shouldReduceMotion ? undefined : { scale: 1.02 }}
+            whileTap={shouldReduceMotion ? undefined : { scale: 0.96 }}
+            transition={springs.snappy}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition-colors cursor-pointer focus-visible-ring"
           >
             <Plus className="w-4 h-4" />
             <span>Add Activity</span>
-          </button>
+          </motion.button>
           {onOptimizeClick && (
-            <button
+            <motion.button
               onClick={onOptimizeClick}
               disabled={isOptimizing}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-semibold shadow-xs transition-all"
+              whileHover={shouldReduceMotion || isOptimizing ? undefined : { scale: 1.02 }}
+              whileTap={shouldReduceMotion || isOptimizing ? undefined : { scale: 0.96 }}
+              transition={springs.snappy}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-semibold shadow-xs transition-colors cursor-pointer focus-visible-ring"
             >
               <Sparkles className="w-4 h-4" />
               <span>{isOptimizing ? 'Optimizing...' : 'Optimize with Forecast'}</span>
-            </button>
+            </motion.button>
           )}
         </div>
       </div>
@@ -317,11 +326,12 @@ export const RoutineBuilder: React.FC<RoutineBuilderProps> = ({
           const actExposure = exposure.activityBreakdowns.find(b => b.activityId === act.id);
           const shiftProposal = proposedShifts?.find(s => s.activityId === act.id);
           return (
-            <div
+            <motion.div
+              layout={!shouldReduceMotion}
               key={act.id}
               role="group"
               aria-label={act.name}
-              className="p-4 rounded-xl bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800/80 hover:border-stone-300 dark:hover:border-zinc-700 transition-all shadow-xs space-y-3"
+              className="p-4 rounded-xl bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800/80 hover:border-stone-300 dark:hover:border-zinc-700 transition-colors shadow-xs space-y-3"
             >
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div className="space-y-1">
@@ -439,7 +449,7 @@ export const RoutineBuilder: React.FC<RoutineBuilderProps> = ({
                   </div>
                 </div>
               )}
-            </div>
+            </motion.div>
           );
         })}
       </div>
