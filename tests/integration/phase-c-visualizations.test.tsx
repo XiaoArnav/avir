@@ -8,6 +8,7 @@ import { HourlyAtmosphericPoint } from '@/domain/types';
 describe('AVIR Step 19: Scientific Data Visualizations & Diurnal Trend (UX15, UX16, UX17, UX18, UX19, UX20, UX21)', () => {
   const mockHourlyForecast: HourlyAtmosphericPoint[] = [
     {
+      time: '2026-11-23T08:00:00Z',
       hour: 8,
       usAqi: 210,
       pm25: 140.0,
@@ -18,6 +19,7 @@ describe('AVIR Step 19: Scientific Data Visualizations & Diurnal Trend (UX15, UX
       localDisplayDate: '23 Nov',
     },
     {
+      time: '2026-11-23T09:00:00Z',
       hour: 9,
       usAqi: 190,
       pm25: 125.0,
@@ -28,6 +30,7 @@ describe('AVIR Step 19: Scientific Data Visualizations & Diurnal Trend (UX15, UX
       localDisplayDate: '23 Nov',
     },
     {
+      time: '2026-11-23T10:00:00Z',
       hour: 10,
       usAqi: null, // Data gap
       pm25: null,
@@ -38,6 +41,7 @@ describe('AVIR Step 19: Scientific Data Visualizations & Diurnal Trend (UX15, UX
       localDisplayDate: '23 Nov',
     },
     {
+      time: '2026-11-23T11:00:00Z',
       hour: 11,
       usAqi: 110,
       pm25: 65.0,
@@ -48,6 +52,7 @@ describe('AVIR Step 19: Scientific Data Visualizations & Diurnal Trend (UX15, UX
       localDisplayDate: '23 Nov',
     },
     {
+      time: '2026-11-23T12:00:00Z',
       hour: 12,
       usAqi: 95,
       pm25: 50.0,
@@ -58,6 +63,7 @@ describe('AVIR Step 19: Scientific Data Visualizations & Diurnal Trend (UX15, UX
       localDisplayDate: '23 Nov',
     },
     {
+      time: '2026-11-23T13:00:00Z',
       hour: 13,
       usAqi: 85,
       pm25: 42.0,

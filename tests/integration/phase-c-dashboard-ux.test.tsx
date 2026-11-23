@@ -15,7 +15,8 @@ describe('AVIR Step 18: Main Dashboard Experience & Action-First Decisions (UX06
     windSpeed: 4.2,
     windDirection: 315,
     timestamp: new Date(Date.now() - 15 * 60 * 1000).toISOString(), // 15m ago
-    isCached: false,
+    retrievedAt: new Date().toISOString(),
+    timezone: 'Asia/Kolkata',
     isStale: false,
     isLive: true,
     provenance: 'observed',
