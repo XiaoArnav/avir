@@ -32,7 +32,10 @@ export async function GET(req: NextRequest) {
 
     if (latParam === null || lonParam === null) {
       return NextResponse.json(
-        { error: 'Missing required query parameters: "lat" and "lon" are required.' },
+        {
+          error: 'Missing required query parameters: "lat" and "lon" are required.',
+          code: 'MISSING_COORDINATES',
+        },
         { status: 400 }
       );
     }
@@ -43,14 +46,20 @@ export async function GET(req: NextRequest) {
     // Strict boundary and numeric validation
     if (lat === null || lat < -90 || lat > 90) {
       return NextResponse.json(
-        { error: 'Invalid latitude: must be a strict numeric value between -90 and 90.' },
+        {
+          error: 'Invalid latitude: must be a strict numeric value between -90 and 90.',
+          code: 'INVALID_LATITUDE',
+        },
         { status: 400 }
       );
     }
 
     if (lon === null || lon < -180 || lon > 180) {
       return NextResponse.json(
-        { error: 'Invalid longitude: must be a strict numeric value between -180 and 180.' },
+        {
+          error: 'Invalid longitude: must be a strict numeric value between -180 and 180.',
+          code: 'INVALID_LONGITUDE',
+        },
         { status: 400 }
       );
     }
@@ -66,6 +75,7 @@ export async function GET(req: NextRequest) {
         return NextResponse.json(
           {
             error: `Invalid radius: must be a strict numeric value between ${OPENAQ_MIN_RADIUS_KM} and ${OPENAQ_MAX_RADIUS_KM} kilometers (OpenAQ API v3 maximum supported search radius is ${OPENAQ_MAX_RADIUS_KM} km).`,
+            code: 'INVALID_RADIUS',
           },
           { status: 400 }
         );
@@ -99,7 +109,10 @@ export async function GET(req: NextRequest) {
   } catch {
     // Sanitize 500 responses: never expose internal stack traces or secrets
     return NextResponse.json(
-      { error: 'Internal server error while resolving environmental sources.' },
+      {
+        error: 'Internal server error while resolving environmental sources.',
+        code: 'INTERNAL_ERROR',
+      },
       { status: 500 }
     );
   }
