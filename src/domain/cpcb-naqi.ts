@@ -67,6 +67,7 @@ export interface CpcbNaqiCalculationResult {
   dominantPollutant: string | null;
   subIndices: Record<string, SubIndexResult>;
   isDataSufficient: boolean;
+  isCompleteIndex: boolean;
   monitoredPollutantCount: number;
   missingRequirements: string[];
   notes: string;
@@ -327,6 +328,7 @@ export function calculateComprehensiveCpcbNaqi(input: PollutantInput): CpcbNaqiC
       dominantPollutant: null,
       subIndices: {},
       isDataSufficient: false,
+      isCompleteIndex: false,
       monitoredPollutantCount: 0,
       missingRequirements: ['No valid pollutant concentrations available.'],
       notes: 'Insufficient telemetry to calculate National AQI.',
@@ -339,9 +341,9 @@ export function calculateComprehensiveCpcbNaqi(input: PollutantInput): CpcbNaqiC
   const aqi = maxSubIndex >= 0 ? maxSubIndex : null;
   const category = aqi !== null ? getCpcbCategory(aqi) : null;
 
-  // Check averaging period requirements (Section 10):
+  // Check averaging period requirements (Section 10 CPCB Guidelines):
   // Statutory compliance requires affirmative evidence:
-  // - 24-hr (1440 min or 24 h) for PM2.5, PM10, NO2, SO2, NH3, Pb.
+  // - 24-hr (1440 min or 24 h; minimum 16 hours / 960 min data sufficiency) for PM2.5, PM10, NO2, SO2, NH3, Pb.
   // - 8-hr (480 min or 8 h) for CO, O3.
   let isAveragingVerified = false;
   const countedKeys = Object.keys(subIndices);
@@ -361,7 +363,10 @@ export function calculateComprehensiveCpcbNaqi(input: PollutantInput): CpcbNaqiC
           break;
         }
       } else {
-        if (period !== 1440 && period !== 24) {
+        // Must represent at least 16 hours (>= 960 minutes, or >= 16 hours) up to 24 hours (1440 min)
+        const is24HrEquivalent =
+          (period >= 16 && period <= 24) || (period >= 960 && period <= 1440);
+        if (!is24HrEquivalent) {
           allCountedMatch = false;
           break;
         }
@@ -369,7 +374,7 @@ export function calculateComprehensiveCpcbNaqi(input: PollutantInput): CpcbNaqiC
     }
     isAveragingVerified = allCountedMatch && countedKeys.length > 0;
   } else if (input.is24HourAveraged === true) {
-    // Legacy boolean cannot bypass CO/O3 rules (Section 10, Test 51)
+    // Legacy boolean cannot bypass CO/O3 8-hour requirement (Section 10, Test 51)
     if (!hasEightHourPollutant && countedKeys.length > 0) {
       isAveragingVerified = true;
     } else {
@@ -384,7 +389,27 @@ export function calculateComprehensiveCpcbNaqi(input: PollutantInput): CpcbNaqiC
     classification = 'indicative_snapshot';
   }
 
-  const isOfficialPublished = input.isOfficialPublished === true;
+  // Strict Official Publication Provenance Check (AQI-02):
+  // A local mathematical calculation cannot claim official publication without verified CPCB bulletin provenance.
+  const isVerifiedOfficialProvenance = Boolean(
+    input.isOfficialPublished === true &&
+    input.sourceProvider &&
+    (
+      input.sourceProvider.toLowerCase().includes('cpcb') ||
+      input.sourceProvider.toLowerCase().includes('central pollution control board') ||
+      input.sourceProvider.toLowerCase().includes('official_bulletin')
+    ) &&
+    !input.sourceProvider.toLowerCase().includes('open-meteo') &&
+    !input.sourceProvider.toLowerCase().includes('sensor.community') &&
+    !input.sourceProvider.toLowerCase().includes('purpleair') &&
+    !input.sourceProvider.toLowerCase().includes('local')
+  );
+
+  if (input.isOfficialPublished === true && !isVerifiedOfficialProvenance) {
+    missingRequirements.push('Official publication flag rejected: unverified publication provenance.');
+  }
+
+  const isOfficialPublished = isVerifiedOfficialProvenance;
   const method: AqiMethod = isOfficialPublished
     ? 'cpcb_official_published'
     : classification === 'statutory_compliant'
@@ -419,6 +444,7 @@ export function calculateComprehensiveCpcbNaqi(input: PollutantInput): CpcbNaqiC
     dominantPollutant: dominant || null,
     subIndices,
     isDataSufficient,
+    isCompleteIndex: isDataSufficient,
     monitoredPollutantCount: monitoredCount,
     missingRequirements,
     classification,

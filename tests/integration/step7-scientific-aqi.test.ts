@@ -635,6 +635,7 @@ describe('AVIR — Step 7 Golden-Reference Verification: Scientifically Correct 
         so2: 20,
         averagingPeriods: { pm25: 1440, no2: 1440, so2: 1440 },
         isOfficialPublished: true, // Explicitly verified from authentic official bulletin
+        sourceProvider: 'CPCB (Central Pollution Control Board) 4 PM Bulletin',
       });
       expect(published.isOfficialPublished).toBe(true);
       expect(published.evidence.method).toBe('cpcb_official_published');

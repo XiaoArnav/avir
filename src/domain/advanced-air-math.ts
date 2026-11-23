@@ -5,7 +5,7 @@
  */
 
 import { HourlyAtmosphericPoint, MultiSourceTelemetryFeed, EnsembleConsensusAnalysis, GroundStationMetadata } from './types';
-import { calculateAQIFromPM25 } from './air-math';
+import { calculateAQIFromPM25, calculateCpcbNaqi } from './air-math';
 
 // ---------------------------------------------------------------------------
 // 1. DIURNAL SAFE HOURS FORECAST LOGIC
@@ -658,7 +658,14 @@ export function buildMultiSourceFeeds(params: {
     groundStation.stationState !== 'registry_only'
   ) {
     const groundPm25 = groundStation.pm25;
-    const groundAqi = calculateAQIFromPM25(groundPm25);
+    const isOfficialCpcb = groundStation.stationType === 'official_reference';
+    const standard: 'CPCB-NAQI' | 'US-EPA' = isOfficialCpcb ? 'CPCB-NAQI' : 'US-EPA';
+
+    // SCIENTIFIC INTEGRITY (AQI-04): Calculate AQI matching the exact regulatory standard
+    const groundAqi = isOfficialCpcb
+      ? calculateCpcbNaqi(groundPm25, groundStation.pm10).aqi
+      : calculateAQIFromPM25(groundPm25);
+
     if (groundAqi !== null) {
       const stationLabel = `${groundStation.stationName}${groundStation.distanceKm !== null && groundStation.distanceKm !== undefined ? ` (${groundStation.distanceKm}km)` : ''}`;
 
@@ -669,10 +676,12 @@ export function buildMultiSourceFeeds(params: {
         aqi: groundAqi,
         pm25: groundPm25,
         confidence: groundStation.isCalibrated ? 'Calibrated' : 'High',
-        standard: groundStation.stationType === 'official_reference' ? 'CPCB-NAQI' : 'US-EPA',
-        description: groundStation.isCalibrated
+        standard,
+        description: isOfficialCpcb
+          ? 'Official reference CAAQMS monitor (Indian CPCB NAQI standard sub-index).'
+          : groundStation.isCalibrated
           ? `Citizen-science optical monitor with ${groundStation.calibrationFormula || 'US EPA Barkjohn'} de-humidification.`
-          : 'In-situ physical ground monitor at human breathing height.',
+          : 'In-situ physical ground monitor at human breathing height (US EPA AQI).',
         provenance: 'observed',
       });
     }
