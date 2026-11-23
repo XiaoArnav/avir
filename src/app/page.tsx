@@ -25,6 +25,7 @@ import { RwaBulletinModal } from '@/components/RwaBulletinModal';
 import { ScienceExplainerModal } from '@/components/ScienceExplainerModal';
 import { MultiSourceInspectorModal } from '@/components/MultiSourceInspectorModal';
 import { VerifiedAdvisoryPanel } from '@/components/VerifiedAdvisoryPanel';
+import { ActionDecisionCard } from '@/components/ui/ActionDecisionCard';
 import { resolveOfficialGrapStatus } from '@/services/advisories/grap-status-resolver';
 import { RequestCoordinator } from '@/lib/async/request-coordinator';
 import {
@@ -337,6 +338,13 @@ export default function Home() {
           onOpenMultiSource={() => setIsMultiSourceModalOpen(true)}
           isLoading={isTelemetryLoading}
           isDarkMode={isDarkMode}
+        />
+
+        {/* Action-First Quick Health & Activity Decision Guide */}
+        <ActionDecisionCard
+          metrics={metrics}
+          category={aqiCategory}
+          onOpenDailyPlan={() => setActiveTab('routine')}
         />
 
         {/* High-Contrast Segmented Navigation View Controller */}
