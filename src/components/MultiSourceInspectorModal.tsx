@@ -16,6 +16,7 @@ import {
   evaluateMeasurementEligibility,
   MeasurementEligibility,
 } from '@/config/environmental-sources';
+import { hardwareDeviceService } from '@/services/device-telemetry-service';
 import {
   Layers,
   X,
@@ -26,6 +27,7 @@ import {
   Clock,
   Info,
   Scale,
+  Cpu,
 } from 'lucide-react';
 
 interface MultiSourceInspectorModalProps {
@@ -36,6 +38,7 @@ interface MultiSourceInspectorModalProps {
   environmentalSources?: EnvironmentalSourceRecord[];
   sourceComparison?: SourceComparison | null;
   metrics?: AtmosphericMetrics | null;
+  personalHardwareSource?: EnvironmentalSourceRecord | null;
 }
 
 export const MultiSourceInspectorModal: React.FC<MultiSourceInspectorModalProps> = ({
@@ -45,8 +48,15 @@ export const MultiSourceInspectorModal: React.FC<MultiSourceInspectorModalProps>
   environmentalSources = [],
   sourceComparison,
   metrics,
+  personalHardwareSource: propPersonalSource,
 }) => {
   if (!isOpen) return null;
+
+  // Retrieve client-side connected personal hardware monitor if active
+  const personalHardwareSource =
+    propPersonalSource !== undefined
+      ? propPersonalSource
+      : (typeof window !== 'undefined' ? hardwareDeviceService.getAsEnvironmentalSource() : null);
 
   // Zero-fabrication: Never invent fake fresh atmospheric records, synthetic 150 values, or artificial timestamps.
   const effectiveSources: EnvironmentalSourceRecord[] = environmentalSources || [];
@@ -308,6 +318,65 @@ export const MultiSourceInspectorModal: React.FC<MultiSourceInspectorModalProps>
               </div>
             );
           })()}
+
+          {/* Personal Hardware Monitoring Subsection (BYOD / USB / Wi-Fi) */}
+          <div className="p-3.5 rounded-xl bg-cyan-50/50 dark:bg-cyan-950/20 border border-cyan-200 dark:border-cyan-800/60 space-y-2.5">
+            <div className="text-[10px] font-mono uppercase font-bold text-cyan-800 dark:text-cyan-300 flex items-center justify-between">
+              <span className="flex items-center gap-1.5">
+                <Cpu className="w-3.5 h-3.5 text-cyan-600 dark:text-cyan-400" />
+                <span>Personal Hardware Monitor (BYOD USB / Local Wi-Fi)</span>
+              </span>
+              <span className="font-semibold text-cyan-700 dark:text-cyan-400">
+                {personalHardwareSource ? '1 Connected Device' : '0 Connected Devices'}
+              </span>
+            </div>
+
+            {personalHardwareSource ? (
+              <div className="p-3 rounded-lg bg-white dark:bg-zinc-900 border border-cyan-200 dark:border-cyan-800/80 text-xs space-y-1.5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                  <div>
+                    <span className="font-bold text-ink dark:text-white">
+                      {personalHardwareSource.sourceName}
+                    </span>
+                    <div className="text-[11px] text-ink-muted dark:text-zinc-400">
+                      Provider: <strong>{personalHardwareSource.providerName}</strong> &bull; Location: <strong>Unconfigured (Indoor / BYOD)</strong>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="font-mono font-bold text-cyan-800 dark:text-cyan-300">
+                      {personalHardwareSource.measurements.find(m => m.pollutant === 'pm25')?.value ?? '--'} µg/m³ PM2.5
+                      {personalHardwareSource.measurements.find(m => m.pollutant === 'pm10') && (
+                        <span className="text-ink-muted dark:text-zinc-400 ml-2">
+                          | {personalHardwareSource.measurements.find(m => m.pollutant === 'pm10')?.value} µg/m³ PM10
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-[10px] font-mono text-cyan-700 dark:text-cyan-400">
+                      {personalHardwareSource.status === 'stale' ? 'Stale Reading (>30s)' : 'Live Hardware Stream'}
+                    </span>
+                  </div>
+                </div>
+                <div className="text-[10.5px] text-ink-muted dark:text-zinc-400 pt-1 border-t border-stone-200/50 dark:border-zinc-800/50 flex flex-wrap justify-between gap-1">
+                  <span>Client-Side Private Telemetry &bull; Isolated from Outdoor Regional Model</span>
+                  {personalHardwareSource.measurements.find(m => m.pollutant === 'pm25')?.calibrationApplied && (
+                    <span className="text-emerald-600 dark:text-emerald-400 font-mono">
+                      ✓ {personalHardwareSource.measurements.find(m => m.pollutant === 'pm25')?.calibrationApplied}
+                    </span>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="p-3 rounded-lg bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 text-xs text-ink-muted dark:text-zinc-400 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Info className="w-4 h-4 text-stone-400 shrink-0" />
+                  <span>No personal hardware monitor is currently connected.</span>
+                </div>
+                <span className="text-[10px] font-mono text-cyan-600 dark:text-cyan-400 font-semibold">
+                  Connect via USB/Wi-Fi
+                </span>
+              </div>
+            )}
+          </div>
 
           {effectiveSources.length === 0 ? (
             <div className="p-6 rounded-xl bg-stone-50 dark:bg-zinc-800/40 border border-stone-200 dark:border-zinc-800 text-center space-y-2">

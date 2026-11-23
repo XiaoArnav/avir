@@ -8,6 +8,10 @@ import {
   DeviceConnectionState,
 } from '@/services/device-telemetry-service';
 import {
+  VERIFIED_DEVICE_PROFILES,
+  DeviceProfile,
+} from '@/services/devices/device-profiles';
+import {
   Usb,
   Wifi,
   X,
@@ -17,6 +21,11 @@ import {
   RefreshCw,
   Info,
   Clock,
+  Radio,
+  MapPinOff,
+  ChevronDown,
+  ChevronUp,
+  ShieldAlert,
 } from 'lucide-react';
 
 interface DeviceConnectorModalProps {
@@ -32,12 +41,14 @@ export function DeviceConnectorModal({
 }: DeviceConnectorModalProps) {
   const [mounted, setMounted] = useState(false);
   const [activeTab, setActiveTab] = useState<'usb' | 'wifi'>('usb');
+  const [selectedProfileId, setSelectedProfileId] = useState<string>('auto');
   const [ipAddress, setIpAddress] = useState('');
   const [isConnecting, setIsConnecting] = useState(false);
   const [connectionState, setConnectionState] = useState<DeviceConnectionState>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
   const [latestPacket, setLatestPacket] = useState<DeviceTelemetryPacket | null>(null);
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
 
   const modalRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
@@ -119,7 +130,7 @@ export function DeviceConnectorModal({
     if (e.key === 'Tab') {
       if (!modalRef.current) return;
       const focusable = modalRef.current.querySelectorAll<HTMLElement>(
-        'button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        'button:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
       );
       if (focusable.length === 0) return;
 
@@ -154,8 +165,10 @@ export function DeviceConnectorModal({
     setErrorMessage(null);
     setInfoMessage(null);
 
+    const profileId = selectedProfileId !== 'auto' ? selectedProfileId : undefined;
+
     try {
-      const result = await hardwareDeviceService.connectUsbDevice(115200);
+      const result = await hardwareDeviceService.connectUsbDevice(115200, profileId);
       if (result.cancelled) {
         setInfoMessage('Port selection was cancelled.');
       } else if (!result.success && result.error) {
@@ -178,8 +191,10 @@ export function DeviceConnectorModal({
     setErrorMessage(null);
     setInfoMessage(null);
 
+    const profileId = selectedProfileId !== 'auto' ? selectedProfileId : undefined;
+
     try {
-      const result = await hardwareDeviceService.fetchLocalWifiDevice(ipAddress);
+      const result = await hardwareDeviceService.startLocalWifiMonitoring(ipAddress, 10000, profileId);
       if (result.error) {
         setErrorMessage(result.error);
       }
@@ -232,7 +247,7 @@ export function DeviceConnectorModal({
                 Connect Hardware Air Monitor
               </h2>
               <p id="device-connector-desc" className="text-xs text-ink-muted dark:text-zinc-400">
-                AirGradient ONE, Project Vaayu, or CanAirIO (ESP32)
+                AirGradient ONE / Open Air, Project Vaayu, or CanAirIO
               </p>
             </div>
           </div>
@@ -282,12 +297,36 @@ export function DeviceConnectorModal({
           </button>
         </div>
 
+        {/* Optional Device Profile Selector */}
+        <div className="mt-3.5 pt-1">
+          <label
+            htmlFor="device-profile-select"
+            className="block text-[11px] font-mono uppercase tracking-wider text-ink-muted dark:text-zinc-400 font-medium mb-1"
+          >
+            Hardware Profile (Optional Selection)
+          </label>
+          <select
+            id="device-profile-select"
+            value={selectedProfileId}
+            onChange={(e) => setSelectedProfileId(e.target.value)}
+            disabled={isConnected}
+            className="w-full px-3 py-2 rounded-xl bg-stone-50 dark:bg-zinc-800 border border-stone-300 dark:border-zinc-700 text-xs font-mono text-ink dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50"
+          >
+            <option value="auto">Auto-Detect from Telemetry Signature</option>
+            <option value="airgradient-one">AirGradient ONE (I-9PSL) — PMS5003 / S8</option>
+            <option value="airgradient-open-air">AirGradient Open Air (O-1PST) — Dual PMS5003T</option>
+            <option value="project-vaayu">Project Vaayu Monitor (India DIY) — PMS5003 / SDS011</option>
+            <option value="canairio">CanAirIO Citizen Science — SPS30 / PMS5003</option>
+            <option value="generic-serial">Generic Serial JSON — Custom Optical Counter</option>
+          </select>
+        </div>
+
         {/* Scrollable Tab Content Body */}
         <div className="py-4 space-y-4 overflow-y-auto flex-1">
           {activeTab === 'usb' ? (
             <div className="space-y-3">
               <p className="text-xs text-ink-muted dark:text-zinc-300 leading-relaxed">
-                Connect your ESP32 monitor directly via USB-C. Reads standard newline-delimited JSON telemetry streams at 115200 baud with zero cloud telemetry.
+                Connect your personal monitor directly via USB. Reads verified newline-delimited JSON telemetry at 115200 baud with zero cloud telemetry.
               </p>
 
               {!isWebSerialSupported ? (
@@ -296,7 +335,7 @@ export function DeviceConnectorModal({
                   <div className="space-y-1">
                     <p className="font-semibold">WebSerial Unsupported in This Browser</p>
                     <p className="text-[11px] leading-relaxed text-amber-700 dark:text-amber-400">
-                      WebSerial requires a Chromium-based browser (Google Chrome, Microsoft Edge, Opera, Brave) in a secure context. If you are on Firefox or Safari, please use the <strong>Local Wi-Fi Network</strong> tab.
+                      WebSerial requires a Chromium-based browser (Google Chrome, Microsoft Edge, Opera, Brave) in a secure HTTPS context. If you are on Firefox or Safari, please use the <strong>Local Wi-Fi Network</strong> tab.
                     </p>
                   </div>
                 </div>
@@ -336,16 +375,16 @@ export function DeviceConnectorModal({
           ) : (
             <div className="space-y-3">
               <p className="text-xs text-ink-muted dark:text-zinc-300 leading-relaxed">
-                Poll telemetry from an AirGradient monitor or ESPHome node running an embedded HTTP server on your local Wi-Fi.
+                Connect to an AirGradient ONE or compatible local Wi-Fi air monitor exposing an embedded HTTP server (e.g. <code>/measures/current</code>).
               </p>
 
               {/* HTTPS Mixed Content Notice */}
               <div className="p-3 rounded-xl bg-blue-50/80 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/60 text-xs text-blue-800 dark:text-blue-300 flex items-start gap-2.5">
                 <Info className="w-4 h-4 shrink-0 mt-0.5 text-blue-600 dark:text-blue-400" />
                 <div className="space-y-0.5 text-[11px] leading-relaxed">
-                  <span className="font-semibold block">Browser HTTPS Notice:</span>
+                  <span className="font-semibold block">Browser Local Network Access:</span>
                   <span>
-                    When visiting Avir over HTTPS, browsers restrict direct HTTP requests to local network devices (Mixed Content & Private Network Access). If blocked, use the USB WebSerial tab.
+                    When visiting over HTTPS, modern browsers restrict mixed HTTP requests to private IP addresses. If your browser blocks local requests, grant local network permission or use the USB WebSerial tab.
                   </span>
                 </div>
               </div>
@@ -377,7 +416,7 @@ export function DeviceConnectorModal({
                     ) : (
                       <Wifi className="w-3.5 h-3.5" />
                     )}
-                    <span>Fetch</span>
+                    <span>{isConnected && hardwareDeviceService.getActiveSource() === 'local_wifi' ? 'Polling' : 'Connect'}</span>
                   </button>
                 </div>
               </div>
@@ -394,7 +433,7 @@ export function DeviceConnectorModal({
             </div>
           )}
 
-          {/* Info Notice (e.g. user cancelled selection) */}
+          {/* Info Notice */}
           {infoMessage && (
             <div className="p-3 rounded-xl bg-stone-100 dark:bg-zinc-800/80 border border-stone-200 dark:border-zinc-700 text-xs text-ink-muted dark:text-zinc-300 flex items-center gap-2">
               <Info className="w-4 h-4 shrink-0 text-stone-500" />
@@ -410,20 +449,75 @@ export function DeviceConnectorModal({
             </div>
           )}
 
+          {/* Connected but Awaiting Data State (Honest: Zero Synthetic Readings) */}
+          {connectionState === 'connected_awaiting_data' && !latestPacket && (
+            <div className="p-4 rounded-xl bg-cyan-50/70 dark:bg-cyan-950/30 border border-cyan-200 dark:border-cyan-800/60 text-xs text-cyan-900 dark:text-cyan-200 space-y-1.5 animate-pulse">
+              <div className="flex items-center gap-2 font-semibold">
+                <Radio className="w-4 h-4 text-cyan-600 dark:text-cyan-400" />
+                <span>Device Port Open • Awaiting First Telemetry Frame</span>
+              </div>
+              <p className="text-[11px] text-cyan-800 dark:text-cyan-300 leading-relaxed">
+                Hardware connection is established. Avir is awaiting raw sensor packets over the active data stream. Measurements will appear immediately upon receipt.
+              </p>
+            </div>
+          )}
+
           {/* Live Streaming Packet Inspector */}
           {latestPacket && isConnected && (
             <div className="p-4 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/60 space-y-3">
-              <div className="flex items-center justify-between text-xs">
+              <div className="flex flex-wrap items-center justify-between gap-1.5 text-xs">
                 <span className="font-semibold text-emerald-800 dark:text-emerald-300 flex items-center gap-1.5">
                   <CheckCircle className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                  <span>Hardware Monitor Connected</span>
+                  <span>
+                    {latestPacket.profile?.name || 'Personal Air Monitor'}
+                  </span>
                 </span>
-                <span className="font-mono text-[10px] px-2 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-300 font-bold uppercase tracking-wider">
-                  {latestPacket.source === 'webserial' ? 'USB WebSerial' : 'Local Wi-Fi'}
-                </span>
+                <div className="flex items-center gap-1.5">
+                  {/* Identity Status Badge */}
+                  <span className={`font-mono text-[9px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider ${
+                    latestPacket.identityStatus === 'verified'
+                      ? 'bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-300'
+                      : latestPacket.identityStatus === 'user_selected'
+                      ? 'bg-cyan-100 dark:bg-cyan-900/60 text-cyan-800 dark:text-cyan-300'
+                      : 'bg-stone-200 dark:bg-zinc-800 text-stone-700 dark:text-zinc-300'
+                  }`}>
+                    {latestPacket.identityStatus === 'verified'
+                      ? 'Verified Model'
+                      : latestPacket.identityStatus === 'user_selected'
+                      ? 'User Selected'
+                      : 'Protocol Compatible'}
+                  </span>
+
+                  {/* Freshness Badge */}
+                  <span className={`font-mono text-[9px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider ${
+                    connectionState === 'stale'
+                      ? 'bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-300'
+                      : 'bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-300'
+                  }`}>
+                    {connectionState === 'stale'
+                      ? 'Stale (>30s)'
+                      : latestPacket.source === 'webserial'
+                      ? 'USB Live'
+                      : 'Wi-Fi Live'}
+                  </span>
+                </div>
               </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center pt-1 font-mono">
+              {/* Hardware & Calibration Metadata */}
+              <div className="text-[11px] text-emerald-900 dark:text-emerald-300 flex flex-wrap gap-x-3 gap-y-1 font-mono">
+                {latestPacket.deviceId && (
+                  <span>Device ID: <strong>{latestPacket.deviceId}</strong></span>
+                )}
+                <span>Sensor: <strong>{latestPacket.profile?.sensorModel || 'Optical OPC (Unverified)'}</strong></span>
+                {latestPacket.calibrationFormula && (
+                  <span className="text-emerald-700 dark:text-emerald-400">
+                    &bull; {latestPacket.calibrationFormula}
+                  </span>
+                )}
+              </div>
+
+              {/* Measurement Grid */}
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-center pt-1 font-mono">
                 <div className="p-2 rounded-lg bg-white dark:bg-zinc-900 border border-emerald-200/60 dark:border-emerald-800/40">
                   <div className="text-[10px] text-ink-muted dark:text-zinc-400">PM2.5</div>
                   <div className="text-sm font-bold text-ink dark:text-white">
@@ -454,24 +548,59 @@ export function DeviceConnectorModal({
                   </div>
                   <div className="text-[9px] text-stone-500">°C</div>
                 </div>
+                <div className="p-2 rounded-lg bg-white dark:bg-zinc-900 border border-emerald-200/60 dark:border-emerald-800/40">
+                  <div className="text-[10px] text-ink-muted dark:text-zinc-400">HUM</div>
+                  <div className="text-sm font-bold text-ink dark:text-white">
+                    {latestPacket.humidity !== null && latestPacket.humidity !== undefined
+                      ? `${latestPacket.humidity}%`
+                      : '--'}
+                  </div>
+                  <div className="text-[9px] text-stone-500">RH</div>
+                </div>
               </div>
 
               {/* Timestamp distinction: observation vs reception */}
-              <div className="text-[10px] text-emerald-800/90 dark:text-emerald-300/80 font-mono flex items-center justify-between pt-1 border-t border-emerald-200/50 dark:border-emerald-800/40">
+              <div className="text-[10px] text-emerald-800/90 dark:text-emerald-300/80 font-mono flex flex-wrap items-center justify-between gap-1 pt-1 border-t border-emerald-200/50 dark:border-emerald-800/40">
                 <span className="flex items-center gap-1">
                   <Clock className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
                   <span>
-                    {latestPacket.observedAt ? 'Device Observed Time' : 'Reception Time'}:
+                    {latestPacket.observedAt ? 'Device Observed Time:' : 'Reception Time (Device untimed):'}
                   </span>
+                  <strong>
+                    {new Date(latestPacket.observedAt || latestPacket.receivedAt).toLocaleTimeString([], {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      second: '2-digit',
+                    })}
+                  </strong>
                 </span>
-                <span>
-                  {new Date(latestPacket.observedAt || latestPacket.receivedAt).toLocaleTimeString([], {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    second: '2-digit',
-                  })}
+                <span className="flex items-center gap-1 text-[9px] text-stone-500 dark:text-zinc-400">
+                  <MapPinOff className="w-3 h-3 text-stone-400" />
+                  <span>Location: Unconfigured (Indoor / BYOD)</span>
                 </span>
               </div>
+
+              {/* Privacy-Safe Diagnostics Drawer Toggle */}
+              {latestPacket.diagnosticSnippet && (
+                <div className="pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setShowDiagnostics(!showDiagnostics)}
+                    className="flex items-center gap-1 text-[10px] font-mono text-emerald-700 dark:text-emerald-400 hover:underline"
+                  >
+                    <span>{showDiagnostics ? 'Hide Sanitized Diagnostics' : 'Show Sanitized Diagnostics'}</span>
+                    {showDiagnostics ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                  </button>
+                  {showDiagnostics && (
+                    <div className="mt-1.5 p-2 rounded-lg bg-stone-900 text-emerald-400 font-mono text-[9.5px] break-all border border-stone-800">
+                      <code>{latestPacket.diagnosticSnippet}</code>
+                      <p className="mt-1 text-[9px] text-stone-400 font-sans">
+                        Diagnostic fields sanitized. Private passwords, Wi-Fi keys, and tokens are strictly excluded.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>

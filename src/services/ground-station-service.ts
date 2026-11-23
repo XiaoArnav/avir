@@ -562,7 +562,7 @@ export function convertGroundStationToSourceRecord(
     providerName: station.provider,
     upstreamProviderId: isOfficial ? 'cpcb_caaqms' : 'sensor_community',
     stationId: String(station.stationId),
-    sourceName: `${station.stationName} (${station.distanceKm}km)`,
+    sourceName: `${station.stationName}${station.distanceKm !== null && station.distanceKm !== undefined ? ` (${station.distanceKm}km)` : ''}`,
     name: station.stationName,
     provider: station.provider,
     sourceKind: isOfficial ? 'official_ground_station' : 'community_optical',
@@ -571,7 +571,10 @@ export function convertGroundStationToSourceRecord(
     latitude: station.latitude,
     longitude: station.longitude,
     distanceKm: station.distanceKm,
-    coordinates: { latitude: station.latitude, longitude: station.longitude, distanceKm: station.distanceKm },
+    coordinates:
+      station.latitude !== null && station.longitude !== null
+        ? { latitude: station.latitude, longitude: station.longitude, distanceKm: station.distanceKm }
+        : null,
     observedAt: station.observedAt ?? null,
     measuredAt: station.observedAt ?? null,
     retrievedAt: station.retrievedAt || now,

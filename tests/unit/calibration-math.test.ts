@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
   applyEpaBarkjohnCalibration,
   calibrateCommunitySensorReading,
+  evaluateSensorCalibrationEligibility,
+  getDeviceCalibrationStatus,
 } from '@/domain/calibration-math';
 
 describe('US EPA Barkjohn Humidity Calibration Formula', () => {
@@ -79,5 +81,64 @@ describe('US EPA Barkjohn Humidity Calibration Formula', () => {
 
     expect(resUncalibrated.isCalibrated).toBe(false);
     expect(resUncalibrated.calibratedPm25).toBe(rawVal);
+  });
+
+  it('evaluates zero-value baseline: genuine zero is preserved but requires verified sensor model', () => {
+    // 1. With verified sensor and RH, zero baseline is eligible and yields 0
+    const resVerified = evaluateSensorCalibrationEligibility({
+      sensorModel: 'Plantower PMS5003',
+      hasLocalRelativeHumidity: true,
+      relativeHumidityPercent: 50,
+      rawPm25: 0,
+      identityStatus: 'verified',
+    });
+    expect(resVerified.eligible).toBe(true);
+    expect(resVerified.applied).toBe(true);
+    expect(resVerified.calibratedPm25).toBe(0);
+    expect(resVerified.rawPm25).toBe(0);
+
+    // 2. With unsupported sensor, raw 0 is preserved without falsely claiming scientific calibration
+    const resUnverified = evaluateSensorCalibrationEligibility({
+      sensorModel: 'Unknown Custom Sensor',
+      hasLocalRelativeHumidity: true,
+      relativeHumidityPercent: 50,
+      rawPm25: 0,
+      identityStatus: 'unknown',
+    });
+    expect(resUnverified.eligible).toBe(false);
+    expect(resUnverified.applied).toBe(false);
+    expect(resUnverified.rawPm25).toBe(0);
+    expect(resUnverified.calibratedPm25).toBeNull();
+  });
+
+  it('rejects double correction if firmware is already compensated', () => {
+    const res = evaluateSensorCalibrationEligibility({
+      sensorModel: 'Plantower PMS5003',
+      isFirmwareCompensated: true,
+      hasLocalRelativeHumidity: true,
+      relativeHumidityPercent: 50,
+      rawPm25: 45,
+      identityStatus: 'verified',
+    });
+    expect(res.eligible).toBe(false);
+    expect(res.reason).toBe('already_compensated');
+    expect(res.calibratedPm25).toBeNull();
+  });
+
+  it('getDeviceCalibrationStatus maps evaluation fields faithfully', () => {
+    const evaluation = evaluateSensorCalibrationEligibility({
+      sensorModel: 'Plantower PMS5003',
+      hasLocalRelativeHumidity: true,
+      relativeHumidityPercent: 60,
+      rawPm25: 100,
+      identityStatus: 'verified',
+    });
+    const status = getDeviceCalibrationStatus(evaluation);
+    expect(status.eligible).toBe(true);
+    expect(status.applied).toBe(true);
+    expect(status.rawValue).toBe(100);
+    expect(status.correctedValue).toBeCloseTo(53.0, 1);
+    expect(status.methodId).toBe('epa_barkjohn');
+    expect(status.sourceReference).toContain('Barkjohn');
   });
 });

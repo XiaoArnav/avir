@@ -457,8 +457,10 @@ describe('AVIR — Device Connector Modal & Hardware Telemetry (31 Mandated Scen
       const metadata = service.getAsGroundStationMetadata();
       expect(metadata).not.toBeNull();
       expect(metadata?.stationType).toBe('user_device');
-      expect(metadata?.provider).toBe('User Hardware Monitor (BYOD)');
-      expect(metadata?.distanceKm).toBe(0.0);
+      expect(metadata?.provider).toContain('User Hardware Monitor');
+      expect(metadata?.distanceKm).toBeNull(); // No false (0,0) or 0km colocation
+      expect(metadata?.latitude).toBeNull();
+      expect(metadata?.longitude).toBeNull();
       // City model is not altered
       expect(metadata?.stationName).toContain('My Connected USB Monitor');
     });
