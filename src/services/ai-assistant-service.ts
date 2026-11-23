@@ -159,7 +159,7 @@ export function generateLocalHeuristicPlan(req: PlanGenerationRequest): Recommen
     ? `Air quality advisory active for ${city} with AQI ${metrics.usAqi} (${aqiCategory}).${inversionClause} High-exposure individuals must prioritize indoor clean air zones and reschedule peak morning workouts.`
     : `Air quality telemetry synchronizing for ${city}.${inversionClause} Follow standard preventive guidelines.`;
 
-  if (profile.hasAsthmaOrRespiratory || profile.ageGroup === 'infant') {
+  if (profile?.hasAsthmaOrRespiratory || profile?.ageGroup === 'infant') {
     summaryAdvisory += ' High clinical vulnerability detected: enforce indoor N95 seals and run air cleaning continuously.';
   }
 

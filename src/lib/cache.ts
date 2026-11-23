@@ -12,6 +12,8 @@ interface CacheEntry<T> {
 export class MemoryCache<T> {
   private cache = new Map<string, CacheEntry<T>>();
   private maxEntries: number;
+  private hits: number = 0;
+  private misses: number = 0;
 
   constructor(maxEntries: number = 100) {
     this.maxEntries = maxEntries;
@@ -19,13 +21,18 @@ export class MemoryCache<T> {
 
   get(key: string): T | null {
     const entry = this.cache.get(key);
-    if (!entry) return null;
-
-    if (Date.now() > entry.expiresAt) {
-      // Retain in cache for stale fallback, but return null for fresh requests
+    if (!entry) {
+      this.misses++;
       return null;
     }
 
+    if (Date.now() > entry.expiresAt) {
+      // Retain in cache for stale fallback, but return null for fresh requests
+      this.misses++;
+      return null;
+    }
+
+    this.hits++;
     return entry.value;
   }
 
@@ -35,11 +42,21 @@ export class MemoryCache<T> {
    */
   getStale(key: string): { value: T; isExpired: boolean; storedAt: number } | null {
     const entry = this.cache.get(key);
-    if (!entry) return null;
+    if (!entry) {
+      this.misses++;
+      return null;
+    }
+
+    const isExpired = Date.now() > entry.expiresAt;
+    if (isExpired) {
+      this.hits++; // Stale hit
+    } else {
+      this.hits++; // Fresh hit
+    }
 
     return {
       value: entry.value,
-      isExpired: Date.now() > entry.expiresAt,
+      isExpired,
       storedAt: entry.storedAt,
     };
   }
@@ -68,6 +85,22 @@ export class MemoryCache<T> {
 
   clear(): void {
     this.cache.clear();
+    this.hits = 0;
+    this.misses = 0;
+  }
+
+  size(): number {
+    return this.cache.size;
+  }
+
+  getStats(): { hits: number; misses: number; size: number; hitRatio: number } {
+    const total = this.hits + this.misses;
+    return {
+      hits: this.hits,
+      misses: this.misses,
+      size: this.cache.size,
+      hitRatio: total > 0 ? Math.round((this.hits / total) * 1000) / 1000 : 0,
+    };
   }
 }
 

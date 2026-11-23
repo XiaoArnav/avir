@@ -1,48 +1,45 @@
 # AVIR — DEFERRED TECHNICAL DEBT REGISTER
-## Phase A Master Baseline & Future Phase Backlog
+## Phase D Release Candidate & Production Backlog
 
 **Author**: XiaoArnav <322868724+XiaoArnav@users.noreply.github.com>  
-**Last Updated**: 2026-11-23  
-**Status**: Authoritative Technical Debt Register  
+**Last Updated**: November 23, 2026  
+**Status**: Authoritative Technical Debt Register (Phase D Release Candidate)  
 
 ---
 
 ## 1. Purpose
 
-This document explicitly catalogues architectural, integration, and environmental data limitations deferred during Phase A (Steps 8–10) or inherited from earlier steps (Steps 1–7). Under Avir's scientific honesty guidelines, limitations are never obscured, fabricated, or prematurely closed without genuine infrastructure.
+This document explicitly catalogues architectural, integration, and environmental data limitations remaining after the completion of Phase D (Steps 22–24) and all prior roadmap phases (Steps 1–21). Under Avir's scientific honesty guidelines, limitations are never obscured, fabricated, or prematurely closed without genuine physical evidence.
 
 ---
 
-## 2. Inherited Technical Debt from Steps 01–07
+## 2. Resolved Technical Debt in Phase D
 
-### Step 4 — Official Ground Stations (CPCB/CAAQMS)
-- **Official API Ingestion**: Direct programmatic ingestion from CPCB CCR / Sameer portal requires statutory government credentials and IP allowlisting. Scraping or bypassing CAPTCHAs is strictly prohibited under project and security directives.
-- **Station-Level Fallback**: CPCB stations without active real-time feeds are retained with `'registry_only'` status and zero synthetic readings.
-
-### Step 5 — Personal Air-Monitor Integration
-- **Physical Sensor Verification**: Browser-level WebSerial USB and local Wi-Fi monitoring interfaces (`WebSerialManager`, `WifiMonitorManager`) are fully implemented and verified via browser APIs and mock hardware frames. Live physical verification with PMS5003 / Sensirion SPS30 hardware remains dependent on physical bench hardware.
-- **Factory Calibration Offsets**: Relative humidity calibration curves are implemented; individual sensor calibration constants require dual-chamber collocated testing against reference monitors.
-
-### Step 6 — Global Telemetry & World Comparisons
-- **Batch Endpoint Latency**: World telemetry explorer fetches batches of cities via Open-Meteo multi-coordinate endpoints. Coverage of 100+ worldwide cities requires a persistent server-side distributed cache or geohash bucket.
-- **Sparse Observation Density**: Ground monitor coverage outside North America, Europe, and select Asian metros relies on satellite-derived CAMS models. Model data is explicitly labeled as such.
-
-### Step 7 — Scientifically Correct AQI (PR #14)
-- **Status of PR #14**: Pull Request #14 (`feat/step-07-scientifically-correct-aqi`) contains identified calculation debt regarding pollutant averaging windows and truncated breakpoint tables.
-- **Phase A Isolation Guarantee**: Phase A code has **ZERO dependency** on PR #14 and does not import, merge, or cherry-pick unverified code from that branch. Full corrective closure for Step 7 will take place in its dedicated milestone.
+1. **D-SEC-01 (API Key Leakage)**: Resolved. Gemini API key passed strictly via `x-goog-api-key` header; removed from URL queries.
+2. **D-SEC-02 (Asymmetric Validation)**: Resolved. Unified runtime schema validation on both legacy and modern requests in `src/services/ai/plan-validator.ts`.
+3. **D-SEC-03 (Heap Exhaustion Risk)**: Resolved. Enforced 100 KB payload ceiling via `readBoundedJson`.
+4. **D-SEC-04 (Abuse Control)**: Resolved. Implemented sliding-window in-memory rate limiter on `/api/ai/plan`.
+5. **D-SEC-05 (Security Headers)**: Resolved. Established production Content-Security-Policy and HTTP security headers in `next.config.ts`.
+6. **D-REL-01 (Cascading Outage Risk)**: Resolved. Built 3-state Circuit Breaker (`CLOSED`, `OPEN`, `HALF_OPEN`) with automatic fallback.
+7. **D-REL-02 (Observability Gap)**: Resolved. Built `TelemetryLogger` recording provider latencies, failure categories, and health ratings.
+8. **D-REL-03 (Cache Invariants)**: Resolved. Enforced strict retention of authentic observation timestamps on stale fallbacks.
 
 ---
 
-## 3. Phase A Technical Debt & Future Scope
+## 3. Physical Hardware & Infrastructure Limitations (Managed Technical Debt)
 
-### Step 8 — Verified Advisories & Official GRAP Intelligence
-- **Automated CAQM Gazette Scraping**: Official statutory orders from CAQM and Delhi DoE are curated in a human-verified registry (`VERIFIED_OFFICIAL_REGULATORY_ORDERS`). Live automated polling of `caqm.nic.in` PDFs requires an official signed RSS/API feed from CAQM or periodic editorial verification.
-- **Other State Clean Air Action Plans**: Currently, statutory emergency orders are strictly modeled for NCR (CAQM). Non-NCR state action plans (e.g. Maharashtra CAP, West Bengal Action Plan) return `'not_applicable'` for GRAP and provide baseline evidence-based guidance.
+### 1. Physical Hardware Sensor Calibration
+- **Status**: Safely isolated in `src/services/device-telemetry-service.ts`.
+- **Limitation**: WebSerial and local Wi-Fi monitoring interfaces (`WebSerialManager`, `WifiMonitorManager`) are verified via browser APIs and mock hardware frames. Live physical calibration against reference beta-attenuation monitors (BAM-1020) requires a physical calibration test chamber.
 
-### Step 9 — Hourly Forecast & Timezone Normalization
-- **Open-Meteo 7-Day Extension**: Current forecast timeline renders the next 24 hours. Extending to full 7-day multi-model ensemble (CAMS + GFS + ECMWF) will require compressed payload streaming.
-- **High-Altitude Boundary Layer Dynamics**: Boundary layer height model output from NOAA GFS is matched within 60 minutes. Mountainous regions with extreme topography (e.g. Leh, Kathmandu) experience microclimatic valley inversions not fully resolved at 11 km grid scales.
+### 2. Statutory CPCB Portal Ingestion
+- **Status**: Live CPCB ground monitors are resolved via official coordinates and registry entries.
+- **Limitation**: Direct real-time scraping of the Sameer portal or CAAQMS backend is restricted by government network access policies and CAPTCHA gates. Bypassing these gates is strictly prohibited; data is fetched via verified server-side OpenAQ v3 feeds and curated CPCB station registries.
 
-### Step 10 — Data Synchronization & Request Coordination
-- **Local Storage Telemetry Cache**: Telemetry caching currently resides in in-memory LRU cache (`telemetryCache`). Persisting telemetry across page reloads in IndexedDB with cryptographic signing is deferred to Phase C.
-- **WebSocket Push Synchronization**: Current real-time synchronization operates on abortable on-demand pull and manual refresh. Real-time push via WebSocket/Server-Sent Events will be evaluated when official real-time streaming endpoints become available.
+### 3. Distributed Production Rate Limiting
+- **Status**: In-memory sliding-window limiter is active on serverless instances.
+- **Limitation**: Fully distributed global rate limiting across thousands of independent Vercel edge regions requires a shared Redis / Upstash store (`KV_REST_API_URL`). When deployed without Redis, rate limiting operates per-instance, which is adequate for standard abuse protection.
+
+### 4. Third-Party Monitoring & PagerDuty Alerting
+- **Status**: In-memory health summary and latency reporting active.
+- **Limitation**: External PagerDuty/Slack alerting webhooks require enterprise account provisioning and private webhooks configured in the Vercel dashboard.

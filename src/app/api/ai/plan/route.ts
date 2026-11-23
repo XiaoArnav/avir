@@ -4,6 +4,7 @@ import { inspectPromptInjection } from '@/lib/security/sanitizer';
 import { getAQICategory } from '@/domain/air-math';
 import {
   validatePlanRequestPayload,
+  validateLegacyPlanRequestPayload,
   sanitizeUserHealthContext,
 } from '@/services/ai/plan-validator';
 import {
@@ -12,40 +13,93 @@ import {
 } from '@/services/optimization/forecast-optimizer';
 import { calculateDailyScheduleExposure } from '@/services/exposure/exposure-engine';
 import { AiPlanExplanation, DeterministicPlanResult } from '@/domain/planning-types';
+import { aiPlanRateLimiter, extractClientIp } from '@/lib/security/rate-limiter';
+import { readBoundedJson } from '@/lib/security/request-limiter';
+
+const GEMINI_API_TIMEOUT_MS = 8000;
 
 export async function POST(req: NextRequest) {
   try {
-    const rawBody = await req.json();
+    // =========================================================================
+    // STEP 22: ABUSE CONTROL & RATE LIMITING
+    // =========================================================================
+    const clientIp = extractClientIp(req);
+    const rateLimit = aiPlanRateLimiter.check(clientIp);
+
+    if (!rateLimit.allowed) {
+      const retryAfterSec = Math.max(1, Math.ceil(rateLimit.resetMs / 1000));
+      return NextResponse.json(
+        {
+          error: 'Rate limit exceeded. Too many requests to the AI planner endpoint.',
+          code: 'RATE_LIMITED',
+          retryAfterSeconds: retryAfterSec,
+        },
+        {
+          status: 429,
+          headers: {
+            'Retry-After': String(retryAfterSec),
+            'X-RateLimit-Limit': String(rateLimit.limit),
+            'X-RateLimit-Remaining': '0',
+            'X-RateLimit-Reset': String(retryAfterSec),
+          },
+        }
+      );
+    }
+
+    // =========================================================================
+    // STEP 22: BOUNDED PAYLOAD SIZE CHECK (100 KB CEILING)
+    // =========================================================================
+    const boundedRead = await readBoundedJson(req);
+    if (!boundedRead.success) {
+      const status = boundedRead.errorCode === 'PAYLOAD_TOO_LARGE' ? 413 : 400;
+      return NextResponse.json(
+        {
+          error: boundedRead.errorMessage || 'Invalid request payload.',
+          code: boundedRead.errorCode || 'INVALID_REQUEST',
+        },
+        { status }
+      );
+    }
+
+    const rawBody = boundedRead.data;
 
     if (!rawBody || typeof rawBody !== 'object') {
       return NextResponse.json(
-        { error: 'Validation failed: Request body must be a valid JSON object.' },
+        {
+          error: 'Validation failed: Request body must be a valid JSON object.',
+          code: 'VALIDATION_ERROR',
+        },
         { status: 400 }
       );
     }
 
-    // Determine if payload is modern Phase B (schedule-based) or legacy Phase A
+    // Determine if payload is modern Step 16+ (schedule-based) or legacy Phase A
     const isModernSchedule = Boolean(rawBody.schedule && Array.isArray(rawBody.schedule.activities));
 
+    // =========================================================================
+    // STEP 22: UNIFIED SCHEMA VALIDATION (ELIMINATES DEFECT D-SEC-02)
+    // =========================================================================
     if (isModernSchedule) {
       const validation = validatePlanRequestPayload(rawBody);
       if (!validation.isValid) {
         return NextResponse.json(
-          { error: `Validation failed: ${validation.errors.join('; ')}`, errors: validation.errors },
+          {
+            error: `Validation failed: ${validation.errors.join('; ')}`,
+            code: 'VALIDATION_ERROR',
+            errors: validation.errors,
+          },
           { status: 400 }
         );
       }
     } else {
-      // Legacy payload validation
-      if (!rawBody.city || typeof rawBody.city !== 'string' || rawBody.city.trim().length === 0) {
+      const validation = validateLegacyPlanRequestPayload(rawBody);
+      if (!validation.isValid) {
         return NextResponse.json(
-          { error: 'Validation failed: City name is required.' },
-          { status: 400 }
-        );
-      }
-      if (!rawBody.metrics || typeof rawBody.metrics !== 'object') {
-        return NextResponse.json(
-          { error: 'Validation failed: Environmental metrics are required.' },
+          {
+            error: `Validation failed: ${validation.errors.join('; ')}`,
+            code: 'VALIDATION_ERROR',
+            errors: validation.errors,
+          },
           { status: 400 }
         );
       }
@@ -89,7 +143,7 @@ export async function POST(req: NextRequest) {
         optimizedExposureUg: Math.round(optMass * 10) / 10,
         absoluteSavingsUg: Math.round(diff * 10) / 10,
         percentageSavings: baselineMass > 0 ? Math.round((diff / baselineMass) * 1000) / 10 : 0,
-        activityShifts: fb.routineShifts.map((s, idx) => ({
+        activityShifts: fb.routineShifts.map((s) => ({
           activityId: s.id,
           activityName: s.activityName,
           originalStart: s.timeWindow.split('-')[0]?.trim() || '08:00',
@@ -127,12 +181,16 @@ export async function POST(req: NextRequest) {
 
     // =========================================================================
     // TIER 3: AI EXPLANATION LAYER (LLM AS EXPLANATION ONLY, NO CALCULATIONS)
+    // STEP 22: HEADER-BASED AUTH (D-SEC-01) & ABORT TIMEOUT (D-REL-01)
     // =========================================================================
     let aiExplanation: AiPlanExplanation | undefined = undefined;
     let isAiGenerated = false;
     let explanationSource: 'llm_generated' | 'deterministic_fallback' = 'deterministic_fallback';
 
     if (apiKey) {
+      const abortController = new AbortController();
+      const timeoutId = setTimeout(() => abortController.abort(), GEMINI_API_TIMEOUT_MS);
+
       try {
         const promptText = `You are Avir's Environmental Health Communicator.
 Review the following deterministic physical exposure calculations for an urban resident in ${rawBody.city}:
@@ -151,11 +209,16 @@ Return only valid JSON matching this schema:
   "healthContext": string
 }`;
 
+        // D-SEC-01 FIX: Pass API key strictly via x-goog-api-key header, NEVER in query URL
         const geminiRes = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+          'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
           {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+              'Content-Type': 'application/json',
+              'x-goog-api-key': apiKey,
+            },
+            signal: abortController.signal,
             body: JSON.stringify({
               contents: [{ role: 'user', parts: [{ text: promptText }] }],
               generationConfig: {
@@ -186,8 +249,14 @@ Return only valid JSON matching this schema:
             explanationSource = 'llm_generated';
           }
         }
-      } catch (geminiErr) {
-        console.warn('Gemini explanation call failed, using deterministic explanation fallback:', geminiErr);
+      } catch (geminiErr: any) {
+        if (geminiErr.name === 'AbortError') {
+          console.warn('Gemini explanation call timed out after 8s, falling back to deterministic explanation.');
+        } else {
+          console.warn('Gemini explanation call failed, using deterministic explanation fallback:', geminiErr?.message || geminiErr);
+        }
+      } finally {
+        clearTimeout(timeoutId);
       }
     }
 
@@ -232,7 +301,7 @@ Return only valid JSON matching this schema:
   } catch (err: any) {
     console.error('AI plan route error:', err);
     return NextResponse.json(
-      { error: 'Internal server error while generating plan' },
+      { error: 'Internal server error while generating plan', code: 'INTERNAL_ERROR' },
       { status: 500 }
     );
   }

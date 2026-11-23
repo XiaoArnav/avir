@@ -34,7 +34,10 @@ export async function GET(req: NextRequest) {
     if (latParam !== null || lonParam !== null) {
       if (latParam === null || lonParam === null) {
         return NextResponse.json(
-          { error: 'Both "lat" and "lon" query parameters must be provided together.' },
+          {
+            error: 'Both "lat" and "lon" query parameters must be provided together.',
+            code: 'MISSING_COORDINATES',
+          },
           { status: 400 }
         );
       }
@@ -44,14 +47,20 @@ export async function GET(req: NextRequest) {
 
       if (parsedLat === null || parsedLat < -90 || parsedLat > 90) {
         return NextResponse.json(
-          { error: 'Invalid latitude: must be a strict numeric value between -90 and 90.' },
+          {
+            error: 'Invalid latitude: must be a strict numeric value between -90 and 90.',
+            code: 'INVALID_LATITUDE',
+          },
           { status: 400 }
         );
       }
 
       if (parsedLon === null || parsedLon < -180 || parsedLon > 180) {
         return NextResponse.json(
-          { error: 'Invalid longitude: must be a strict numeric value between -180 and 180.' },
+          {
+            error: 'Invalid longitude: must be a strict numeric value between -180 and 180.',
+            code: 'INVALID_LONGITUDE',
+          },
           { status: 400 }
         );
       }
@@ -71,6 +80,7 @@ export async function GET(req: NextRequest) {
         return NextResponse.json(
           {
             error: `Invalid radius: must be a strict numeric value between 1 and ${CPCB_MAX_SEARCH_RADIUS_KM} kilometers.`,
+            code: 'INVALID_RADIUS',
           },
           { status: 400 }
         );
