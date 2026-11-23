@@ -23,63 +23,15 @@ export const DiurnalForecastTimeline: React.FC<DiurnalForecastTimelineProps> = (
   const [metricMode, setMetricMode] = useState<ForecastMetricMode>('pm25');
   const [showDataTable, setShowDataTable] = useState(false);
 
-  // Keep selected point in sync when forecast or city changes
-  useEffect(() => {
-    if (hourlyForecast.length > 0) {
-      const defaultPt = hourlyForecast.find((p) => p.hour === currentHour) || hourlyForecast[0];
-      const key = defaultPt.validAtUtc || defaultPt.time || String(defaultPt.hour);
-      setSelectedKey(key);
-    } else {
-      setSelectedKey('');
-    }
-  }, [hourlyForecast, currentHour, cityName]);
-
-  if (!hourlyForecast || hourlyForecast.length === 0) {
-    return (
-      <div className="bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl p-5 sm:p-6 shadow-sm space-y-4">
-        <div className="flex items-center gap-2.5">
-          <div className="p-2 rounded-xl bg-amber-500/10 text-amber-500 border border-amber-500/20">
-            <Clock className="w-5 h-5" />
-          </div>
-          <div>
-            <h3 className="text-base sm:text-lg font-bold text-ink dark:text-white">
-              24-Hour Atmospheric Trajectory &amp; Diurnal Cycle
-            </h3>
-            <p className="text-xs text-ink-muted dark:text-zinc-400">
-              Atmospheric dispersion and diurnal cycle for {cityName}
-            </p>
-          </div>
-        </div>
-        <div className="py-8 text-center text-xs font-mono text-ink-muted dark:text-zinc-400">
-          Hourly atmospheric forecast telemetry is currently unavailable for this station.
-        </div>
-      </div>
-    );
-  }
-
-  const analysis = analyzeDiurnalRelativeWindows(hourlyForecast);
-
-  const activePoint =
-    hourlyForecast.find((p) => (p.validAtUtc || p.time || String(p.hour)) === selectedKey) ||
-    hourlyForecast[0];
-
-  const getAqiColor = (aqi: number | null | undefined) => {
-    if (aqi === null || aqi === undefined) return 'text-stone-400 bg-stone-100 dark:bg-zinc-800 border-stone-200 dark:border-zinc-700';
-    if (aqi <= 50) return 'text-emerald-500 bg-emerald-500/10 border-emerald-500/30';
-    if (aqi <= 100) return 'text-yellow-500 bg-yellow-500/10 border-yellow-500/30';
-    if (aqi <= 150) return 'text-orange-500 bg-orange-500/10 border-orange-500/30';
-    if (aqi <= 200) return 'text-rose-500 bg-rose-500/10 border-rose-500/30';
-    if (aqi <= 300) return 'text-purple-500 bg-purple-500/10 border-purple-500/30';
-    return 'text-red-500 bg-red-500/10 border-red-500/30';
-  };
-
   // SVG Chart Dimensions & Computations
   const chartHeight = 120;
   const chartWidth = 720;
   const paddingX = 24;
   const paddingY = 18;
 
+  // Compute points and SVG segments unconditionally at top level to obey React Rules of Hooks
   const validPoints = useMemo(() => {
+    if (!hourlyForecast || hourlyForecast.length === 0) return [];
     return hourlyForecast.map((p, idx) => {
       const val = metricMode === 'pm25' ? p.pm25 : p.usAqi;
       const isValid = typeof val === 'number' && Number.isFinite(val) && val >= 0;
@@ -106,6 +58,7 @@ export const DiurnalForecastTimeline: React.FC<DiurnalForecastTimelineProps> = (
 
   // Build segmented SVG paths to preserve missing-data gaps honestly without interpolation
   const segments = useMemo(() => {
+    if (!validPoints || validPoints.length === 0) return [];
     const result: Array<{
       path: string;
       isForecast: boolean;
@@ -170,6 +123,56 @@ export const DiurnalForecastTimeline: React.FC<DiurnalForecastTimelineProps> = (
 
     return result;
   }, [validPoints, minVal, range, chartWidth, chartHeight, paddingX, paddingY]);
+
+  // Keep selected point in sync when forecast or city changes
+  useEffect(() => {
+    if (hourlyForecast && hourlyForecast.length > 0) {
+      const defaultPt = hourlyForecast.find((p) => p.hour === currentHour) || hourlyForecast[0];
+      const key = defaultPt.validAtUtc || defaultPt.time || String(defaultPt.hour);
+      setSelectedKey(key);
+    } else {
+      setSelectedKey('');
+    }
+  }, [hourlyForecast, currentHour, cityName]);
+
+  if (!hourlyForecast || hourlyForecast.length === 0) {
+    return (
+      <div className="bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl p-5 sm:p-6 shadow-sm space-y-4">
+        <div className="flex items-center gap-2.5">
+          <div className="p-2 rounded-xl bg-amber-500/10 text-amber-500 border border-amber-500/20">
+            <Clock className="w-5 h-5" />
+          </div>
+          <div>
+            <h3 className="text-base sm:text-lg font-bold text-ink dark:text-white">
+              24-Hour Atmospheric Trajectory &amp; Diurnal Cycle
+            </h3>
+            <p className="text-xs text-ink-muted dark:text-zinc-400">
+              Atmospheric dispersion and diurnal cycle for {cityName}
+            </p>
+          </div>
+        </div>
+        <div className="py-8 text-center text-xs font-mono text-ink-muted dark:text-zinc-400">
+          Hourly atmospheric forecast telemetry is currently unavailable for this station.
+        </div>
+      </div>
+    );
+  }
+
+  const analysis = analyzeDiurnalRelativeWindows(hourlyForecast);
+
+  const activePoint =
+    hourlyForecast.find((p) => (p.validAtUtc || p.time || String(p.hour)) === selectedKey) ||
+    hourlyForecast[0];
+
+  const getAqiColor = (aqi: number | null | undefined) => {
+    if (aqi === null || aqi === undefined) return 'text-stone-400 bg-stone-100 dark:bg-zinc-800 border-stone-200 dark:border-zinc-700';
+    if (aqi <= 50) return 'text-emerald-500 bg-emerald-500/10 border-emerald-500/30';
+    if (aqi <= 100) return 'text-yellow-500 bg-yellow-500/10 border-yellow-500/30';
+    if (aqi <= 150) return 'text-orange-500 bg-orange-500/10 border-orange-500/30';
+    if (aqi <= 200) return 'text-rose-500 bg-rose-500/10 border-rose-500/30';
+    if (aqi <= 300) return 'text-purple-500 bg-purple-500/10 border-purple-500/30';
+    return 'text-red-500 bg-red-500/10 border-red-500/30';
+  };
 
   return (
     <div className="bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl p-5 sm:p-6 shadow-sm space-y-6">
