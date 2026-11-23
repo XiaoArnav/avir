@@ -1,8 +1,10 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
+import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
 import { Search, MapPin, Navigation, Loader2, AlertCircle, X } from 'lucide-react';
 import { searchCities, GeocodedLocation } from '@/services/telemetry-service';
+import { springs } from '@/lib/motion-tokens';
 
 interface CityPickerProps {
   currentCity: string;
@@ -18,6 +20,7 @@ export const CityPicker: React.FC<CityPickerProps> = ({ currentCity, onSelectCit
   const [geoError, setGeoError] = useState<string | null>(null);
   const [highlightedIndex, setHighlightedIndex] = useState<number>(-1);
   const dropdownRef = useRef<HTMLDivElement | null>(null);
+  const shouldReduceMotion = useReducedMotion();
 
   useEffect(() => {
     if (!query || query.trim().length < 2) {
@@ -106,12 +109,13 @@ export const CityPicker: React.FC<CityPickerProps> = ({ currentCity, onSelectCit
           </p>
         </div>
 
-        <button
+        <motion.button
           type="button"
           onClick={handleDetectLocation}
           disabled={isLocating || isLoading}
+          whileTap={shouldReduceMotion ? undefined : { scale: 0.96 }}
           aria-label="Detect current location via device GPS"
-          className="inline-flex items-center justify-center gap-2 text-xs font-semibold px-3.5 py-2 rounded-xl bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 border border-stone-300 dark:border-zinc-800 text-ink dark:text-zinc-200 transition-colors disabled:opacity-50 touch-target active:scale-95 shadow-xs cursor-pointer focus-visible-ring"
+          className="inline-flex items-center justify-center gap-2 text-xs font-semibold px-3.5 py-2 rounded-xl bg-stone-100 dark:bg-zinc-900 hover:bg-stone-200 dark:hover:bg-zinc-800 border border-stone-300 dark:border-zinc-800 text-ink dark:text-zinc-200 transition-colors disabled:opacity-50 touch-target shadow-xs cursor-pointer focus-visible-ring"
         >
           {isLocating || isLoading ? (
             <Loader2 className="w-3.5 h-3.5 animate-spin text-ink dark:text-white" />
@@ -119,28 +123,33 @@ export const CityPicker: React.FC<CityPickerProps> = ({ currentCity, onSelectCit
             <Navigation className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
           )}
           <span>{isLocating ? 'Locating...' : isLoading ? 'Loading...' : 'Locate Me'}</span>
-        </button>
+        </motion.button>
       </div>
 
-      {geoError && (
-        <div
-          role="alert"
-          className="flex items-center justify-between p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-800 dark:text-amber-300"
-        >
-          <div className="flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 text-amber-500 shrink-0" />
-            <span>{geoError}</span>
-          </div>
-          <button
-            type="button"
-            onClick={() => setGeoError(null)}
-            className="p-1 text-ink-muted hover:text-ink dark:text-zinc-400 dark:hover:text-white"
-            aria-label="Dismiss error"
+      <AnimatePresence>
+        {geoError && (
+          <motion.div
+            role="alert"
+            initial={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, y: -6 }}
+            className="flex items-center justify-between p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-800 dark:text-amber-300"
           >
-            <X className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      )}
+            <div className="flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-amber-500 shrink-0" />
+              <span>{geoError}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setGeoError(null)}
+              className="p-1 text-ink-muted hover:text-ink dark:text-zinc-400 dark:hover:text-white"
+              aria-label="Dismiss error"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Search Input Bar */}
       <div className="relative">
@@ -166,46 +175,52 @@ export const CityPicker: React.FC<CityPickerProps> = ({ currentCity, onSelectCit
         />
 
         {/* Live Search Autocomplete Dropdown */}
-        {searchResults.length > 0 && (
-          <div
-            id="city-search-results"
-            role="listbox"
-            ref={dropdownRef}
-            className="absolute left-0 right-0 top-full mt-2 bg-white dark:bg-zinc-900/95 backdrop-blur-2xl border border-stone-300 dark:border-zinc-800 rounded-xl shadow-2xl z-30 max-h-56 overflow-y-auto divide-y divide-stone-200 dark:divide-zinc-800"
-          >
-            {searchResults.map((loc, idx) => {
-              const isHighlighted = idx === highlightedIndex;
-              return (
-                <button
-                  key={loc.id}
-                  role="option"
-                  aria-selected={isHighlighted}
-                  onClick={() => {
-                    onSelectCity(loc);
-                    setQuery('');
-                    setSearchResults([]);
-                  }}
-                  onMouseEnter={() => setHighlightedIndex(idx)}
-                  className={`w-full text-left px-4 py-3 transition-colors text-xs text-ink dark:text-zinc-200 flex items-center justify-between cursor-pointer ${
-                    isHighlighted ? 'bg-stone-100 dark:bg-zinc-800' : 'hover:bg-stone-50 dark:hover:bg-zinc-850'
-                  }`}
-                >
-                  <div>
-                    <span className="font-bold text-ink dark:text-white text-sm">{loc.name}</span>
-                    {loc.admin1 && (
-                      <span className="text-ink-muted dark:text-zinc-400 ml-1.5 font-mono">
-                        ({loc.admin1})
-                      </span>
-                    )}
-                  </div>
-                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-stone-100 dark:bg-zinc-800 text-ink-muted dark:text-zinc-400 font-mono border border-stone-200 dark:border-zinc-700">
-                    {loc.country}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        )}
+        <AnimatePresence>
+          {searchResults.length > 0 && (
+            <motion.div
+              id="city-search-results"
+              role="listbox"
+              ref={dropdownRef}
+              initial={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, y: -6, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, y: -4, scale: 0.98 }}
+              transition={springs.snappy}
+              className="absolute left-0 right-0 top-full mt-2 bg-white dark:bg-zinc-900/95 backdrop-blur-2xl border border-stone-300 dark:border-zinc-800 rounded-xl shadow-2xl z-30 max-h-56 overflow-y-auto divide-y divide-stone-200 dark:divide-zinc-800"
+            >
+              {searchResults.map((loc, idx) => {
+                const isHighlighted = idx === highlightedIndex;
+                return (
+                  <button
+                    key={loc.id}
+                    role="option"
+                    aria-selected={isHighlighted}
+                    onClick={() => {
+                      onSelectCity(loc);
+                      setQuery('');
+                      setSearchResults([]);
+                    }}
+                    onMouseEnter={() => setHighlightedIndex(idx)}
+                    className={`w-full text-left px-4 py-3 transition-colors text-xs text-ink dark:text-zinc-200 flex items-center justify-between cursor-pointer ${
+                      isHighlighted ? 'bg-stone-100 dark:bg-zinc-800' : 'hover:bg-stone-50 dark:hover:bg-zinc-850'
+                    }`}
+                  >
+                    <div>
+                      <span className="font-bold text-ink dark:text-white text-sm">{loc.name}</span>
+                      {loc.admin1 && (
+                        <span className="text-ink-muted dark:text-zinc-400 ml-1.5 font-mono">
+                          ({loc.admin1})
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-stone-100 dark:bg-zinc-800 text-ink-muted dark:text-zinc-400 font-mono border border-stone-200 dark:border-zinc-700">
+                      {loc.country}
+                    </span>
+                  </button>
+                );
+              })}
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
       {/* Active City Confirmation Stamp */}

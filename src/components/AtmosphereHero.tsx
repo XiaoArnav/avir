@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
+import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
 import { AtmosphericMetrics, AQICategory, HourlyAtmosphericPoint } from '@/domain/types';
 import {
   calculateCigaretteEquivalence,
@@ -11,6 +12,8 @@ import { resolveOfficialGrapStatus } from '@/services/advisories/grap-status-res
 import { formatTimeAgo } from '@/domain/presentation-contract';
 import { CityPanoramicBackdrop } from './CityPanoramicBackdrop';
 import { GroundStationBadge } from './GroundStationBadge';
+import { ValueCrossfade } from '@/components/motion';
+import { springs, duration } from '@/lib/motion-tokens';
 import {
   AlertTriangle,
   CloudFog,
@@ -52,6 +55,8 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
   isLoading,
   isDarkMode = true,
 }) => {
+  const shouldReduceMotion = useReducedMotion();
+
   // Parse target city's wall-clock hour directly from location timestamp to avoid browser timezone drift
   const currentCityHour = useMemo(() => {
     if (metrics?.timestamp && metrics.timestamp.includes('T')) {
@@ -260,7 +265,41 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
     }
   };
 
+  const getAmbientGradient = (cat: AQICategory, dark: boolean) => {
+    switch (cat) {
+      case 'Good':
+        return dark
+          ? 'radial-gradient(ellipse 90% 65% at 50% -15%, rgba(16, 185, 129, 0.16), transparent 75%)'
+          : 'radial-gradient(ellipse 90% 65% at 50% -15%, rgba(16, 185, 129, 0.10), transparent 75%)';
+      case 'Moderate':
+        return dark
+          ? 'radial-gradient(ellipse 90% 65% at 50% -15%, rgba(234, 179, 8, 0.14), transparent 75%)'
+          : 'radial-gradient(ellipse 90% 65% at 50% -15%, rgba(234, 179, 8, 0.08), transparent 75%)';
+      case 'UnhealthySensitive':
+        return dark
+          ? 'radial-gradient(ellipse 90% 65% at 50% -15%, rgba(249, 115, 22, 0.16), transparent 75%)'
+          : 'radial-gradient(ellipse 90% 65% at 50% -15%, rgba(249, 115, 22, 0.10), transparent 75%)';
+      case 'Unhealthy':
+        return dark
+          ? 'radial-gradient(ellipse 90% 65% at 50% -15%, rgba(225, 29, 72, 0.18), transparent 75%)'
+          : 'radial-gradient(ellipse 90% 65% at 50% -15%, rgba(225, 29, 72, 0.10), transparent 75%)';
+      case 'VeryUnhealthy':
+        return dark
+          ? 'radial-gradient(ellipse 90% 65% at 50% -15%, rgba(168, 85, 247, 0.20), transparent 75%)'
+          : 'radial-gradient(ellipse 90% 65% at 50% -15%, rgba(168, 85, 247, 0.12), transparent 75%)';
+      case 'Hazardous':
+      case 'Severe':
+        return dark
+          ? 'radial-gradient(ellipse 90% 65% at 50% -15%, rgba(220, 38, 38, 0.24), rgba(127, 29, 29, 0.10) 60%, transparent 80%)'
+          : 'radial-gradient(ellipse 90% 65% at 50% -15%, rgba(220, 38, 38, 0.14), transparent 75%)';
+      case 'Unavailable':
+      default:
+        return 'radial-gradient(ellipse 90% 65% at 50% -15%, rgba(148, 163, 184, 0.08), transparent 75%)';
+    }
+  };
+
   const status = getCategoryBadge(category);
+  const ambientGradient = getAmbientGradient(category, isDarkMode);
 
   // If loading and no metrics, render sleek skeleton
   if (!metrics || isLoading) {
@@ -313,13 +352,15 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
             </p>
           </div>
           {onRefresh && (
-            <button
+            <motion.button
               onClick={onRefresh}
-              className="px-5 py-2.5 rounded-xl bg-ink hover:bg-stone-800 text-white dark:bg-white dark:hover:bg-zinc-200 dark:text-black font-semibold text-xs transition-all shadow-md active:scale-95 flex items-center gap-2"
+              whileTap={shouldReduceMotion ? undefined : { scale: 0.95 }}
+              whileHover={shouldReduceMotion ? undefined : { scale: 1.02 }}
+              className="px-5 py-2.5 rounded-xl bg-ink hover:bg-stone-800 text-white dark:bg-white dark:hover:bg-zinc-200 dark:text-black font-semibold text-xs transition-all shadow-md active:scale-95 flex items-center gap-2 cursor-pointer focus-visible-ring"
             >
               <Activity className="w-3.5 h-3.5" />
               <span>Retry Telemetry Connection</span>
-            </button>
+            </motion.button>
           )}
         </div>
       </section>
@@ -345,6 +386,13 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
       aria-label="Real-time Atmospheric Telemetry Hero"
       className="relative overflow-hidden rounded-2xl glass-panel p-6 sm:p-8 lg:p-10 transition-colors shadow-sm"
     >
+      {/* Dynamic Atmospheric Ambient Depth Gradient */}
+      <div
+        className="absolute inset-0 pointer-events-none transition-all duration-700 ease-out"
+        style={{ background: ambientGradient }}
+        aria-hidden="true"
+      />
+
       {/* Background Architectural Vector Skyline Silhouette */}
       <div
         className="absolute inset-x-0 bottom-0 h-36 sm:h-48 opacity-15 dark:opacity-20 pointer-events-none select-none overflow-hidden transition-opacity duration-700"
@@ -410,53 +458,65 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
               </span>
             )}
             {onRefresh && (
-              <button
+              <motion.button
                 onClick={onRefresh}
                 disabled={isLoading}
-                className="p-1 rounded hover:bg-stone-200 dark:hover:bg-zinc-800 text-ink-muted dark:text-zinc-400 hover:text-ink dark:hover:text-white transition-colors"
+                whileTap={shouldReduceMotion ? undefined : { scale: 0.9 }}
+                whileHover={shouldReduceMotion ? undefined : { scale: 1.1 }}
+                transition={springs.snappy}
+                className="p-1 rounded hover:bg-stone-200 dark:hover:bg-zinc-800 text-ink-muted dark:text-zinc-400 hover:text-ink dark:hover:text-white transition-colors cursor-pointer focus-visible-ring"
                 title="Refresh Live Telemetry"
                 aria-label="Refresh telemetry feed"
               >
                 <Activity className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin text-primary' : ''}`} />
-              </button>
+              </motion.button>
             )}
           </div>
           <div className="flex items-center gap-2">
             {onOpenMultiSource && (
-              <button
+              <motion.button
                 onClick={onOpenMultiSource}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/80 dark:bg-zinc-850 hover:bg-stone-200 dark:hover:bg-zinc-700 text-ink dark:text-zinc-200 font-medium text-[11px] transition-colors border border-stone-200 dark:border-zinc-700 shadow-sm"
+                whileTap={shouldReduceMotion ? undefined : { scale: 0.96 }}
+                whileHover={shouldReduceMotion ? undefined : { scale: 1.03 }}
+                transition={springs.snappy}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/80 dark:bg-zinc-850 hover:bg-stone-200 dark:hover:bg-zinc-700 text-ink dark:text-zinc-200 font-medium text-[11px] transition-colors border border-stone-200 dark:border-zinc-700 shadow-sm cursor-pointer focus-visible-ring"
                 title="Inspect Atmospheric Data Sources & Provenance"
                 aria-label="Inspect Atmospheric Data Sources and Quality"
               >
                 <Layers className="w-3 h-3 text-emerald-500" />
                 <span>Sources</span>
-              </button>
+              </motion.button>
             )}
             {onOpenShare && (
-              <button
+              <motion.button
                 onClick={onOpenShare}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-medium text-[11px] transition-colors shadow-sm"
+                whileTap={shouldReduceMotion ? undefined : { scale: 0.96 }}
+                whileHover={shouldReduceMotion ? undefined : { scale: 1.03 }}
+                transition={springs.snappy}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-medium text-[11px] transition-colors shadow-sm cursor-pointer focus-visible-ring"
                 title="Share Daily Smog Bulletin on WhatsApp"
               >
                 <Share2 className="w-3 h-3" />
                 <span>Share Briefing</span>
-              </button>
+              </motion.button>
             )}
             {onOpenSchoolAdvisory && (
-              <button
+              <motion.button
                 onClick={onOpenSchoolAdvisory}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-stone-100 dark:bg-zinc-800 hover:bg-stone-200 dark:hover:bg-zinc-700 text-ink dark:text-zinc-200 font-medium text-[11px] transition-colors border border-stone-200 dark:border-zinc-700"
+                whileTap={shouldReduceMotion ? undefined : { scale: 0.96 }}
+                whileHover={shouldReduceMotion ? undefined : { scale: 1.03 }}
+                transition={springs.snappy}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-stone-100 dark:bg-zinc-800 hover:bg-stone-200 dark:hover:bg-zinc-700 text-ink dark:text-zinc-200 font-medium text-[11px] transition-colors border border-stone-200 dark:border-zinc-700 cursor-pointer focus-visible-ring"
                 title="Open School Sports Safety Guide"
               >
                 <GraduationCap className="w-3 h-3 text-amber-500" />
                 <span>School Guide</span>
-              </button>
+              </motion.button>
             )}
             {onOpenExplainer && (
               <button
                 onClick={onOpenExplainer}
-                className="text-[11px] text-sage-600 dark:text-zinc-400 hover:underline flex items-center gap-1 transition-colors"
+                className="text-[11px] text-sage-600 dark:text-zinc-400 hover:underline flex items-center gap-1 transition-colors cursor-pointer"
               >
                 Learn the Science &rarr;
               </button>
@@ -479,8 +539,11 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
         {/* Left Column: AQI Metric & Health Burden */}
         <div className="lg:col-span-5 flex flex-col justify-center">
           <div className="flex items-baseline gap-4">
-            <div className="text-6xl sm:text-7xl lg:text-8xl font-black text-ink dark:text-white tracking-tighter tabular-nums font-mono">
-              {metrics.usAqi !== null ? metrics.usAqi : '—'}
+            <div className="text-6xl sm:text-7xl lg:text-8xl font-black text-ink dark:text-white tracking-tighter font-mono">
+              <ValueCrossfade
+                value={metrics.usAqi !== null ? metrics.usAqi : '—'}
+                valueKey={metrics.usAqi !== null ? `us-aqi-${metrics.usAqi}` : 'us-aqi-missing'}
+              />
             </div>
             <div className="flex flex-col">
               <span className="text-xs uppercase font-mono tracking-widest text-ink-muted dark:text-zinc-400 font-semibold">
@@ -494,12 +557,15 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
               </span>
               <span className="text-xs font-mono text-ink-muted dark:text-zinc-400 mt-0.5">
                 {metrics.cpcbStatus === 'statutory_compliant' ? 'Indian CPCB NAQI' : 'Indicative CPCB Sub-Index'}:{' '}
-                <strong className="text-ink dark:text-zinc-200">{cpcb.aqi !== null ? cpcb.aqi : '—'}</strong> ({cpcb.category})
+                <strong className="text-ink dark:text-zinc-200">
+                  <ValueCrossfade
+                    value={cpcb.aqi !== null ? cpcb.aqi : '—'}
+                    valueKey={cpcb.aqi !== null ? `cpcb-${cpcb.aqi}` : 'cpcb-missing'}
+                  />
+                </strong> ({cpcb.category})
               </span>
             </div>
           </div>
-
-          {/* Multi-Source Open-Source AQI Consensus Range Badge hidden in Step 2 to remove misleading 5-source claim until Step 3 */}
 
           {/* Berkeley Earth Cigarette Equivalence Card */}
           <div className="mt-4 p-3.5 rounded-xl bg-white/80 dark:bg-zinc-900/70 border border-stone-200 dark:border-zinc-800/80 flex items-center gap-3 shadow-sm">
@@ -546,8 +612,12 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
               <span className="font-mono uppercase tracking-wider text-[11px]">Fine Dust (PM2.5)</span>
               <CloudFog className="w-4 h-4 text-terracotta-500 dark:text-zinc-400" />
             </div>
-            <div className="text-2xl sm:text-3xl font-extrabold text-ink dark:text-white font-mono tracking-tight tabular-nums">
-              {metrics.pm25 !== null ? metrics.pm25 : '—'} <span className="text-xs font-sans font-normal text-ink-muted dark:text-zinc-400">µg/m³</span>
+            <div className="text-2xl sm:text-3xl font-extrabold text-ink dark:text-white font-mono tracking-tight">
+              <ValueCrossfade
+                value={metrics.pm25 !== null ? metrics.pm25 : '—'}
+                valueKey={metrics.pm25 !== null ? `pm25-${metrics.pm25}` : 'pm25-missing'}
+              />{' '}
+              <span className="text-xs font-sans font-normal text-ink-muted dark:text-zinc-400">µg/m³</span>
             </div>
             <div className="text-[11px] text-ink-muted dark:text-zinc-500 mt-1">Enters lungs &amp; bloodstream</div>
           </div>
@@ -558,8 +628,12 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
               <span className="font-mono uppercase tracking-wider text-[11px]">Bigger Dust (PM10)</span>
               <CloudFog className="w-4 h-4 text-amber-500 dark:text-zinc-400" />
             </div>
-            <div className="text-2xl sm:text-3xl font-extrabold text-ink dark:text-white font-mono tracking-tight tabular-nums">
-              {metrics.pm10 !== null ? metrics.pm10 : '—'} <span className="text-xs font-sans font-normal text-ink-muted dark:text-zinc-400">µg/m³</span>
+            <div className="text-2xl sm:text-3xl font-extrabold text-ink dark:text-white font-mono tracking-tight">
+              <ValueCrossfade
+                value={metrics.pm10 !== null ? metrics.pm10 : '—'}
+                valueKey={metrics.pm10 !== null ? `pm10-${metrics.pm10}` : 'pm10-missing'}
+              />{' '}
+              <span className="text-xs font-sans font-normal text-ink-muted dark:text-zinc-400">µg/m³</span>
             </div>
             <div className="text-[11px] text-ink-muted dark:text-zinc-500 mt-1">Irritates eyes, nose &amp; throat</div>
           </div>
@@ -570,8 +644,12 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
               <span className="font-mono uppercase tracking-wider text-[11px]">Smoke Ceiling</span>
               <Gauge className="w-4 h-4 text-sage-600 dark:text-zinc-400" />
             </div>
-            <div className="text-2xl sm:text-3xl font-extrabold text-ink dark:text-white font-mono tracking-tight tabular-nums">
-              {metrics.boundaryLayerHeight !== null ? metrics.boundaryLayerHeight : '—'} <span className="text-xs font-sans font-normal text-ink-muted dark:text-zinc-400">m</span>
+            <div className="text-2xl sm:text-3xl font-extrabold text-ink dark:text-white font-mono tracking-tight">
+              <ValueCrossfade
+                value={metrics.boundaryLayerHeight !== null ? metrics.boundaryLayerHeight : '—'}
+                valueKey={metrics.boundaryLayerHeight !== null ? `blh-${metrics.boundaryLayerHeight}` : 'blh-missing'}
+              />{' '}
+              <span className="text-xs font-sans font-normal text-ink-muted dark:text-zinc-400">m</span>
             </div>
             <div className="text-[11px] text-ink-muted dark:text-zinc-500 mt-1">
               {metrics.boundaryLayerHeight === null
@@ -589,13 +667,23 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
               <Activity className="w-4 h-4 text-sage-600 dark:text-zinc-400" />
             </div>
             <div className="text-xl sm:text-2xl font-extrabold text-ink dark:text-white font-mono tracking-tight">
-              {metrics.temperature !== null && metrics.temperature !== undefined ? `${metrics.temperature}°C` : '—'}
+              <ValueCrossfade
+                value={metrics.temperature !== null && metrics.temperature !== undefined ? `${metrics.temperature}°C` : '—'}
+                valueKey={metrics.temperature !== null ? `temp-${metrics.temperature}` : 'temp-missing'}
+              />
               <span className="text-xs font-normal text-ink-muted dark:text-zinc-400 ml-2">
-                {metrics.humidity !== null && metrics.humidity !== undefined ? `${metrics.humidity}% Humidity` : '—'}
+                <ValueCrossfade
+                  value={metrics.humidity !== null && metrics.humidity !== undefined ? `${metrics.humidity}% Humidity` : '—'}
+                  valueKey={metrics.humidity !== null ? `hum-${metrics.humidity}` : 'hum-missing'}
+                />
               </span>
             </div>
             <div className="text-[11px] text-ink-muted dark:text-zinc-500 mt-1">
-              Wind: {metrics.windSpeed !== null && metrics.windSpeed !== undefined ? `${metrics.windSpeed} km/h` : '—'}
+              Wind:{' '}
+              <ValueCrossfade
+                value={metrics.windSpeed !== null && metrics.windSpeed !== undefined ? `${metrics.windSpeed} km/h` : '—'}
+                valueKey={metrics.windSpeed !== null ? `wind-${metrics.windSpeed}` : 'wind-missing'}
+              />
             </div>
           </div>
         </div>
@@ -694,11 +782,13 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
                 const heightPercent = hasBlh ? Math.max(15, Math.min(100, (slot.boundaryLayerHeight! / 1200) * 100)) : 8;
 
                 return (
-                  <button
+                  <motion.button
                     key={slot.hour}
                     type="button"
                     onClick={() => setSelectedHour(slot.hour)}
-                    className={`relative w-full rounded-t-sm transition-all group ${
+                    whileHover={shouldReduceMotion ? undefined : { scaleY: 1.08 }}
+                    whileTap={shouldReduceMotion ? undefined : { scale: 0.95 }}
+                    className={`relative w-full rounded-t-sm transition-all group cursor-pointer ${
                       !hasBlh
                         ? 'bg-stone-200 dark:bg-zinc-800/40 hover:bg-stone-300 dark:hover:bg-zinc-700'
                         : slot.isSafeVentingWindow
@@ -711,19 +801,19 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
                     {isCurrent && (
                       <span className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-primary" />
                     )}
-                  </button>
+                  </motion.button>
                 );
               })}
             </div>
 
             <div className="flex justify-between text-[10px] font-mono text-ink-muted dark:text-zinc-500 mt-1.5">
-              <span>00:00 ({forecastPoints[0]?.pm25 !== null ? `${forecastPoints[0].pm25} µg/m³` : 'Night'})</span>
+              <span>00:00 ({typeof forecastPoints[0]?.pm25 === 'number' ? `${forecastPoints[0].pm25} µg/m³` : 'Night'})</span>
               {bestVentingSlot && (
                 <span className="text-emerald-600 dark:text-emerald-400 font-bold">
                   {bestVentingSlot.hour}:00 (Best Dispersion: ~{bestVentingSlot.boundaryLayerHeight ?? '—'}m)
                 </span>
               )}
-              <span>23:00 ({forecastPoints[23]?.pm25 !== null ? `${forecastPoints[23].pm25} µg/m³` : 'Late Night'})</span>
+              <span>23:00 ({typeof forecastPoints[forecastPoints.length - 1]?.pm25 === 'number' ? `${forecastPoints[forecastPoints.length - 1].pm25} µg/m³` : 'Late Night'})</span>
             </div>
           </>
         ) : (
@@ -740,13 +830,49 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
           <span className="uppercase tracking-wider">Key Trace Gas Pollutants:</span>
         </div>
         <div className="flex flex-wrap items-center gap-4 text-ink dark:text-zinc-300 text-[11px]">
-          <span>CO: <strong className="font-mono text-ink dark:text-white">{metrics.co !== null && metrics.co !== undefined ? `${Math.round(metrics.co)}` : '—'}</strong> µg/m³</span>
+          <span>
+            CO:{' '}
+            <strong className="font-mono text-ink dark:text-white">
+              <ValueCrossfade
+                value={metrics.co !== null && metrics.co !== undefined ? `${Math.round(metrics.co)}` : '—'}
+                valueKey={metrics.co !== null ? `co-${metrics.co}` : 'co-missing'}
+              />
+            </strong>{' '}
+            µg/m³
+          </span>
           <span className="text-stone-300 dark:text-zinc-700">•</span>
-          <span>NO₂: <strong className="font-mono text-ink dark:text-white">{metrics.no2 !== null && metrics.no2 !== undefined ? `${metrics.no2}` : '—'}</strong> µg/m³</span>
+          <span>
+            NO₂:{' '}
+            <strong className="font-mono text-ink dark:text-white">
+              <ValueCrossfade
+                value={metrics.no2 !== null && metrics.no2 !== undefined ? `${metrics.no2}` : '—'}
+                valueKey={metrics.no2 !== null ? `no2-${metrics.no2}` : 'no2-missing'}
+              />
+            </strong>{' '}
+            µg/m³
+          </span>
           <span className="text-stone-300 dark:text-zinc-700">•</span>
-          <span>SO₂: <strong className="font-mono text-ink dark:text-white">{metrics.so2 !== null && metrics.so2 !== undefined ? `${metrics.so2}` : '—'}</strong> µg/m³</span>
+          <span>
+            SO₂:{' '}
+            <strong className="font-mono text-ink dark:text-white">
+              <ValueCrossfade
+                value={metrics.so2 !== null && metrics.so2 !== undefined ? `${metrics.so2}` : '—'}
+                valueKey={metrics.so2 !== null ? `so2-${metrics.so2}` : 'so2-missing'}
+              />
+            </strong>{' '}
+            µg/m³
+          </span>
           <span className="text-stone-300 dark:text-zinc-700">•</span>
-          <span>O₃: <strong className="font-mono text-ink dark:text-white">{metrics.o3 !== null && metrics.o3 !== undefined ? `${metrics.o3}` : '—'}</strong> µg/m³</span>
+          <span>
+            O₃:{' '}
+            <strong className="font-mono text-ink dark:text-white">
+              <ValueCrossfade
+                value={metrics.o3 !== null && metrics.o3 !== undefined ? `${metrics.o3}` : '—'}
+                valueKey={metrics.o3 !== null ? `o3-${metrics.o3}` : 'o3-missing'}
+              />
+            </strong>{' '}
+            µg/m³
+          </span>
         </div>
       </div>
 

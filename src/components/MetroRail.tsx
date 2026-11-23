@@ -1,8 +1,10 @@
 'use client';
 
 import React from 'react';
+import { motion, useReducedMotion } from 'motion/react';
 import { GeocodedLocation, PREDEFINED_INDIAN_CITIES } from '@/services/telemetry-service';
 import { Compass } from 'lucide-react';
+import { springs } from '@/lib/motion-tokens';
 
 interface MetroRailProps {
   currentCityName: string;
@@ -15,6 +17,8 @@ export const MetroRail: React.FC<MetroRailProps> = ({
   onSelectCity,
   isLoading,
 }) => {
+  const shouldReduceMotion = useReducedMotion();
+
   return (
     <section className="w-full" aria-label="Regional Smog Hotspots Fast Switcher">
       <div className="flex items-center justify-between mb-2.5 px-1">
@@ -40,19 +44,24 @@ export const MetroRail: React.FC<MetroRailProps> = ({
       >
         {PREDEFINED_INDIAN_CITIES.map((city) => {
           const isSelected =
-            currentCityName.toLowerCase().trim() === city.name.toLowerCase().trim();
+            currentCityName.toLowerCase().trim() === city.name.toLowerCase().trim() ||
+            (city.admin1 && currentCityName.toLowerCase().trim() === city.admin1.toLowerCase().trim()) ||
+            (city.name.toLowerCase().includes('delhi') && currentCityName.toLowerCase().includes('delhi'));
 
           return (
-            <button
+            <motion.button
               key={city.id}
               role="tab"
               aria-selected={isSelected}
               disabled={isLoading && isSelected}
               onClick={() => onSelectCity(city)}
-              className={`snap-start shrink-0 flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs transition-all duration-200 select-none touch-target ${
+              whileHover={shouldReduceMotion ? undefined : { scale: 1.03 }}
+              whileTap={shouldReduceMotion ? undefined : { scale: 0.95 }}
+              transition={springs.snappy}
+              className={`snap-start shrink-0 flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs transition-colors select-none touch-target cursor-pointer focus-visible-ring ${
                 isSelected
-                  ? 'bg-ink text-white font-semibold border border-ink shadow-sm dark:bg-white dark:text-black dark:border-white dark:shadow-[0_2px_12px_rgba(255,255,255,0.15)] scale-[1.02]'
-                  : 'bg-white/80 border border-stone-300 text-ink-muted hover:text-ink hover:border-stone-400 dark:bg-zinc-900/90 dark:border-zinc-800 dark:text-zinc-400 dark:hover:text-white dark:hover:border-zinc-700 active:scale-95 shadow-xs'
+                  ? 'bg-ink text-white font-semibold border border-ink shadow-sm dark:bg-white dark:text-black dark:border-white dark:shadow-[0_2px_12px_rgba(255,255,255,0.15)]'
+                  : 'bg-white/80 border border-stone-300 text-ink-muted hover:text-ink hover:border-stone-400 dark:bg-zinc-900/90 dark:border-zinc-800 dark:text-zinc-400 dark:hover:text-white dark:hover:border-zinc-700 shadow-xs'
               }`}
             >
               <span
@@ -68,7 +77,7 @@ export const MetroRail: React.FC<MetroRailProps> = ({
                   {city.admin1}
                 </span>
               )}
-            </button>
+            </motion.button>
           );
         })}
       </div>
