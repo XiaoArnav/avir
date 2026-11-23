@@ -8,8 +8,11 @@ import {
   OfficialGrapStatus,
   GrapStage,
   JurisdictionAssessment,
+  JurisdictionStatus,
 } from '@/domain/regulatory-orders';
 import { officialOrderService } from './official-order-service';
+
+export type { JurisdictionAssessment, JurisdictionStatus };
 
 /**
  * Authoritative list of administrative districts comprising the National Capital Region (NCR)
@@ -101,6 +104,53 @@ const KNOWN_NON_NCR_METROS = [
   'new york',
 ];
 
+const NON_NCR_STATES = new Set([
+  'west bengal',
+  'wb',
+  'tamil nadu',
+  'tn',
+  'maharashtra',
+  'mh',
+  'karnataka',
+  'ka',
+  'kerala',
+  'kl',
+  'telangana',
+  'ts',
+  'andhra pradesh',
+  'ap',
+  'gujarat',
+  'gj',
+  'punjab',
+  'pb',
+  'bihar',
+  'br',
+  'odisha',
+  'orissa',
+  'assam',
+  'madhya pradesh',
+  'mp',
+  'uttarakhand',
+  'uk',
+  'himachal pradesh',
+  'hp',
+  'jammu and kashmir',
+  'j&k',
+  'goa',
+  'jharkhand',
+  'chhattisgarh',
+]);
+
+function matchesDistrict(cityText: string, districtName: string): boolean {
+  const normCity = cityText.trim().toLowerCase();
+  const normDist = districtName.trim().toLowerCase();
+  if (normCity === normDist) return true;
+  const escaped = normDist.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
+  const regex = new RegExp(`(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`, 'i');
+  return regex.test(normCity);
+}
+
+
 export interface LocationAssessmentParams {
   cityName?: string | null;
   admin1?: string | null;
@@ -122,17 +172,30 @@ export function assessJurisdiction(params: LocationAssessmentParams): Jurisdicti
   if (countryCode && countryCode !== 'IN') {
     return {
       isNcr: false,
+      status: 'not_applicable',
       confidence: 'high',
       regionName: params.cityName || 'International Location',
       details: 'Location is outside India; CAQM statutory regulations do not apply.',
     };
   }
 
+  // If admin1 (state) is an unambiguous non-NCR state
+  if (admin1 && NON_NCR_STATES.has(admin1)) {
+    return {
+      isNcr: false,
+      status: 'not_applicable',
+      confidence: 'high',
+      regionName: params.cityName || 'Non-NCR Location',
+      details: `State "${params.admin1}" is outside the National Capital Region (NCR); CAQM GRAP directives are not legally applicable.`,
+    };
+  }
+
   // Check known non-NCR metros first
   for (const nonNcr of KNOWN_NON_NCR_METROS) {
-    if (city === nonNcr || city.startsWith(`${nonNcr} `) || city.includes(` ${nonNcr}`)) {
+    if (matchesDistrict(city, nonNcr)) {
       return {
         isNcr: false,
+        status: 'not_applicable',
         confidence: 'high',
         regionName: params.cityName || 'Non-NCR City',
         details: `${params.cityName || 'This city'} is located outside the National Capital Region (NCR); CAQM GRAP directives are not legally applicable.`,
@@ -142,54 +205,79 @@ export function assessJurisdiction(params: LocationAssessmentParams): Jurisdicti
 
   // Check NCT of Delhi
   for (const name of NCR_TERRITORIES.DELHI) {
-    if (city === name || city.includes(name) || admin1 === 'delhi') {
+    if (matchesDistrict(city, name) || (admin1 === 'delhi' && matchesDistrict(city, name))) {
       return {
         isNcr: true,
-        confidence: 'high',
+        status: 'applicable',
+        confidence: 'verified_official',
         regionName: 'NCT of Delhi (NCR Core)',
+        matchedDistrict: name,
         details: 'NCT of Delhi falls under the primary statutory jurisdiction of CAQM.',
       };
     }
   }
+  if (admin1 === 'delhi' && (city === '' || city === 'delhi' || city === 'new delhi')) {
+    return {
+      isNcr: true,
+      status: 'applicable',
+      confidence: 'verified_official',
+      regionName: 'NCT of Delhi (NCR Core)',
+      matchedDistrict: 'delhi',
+      details: 'NCT of Delhi falls under the primary statutory jurisdiction of CAQM.',
+    };
+  }
 
   // Check Haryana NCR districts
   for (const dist of NCR_TERRITORIES.HARYANA_NCR) {
-    if (city === dist || city.includes(dist) || (admin1.includes('haryana') && city.includes(dist))) {
-      return {
-        isNcr: true,
-        confidence: 'high',
-        regionName: `${dist.toUpperCase()} (Haryana NCR)`,
-        details: `${dist.toUpperCase()} is a designated NCR district subject to CAQM statutory directives.`,
-      };
+    if (matchesDistrict(city, dist)) {
+      // Must not belong to an explicit non-Haryana state
+      if (!admin1 || admin1.includes('haryana') || admin1 === 'delhi') {
+        return {
+          isNcr: true,
+          status: 'applicable',
+          confidence: 'verified_official',
+          regionName: `${dist.toUpperCase()} (Haryana NCR)`,
+          matchedDistrict: dist,
+          details: `${dist.toUpperCase()} is a designated NCR district subject to CAQM statutory directives.`,
+        };
+      }
     }
   }
 
   // Check Uttar Pradesh NCR districts
   for (const dist of NCR_TERRITORIES.UP_NCR) {
-    if (city === dist || city.includes(dist) || (admin1.includes('uttar pradesh') && city.includes(dist))) {
-      return {
-        isNcr: true,
-        confidence: 'high',
-        regionName: `${dist.toUpperCase()} (Uttar Pradesh NCR)`,
-        details: `${dist.toUpperCase()} is a designated NCR district subject to CAQM statutory directives.`,
-      };
+    if (matchesDistrict(city, dist)) {
+      if (!admin1 || admin1.includes('uttar pradesh') || admin1 === 'up') {
+        return {
+          isNcr: true,
+          status: 'applicable',
+          confidence: 'verified_official',
+          regionName: `${dist.toUpperCase()} (Uttar Pradesh NCR)`,
+          matchedDistrict: dist,
+          details: `${dist.toUpperCase()} is a designated NCR district subject to CAQM statutory directives.`,
+        };
+      }
     }
   }
 
   // Check Rajasthan NCR districts
   for (const dist of NCR_TERRITORIES.RAJASTHAN_NCR) {
-    if (city === dist || city.includes(dist) || (admin1.includes('rajasthan') && city.includes(dist))) {
-      return {
-        isNcr: true,
-        confidence: 'high',
-        regionName: `${dist.toUpperCase()} (Rajasthan NCR)`,
-        details: `${dist.toUpperCase()} is an NCR district subject to CAQM statutory directives.`,
-      };
+    if (matchesDistrict(city, dist)) {
+      if (!admin1 || admin1.includes('rajasthan')) {
+        return {
+          isNcr: true,
+          status: 'applicable',
+          confidence: 'verified_official',
+          regionName: `${dist.toUpperCase()} (Rajasthan NCR)`,
+          matchedDistrict: dist,
+          details: `${dist.toUpperCase()} is an NCR district subject to CAQM statutory directives.`,
+        };
+      }
     }
   }
 
-  // Coordinates-based fuzzy verification for NCR perimeter (28.0 to 29.2 N, 76.5 to 77.8 E)
-  // Only applied if city name was unrecognized or generic
+  // Coordinates-based verification for NCR perimeter (28.2 to 28.9 N, 76.8 to 77.5 E)
+  // Only applied if state is Delhi, Haryana, or UP
   if (
     params.latitude !== null &&
     params.latitude !== undefined &&
@@ -201,11 +289,11 @@ export function assessJurisdiction(params: LocationAssessmentParams): Jurisdicti
     const lat = params.latitude;
     const lon = params.longitude;
 
-    // Strict tight NCR polygon boundary check
     const inNcrCore = lat >= 28.2 && lat <= 28.9 && lon >= 76.8 && lon <= 77.5;
     if (inNcrCore && (admin1 === 'delhi' || admin1.includes('haryana') || admin1.includes('uttar pradesh'))) {
       return {
         isNcr: true,
+        status: 'applicable',
         confidence: 'medium',
         regionName: params.cityName || 'NCR Territory (Coordinate Match)',
         details: 'Coordinates match the geographic National Capital Region; CAQM directives apply.',
@@ -216,6 +304,7 @@ export function assessJurisdiction(params: LocationAssessmentParams): Jurisdicti
   // Unknown / Ambiguous location
   return {
     isNcr: false,
+    status: 'unknown',
     confidence: 'unknown',
     regionName: params.cityName || 'Unverified Jurisdiction',
     details: 'Jurisdiction uncertain: could not verify whether coordinates or administrative territory fall within the statutory NCR boundary.',
@@ -235,7 +324,8 @@ export function assessJurisdiction(params: LocationAssessmentParams): Jurisdicti
 export function resolveOfficialGrapStatus(
   orders: RegulatoryOrder[] = officialOrderService.getOrders(),
   location: LocationAssessmentParams,
-  atTime?: string
+  atTime?: string,
+  options?: { registryVerificationTime?: string | null; maxFreshnessHours?: number }
 ): OfficialGrapStatus {
   const checkTime = atTime ? new Date(atTime).getTime() : Date.now();
   const jurisdiction = assessJurisdiction(location);
@@ -250,7 +340,7 @@ export function resolveOfficialGrapStatus(
       governingOrderIds: [],
       independentRestrictionOrderIds: [],
       effectiveAt: null,
-      lastVerifiedAt: new Date().toISOString(),
+      lastVerifiedAt: null,
       explanation: `CAQM Graded Response Action Plan (GRAP) orders are statutory regulations applicable exclusively within the National Capital Region (NCR). Not applicable to ${location.cityName || 'this location'}.`,
       independentRestrictions: [],
     };
@@ -265,10 +355,44 @@ export function resolveOfficialGrapStatus(
       governingOrderIds: [],
       independentRestrictionOrderIds: [],
       effectiveAt: null,
-      lastVerifiedAt: new Date().toISOString(),
+      lastVerifiedAt: null,
       explanation: 'Official regulatory status not verified: administrative boundary could not be confirmed as part of the National Capital Region.',
       independentRestrictions: [],
     };
+  }
+
+  // Check explicit registry verification freshness if specified
+  if (options?.registryVerificationTime !== undefined) {
+    if (options.registryVerificationTime === null) {
+      return {
+        jurisdiction: jurisdiction.regionName,
+        verification: 'unknown',
+        highestActiveStage: null,
+        activeStages: [],
+        governingOrderIds: [],
+        independentRestrictionOrderIds: [],
+        effectiveAt: null,
+        lastVerifiedAt: null,
+        explanation: 'Official regulatory status not verified: order registry verification timestamp is unavailable.',
+        independentRestrictions: [],
+      };
+    }
+    const regTimeMs = new Date(options.registryVerificationTime).getTime();
+    const maxFreshnessMs = (options.maxFreshnessHours ?? 48) * 3600 * 1000;
+    if (checkTime - regTimeMs > maxFreshnessMs) {
+      return {
+        jurisdiction: jurisdiction.regionName,
+        verification: 'unknown',
+        highestActiveStage: null,
+        activeStages: [],
+        governingOrderIds: [],
+        independentRestrictionOrderIds: [],
+        effectiveAt: null,
+        lastVerifiedAt: options.registryVerificationTime,
+        explanation: `Official regulatory status not verified: official order registry was last verified on ${options.registryVerificationTime} (stale, exceeds ${options.maxFreshnessHours ?? 48}-hour freshness threshold). Current CAQM gazette notifications must be verified.`,
+        independentRestrictions: [],
+      };
+    }
   }
 
   // Filter orders verified by official authorities
@@ -386,4 +510,34 @@ export function resolveOfficialGrapStatus(
     explanation,
     independentRestrictions,
   };
+}
+
+/**
+ * Ergonomic resolver wrapper for GRAP status with structured parameters.
+ */
+export function resolveGrapStatus(params: {
+  cityName?: string | null;
+  admin1?: string | null;
+  countryCode?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  currentAqi?: number | null;
+  now?: Date;
+  registryVerificationTime?: string | null;
+  orders?: RegulatoryOrder[];
+}): OfficialGrapStatus {
+  const orders = params.orders || officialOrderService.getOrders();
+  const atTime = params.now ? params.now.toISOString() : undefined;
+  return resolveOfficialGrapStatus(
+    orders,
+    {
+      cityName: params.cityName,
+      admin1: params.admin1,
+      countryCode: params.countryCode,
+      latitude: params.latitude,
+      longitude: params.longitude,
+    },
+    atTime,
+    { registryVerificationTime: params.registryVerificationTime }
+  );
 }

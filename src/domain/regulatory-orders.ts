@@ -81,11 +81,16 @@ export interface OfficialGrapStatus {
   independentRestrictions: string[];
 }
 
+export type JurisdictionStatus = 'applicable' | 'not_applicable' | 'unknown';
+
 export interface JurisdictionAssessment {
   isNcr: boolean;
-  confidence: 'high' | 'medium' | 'low' | 'unknown';
+  status?: JurisdictionStatus;
+  confidence: 'high' | 'medium' | 'low' | 'unknown' | 'verified_official';
   regionName: string;
   details: string;
+  matchedDistrict?: string;
+  reason?: string;
 }
 
 export type AdvisoryEvidenceLevel =

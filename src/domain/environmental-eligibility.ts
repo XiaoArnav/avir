@@ -23,6 +23,8 @@ export interface EnvironmentalEligibility {
   method: string | null;
   validAt: string | null;
   ageMinutes: number | null;
+  normalizedValue?: number;
+  normalizedUnit?: string;
 }
 
 export interface EligibilityCheckParams {
@@ -61,6 +63,8 @@ export function checkEnvironmentalEligibility(
     method: params.standard ?? null,
     validAt,
     ageMinutes,
+    normalizedValue,
+    normalizedUnit,
   });
 
   // 1. Value check: must be finite and non-negative
@@ -76,12 +80,21 @@ export function checkEnvironmentalEligibility(
     return buildResult(false, 'invalid', [`Negative value (${effectiveVal}) is physically invalid.`]);
   }
 
-  // 2. Unit check for particulate pollutants
+  let normalizedValue = effectiveVal;
+  let normalizedUnit = params.unit || 'µg/m³';
+
+  // 2. Unit check and normalization for particulate pollutants
   if (params.pollutant && (params.pollutant.toLowerCase().includes('pm2') || params.pollutant.toLowerCase().includes('pm10'))) {
     if (params.unit) {
       const cleanUnit = params.unit.trim().toLowerCase();
       if (!ACCEPTED_MASS_UNITS.has(cleanUnit)) {
         return buildResult(false, 'unsupported_method', [`Unsupported unit "${params.unit}" for particulate matter. Must be µg/m³.`]);
+      }
+      if (cleanUnit === 'mg/m³') {
+        normalizedValue = Math.round(effectiveVal * 1000 * 100) / 100;
+        normalizedUnit = 'µg/m³';
+      } else {
+        normalizedUnit = 'µg/m³';
       }
     }
   }

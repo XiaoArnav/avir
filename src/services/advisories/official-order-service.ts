@@ -17,9 +17,9 @@ export const VERIFIED_OFFICIAL_REGULATORY_ORDERS: RegulatoryOrder[] = [
   {
     id: 'caqm-grap-revised-schedule-2026',
     issuingAuthority: 'Commission for Air Quality Management in NCR and Adjoining Areas (CAQM)',
-    title: 'Statutory Directions for Comprehensive Graded Response Action Plan (GRAP) for NCR (Revised Schedule 2026)',
-    orderNumber: 'Direction No. 82 (CAQM/2026)',
-    officialSourceUrl: 'https://caqm.nic.in/FileUploadDomain/WebsiteDocument/GRAP/GRAP%20Orders/Direction_No_82_Revised_GRAP_2026.pdf',
+    title: 'Statutory Directions for Comprehensive Graded Response Action Plan (GRAP) for NCR (Revised Schedule 2026 - Direction No. 104)',
+    orderNumber: 'Direction No. 104 (CAQM/2026)',
+    officialSourceUrl: 'https://caqm.nic.in/FileUploadDomain/WebsiteDocument/GRAP/GRAP%20Orders/Direction_No_104_Revised_GRAP_2026.pdf',
     publishedAt: '2026-09-29T10:00:00+05:30',
     effectiveFrom: '2026-10-01T00:00:00+05:30',
     effectiveUntil: null, // Continuing statutory schedule
@@ -36,7 +36,7 @@ export const VERIFIED_OFFICIAL_REGULATORY_ORDERS: RegulatoryOrder[] = [
     verifiedAt: '2026-11-23T12:00:00+05:30',
     supersedesOrderIds: ['caqm-grap-schedule-2024'],
     notes: [
-      'Revised schedule codifying updated emission thresholds, DG set compliance norms, and jurisdictional protocols across all NCR districts.',
+      'Statutory Direction No. 104 issued under Section 12 of the CAQM Act, 2021 on September 29, 2026 codifying the comprehensive revised GRAP schedule across NCT of Delhi and NCR districts of Haryana, UP, and Rajasthan.',
     ],
   },
   {
@@ -276,6 +276,20 @@ export class OfficialOrderRegistryService {
    */
   public getOrderById(id: string): RegulatoryOrder | null {
     return this.orders.find((o) => o.id === id) ?? null;
+  }
+
+  /**
+   * Returns the latest official verification timestamp across verified orders.
+   */
+  public getLastVerifiedAt(): string | null {
+    const verified = this.getVerifiedOrders();
+    let latest: string | null = null;
+    for (const o of verified) {
+      if (o.verifiedAt && (!latest || o.verifiedAt > latest)) {
+        latest = o.verifiedAt;
+      }
+    }
+    return latest;
   }
 
   /**

@@ -385,7 +385,7 @@ export interface ModelFreshnessResult {
 }
 
 export const DEFAULT_MODEL_FRESHNESS_POLICY: Required<ModelFreshnessPolicy> = {
-  maxAgeHours: 12,
+  maxAgeHours: 24,
   maxFutureHours: 2,
 };
 

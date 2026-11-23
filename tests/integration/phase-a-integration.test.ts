@@ -1,3 +1,5 @@
+import React from 'react';
+import ReactDOMServer from 'react-dom/server';
 import { describe, it, expect } from 'vitest';
 import { resolveOfficialGrapStatus, assessJurisdiction } from '@/services/advisories/grap-status-resolver';
 import { officialOrderService } from '@/services/advisories/official-order-service';
@@ -6,6 +8,7 @@ import { alignHourlyForecasts, toHourlyAtmosphericPoints } from '@/services/fore
 import { RequestCoordinator } from '@/lib/async/request-coordinator';
 import { createTemporalProvenance, assessProvenanceFreshness } from '@/domain/temporal-provenance';
 import { checkEnvironmentalEligibility } from '@/domain/environmental-eligibility';
+import { VerifiedAdvisoryPanel } from '@/components/VerifiedAdvisoryPanel';
 
 describe('Phase A — Group G: End-to-End Integration & Regression (111-130)', () => {
   it('111. Dashboard core telemetry flow integrates cleanly', () => {
@@ -122,29 +125,53 @@ describe('Phase A — Group G: End-to-End Integration & Regression (111-130)', (
     expect(coordinator.isTelemetryResponseValid(req2)).toBe(true);
   });
 
-  it('123. Dark theme class integration is clean and supported', () => {
-    const darkClasses = 'bg-slate-900 text-slate-100 border-slate-800';
-    expect(darkClasses).toContain('bg-slate-900');
+  it('123. VerifiedAdvisoryPanel renders official CAQM status and links', () => {
+    const orders = officialOrderService.getOrders();
+    const grap = resolveOfficialGrapStatus(orders, { cityName: 'Delhi' });
+    const html = ReactDOMServer.renderToStaticMarkup(
+      React.createElement(VerifiedAdvisoryPanel, {
+        cityName: 'Delhi',
+        status: grap,
+      })
+    );
+    expect(html).toContain('CAQM Statutory Mandates');
+    expect(html).toContain('caqm.nic.in');
   });
 
-  it('124. Light theme contrast classes are defined', () => {
-    const lightClasses = 'bg-white text-slate-900 border-slate-200';
-    expect(lightClasses).toContain('bg-white');
+  it('124. Non-NCR city returns not_applicable and zero active stages in regulatory resolver', () => {
+    const orders = officialOrderService.getOrders();
+    const grap = resolveOfficialGrapStatus(orders, { cityName: 'Bengaluru' });
+    expect(grap.verification).toBe('not_applicable');
+    expect(grap.highestActiveStage).toBeNull();
+    expect(grap.activeStages).toHaveLength(0);
+    expect(grap.explanation).toContain('Not applicable to Bengaluru');
   });
 
-  it('125. Mobile responsive layout container parameters are valid', () => {
-    const containerClasses = 'w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8';
-    expect(containerClasses).toContain('max-w-7xl');
+  it('125. Request coordinator immediately invalidates in-flight plans on profile change', () => {
+    const coordinator = new RequestCoordinator();
+    const planCtx = coordinator.beginPlanRequest({
+      cityName: 'Delhi',
+      usAqi: 180,
+      pm25: 75,
+      hasCardiovascularCondition: false,
+    });
+    expect(coordinator.isPlanResponseValid(planCtx)).toBe(true);
+
+    coordinator.invalidatePendingPlans();
+    expect(coordinator.isPlanResponseValid(planCtx)).toBe(false);
   });
 
-  it('126. Keyboard interaction aria-modal and role attributes exist on dialogs', () => {
-    const modalAttributes = {
-      role: 'dialog',
-      'aria-modal': 'true',
-      'aria-labelledby': 'modal-title',
-    };
-    expect(modalAttributes.role).toBe('dialog');
-    expect(modalAttributes['aria-modal']).toBe('true');
+  it('126. Health advisory generator protects public health under missing telemetry', () => {
+    const advisories = generateHealthAdvisories({
+      cityName: 'Delhi',
+      pm25: null,
+      usAqi: null,
+      provenance: 'unavailable',
+    });
+    expect(advisories.length).toBeGreaterThan(0);
+    expect(advisories[0].evidenceLevel).toBe('insufficient_data');
+    expect(advisories[0].title).toContain('Insufficient');
+    expect(advisories.some((a) => a.title.includes('Satisfactory Ambient Conditions'))).toBe(false);
   });
 
   it('127. Error fallback triggers insufficient data without throwing uncaught exceptions', () => {

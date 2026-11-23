@@ -115,7 +115,12 @@ export default function Home() {
             metricsTimestamp: data.timestamp,
             usAqi: data.usAqi,
             pm25: data.pm25,
-            profileId: `${profile.ageGroup}:${profile.hasAsthmaOrRespiratory ? 'resp' : 'norm'}`,
+            profileId: `${profile.ageGroup}:${profile.hasAsthmaOrRespiratory ? 'resp' : 'norm'}:${profile.hasCardiovascularCondition ? 'cardio' : 'nocardio'}:${profile.isPregnant ? 'preg' : 'nopreg'}:${profile.isOutdoorWorker ? 'outdoor' : 'indoor'}`,
+            ageGroup: profile.ageGroup,
+            hasAsthmaOrRespiratory: profile.hasAsthmaOrRespiratory,
+            hasCardiovascularCondition: profile.hasCardiovascularCondition,
+            isPregnant: profile.isPregnant,
+            isOutdoorWorker: profile.isOutdoorWorker,
             roomSizeSqFt,
             customRoutine,
           });
@@ -187,7 +192,12 @@ export default function Home() {
           metricsTimestamp: data.timestamp,
           usAqi: data.usAqi,
           pm25: data.pm25,
-          profileId: `${profile.ageGroup}:${profile.hasAsthmaOrRespiratory ? 'resp' : 'norm'}`,
+          profileId: `${profile.ageGroup}:${profile.hasAsthmaOrRespiratory ? 'resp' : 'norm'}:${profile.hasCardiovascularCondition ? 'cardio' : 'nocardio'}:${profile.isPregnant ? 'preg' : 'nopreg'}:${profile.isOutdoorWorker ? 'outdoor' : 'indoor'}`,
+          ageGroup: profile.ageGroup,
+          hasAsthmaOrRespiratory: profile.hasAsthmaOrRespiratory,
+          hasCardiovascularCondition: profile.hasCardiovascularCondition,
+          isPregnant: profile.isPregnant,
+          isOutdoorWorker: profile.isOutdoorWorker,
           roomSizeSqFt,
           customRoutine,
         });
@@ -227,7 +237,12 @@ export default function Home() {
       metricsTimestamp: metrics.timestamp,
       usAqi: metrics.usAqi,
       pm25: metrics.pm25,
-      profileId: `${profile.ageGroup}:${profile.hasAsthmaOrRespiratory ? 'resp' : 'norm'}`,
+      profileId: `${profile.ageGroup}:${profile.hasAsthmaOrRespiratory ? 'resp' : 'norm'}:${profile.hasCardiovascularCondition ? 'cardio' : 'nocardio'}:${profile.isPregnant ? 'preg' : 'nopreg'}:${profile.isOutdoorWorker ? 'outdoor' : 'indoor'}`,
+      ageGroup: profile.ageGroup,
+      hasAsthmaOrRespiratory: profile.hasAsthmaOrRespiratory,
+      hasCardiovascularCondition: profile.hasCardiovascularCondition,
+      isPregnant: profile.isPregnant,
+      isOutdoorWorker: profile.isOutdoorWorker,
       roomSizeSqFt,
       customRoutine,
     });
@@ -380,11 +395,20 @@ export default function Home() {
 
               <FamilyProfileForm
                 profile={profile}
-                onChangeProfile={setProfile}
+                onChangeProfile={(newProfile) => {
+                  coordinatorRef.current.invalidatePendingPlans();
+                  setProfile(newProfile);
+                }}
                 roomSizeSqFt={roomSizeSqFt}
-                onChangeRoomSize={setRoomSizeSqFt}
+                onChangeRoomSize={(newSize) => {
+                  coordinatorRef.current.invalidatePendingPlans();
+                  setRoomSizeSqFt(newSize);
+                }}
                 customRoutine={customRoutine}
-                onChangeCustomRoutine={setCustomRoutine}
+                onChangeCustomRoutine={(newRoutine) => {
+                  coordinatorRef.current.invalidatePendingPlans();
+                  setCustomRoutine(newRoutine);
+                }}
                 onSubmit={handleGeneratePlan}
                 isLoading={isPlanGenerating}
               />

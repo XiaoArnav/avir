@@ -11,11 +11,29 @@ export interface RequestContext {
   startedAt: number;
 }
 
+export interface PlanFingerprintParams {
+  cityName: string;
+  metricsTimestamp?: string | null;
+  usAqi?: number | null;
+  pm25?: number | null;
+  profileId?: string;
+  ageGroup?: string;
+  hasAsthmaOrRespiratory?: boolean;
+  hasCardiovascularCondition?: boolean;
+  isPregnant?: boolean;
+  isOutdoorWorker?: boolean;
+  roomSizeSqFt?: number;
+  purifierType?: string;
+  customRoutine?: string;
+  telemetryGeneration?: number;
+}
+
 export interface PlanGenerationContext {
   generation: number;
   cityKey: string;
   fingerprint: string;
   startedAt: number;
+  telemetryGeneration?: number;
 }
 
 export class RequestCoordinator {
@@ -37,25 +55,25 @@ export class RequestCoordinator {
   }
 
   /**
-   * Generates an immutable fingerprint of AI plan inputs.
+   * Generates an immutable canonical fingerprint of all AI plan inputs.
+   * Includes all medical/vulnerability flags and complete untruncated routine.
    */
-  static getPlanFingerprint(params: {
-    cityName: string;
-    metricsTimestamp?: string | null;
-    usAqi?: number | null;
-    pm25?: number | null;
-    profileId?: string;
-    roomSizeSqFt?: number;
-    customRoutine?: string;
-  }): string {
+  static getPlanFingerprint(params: PlanFingerprintParams): string {
     const parts = [
       params.cityName.toLowerCase().trim(),
       params.metricsTimestamp || 'notime',
       params.usAqi ?? 'null',
       params.pm25 ?? 'null',
       params.profileId || 'general',
+      params.ageGroup || 'adult',
+      String(Boolean(params.hasAsthmaOrRespiratory)),
+      String(Boolean(params.hasCardiovascularCondition)),
+      String(Boolean(params.isPregnant)),
+      String(Boolean(params.isOutdoorWorker)),
       params.roomSizeSqFt || 150,
-      params.customRoutine ? params.customRoutine.trim().slice(0, 32) : 'none',
+      params.purifierType || 'hepa',
+      params.customRoutine ? params.customRoutine.trim() : 'none',
+      params.telemetryGeneration !== undefined ? String(params.telemetryGeneration) : 'gen0',
     ];
     return parts.join('|');
   }
@@ -135,19 +153,15 @@ export class RequestCoordinator {
   /**
    * Begins a coordinated AI plan generation request.
    */
-  beginPlanRequest(params: {
-    cityName: string;
-    metricsTimestamp?: string | null;
-    usAqi?: number | null;
-    pm25?: number | null;
-    profileId?: string;
-    roomSizeSqFt?: number;
-    customRoutine?: string;
-  }): PlanGenerationContext {
+  beginPlanRequest(params: PlanFingerprintParams): PlanGenerationContext {
     this.currentPlanGeneration += 1;
     const generation = this.currentPlanGeneration;
     const cityKey = params.cityName.toLowerCase().trim();
-    const fingerprint = RequestCoordinator.getPlanFingerprint(params);
+    const fullParams: PlanFingerprintParams = {
+      ...params,
+      telemetryGeneration: this.currentTelemetryGeneration,
+    };
+    const fingerprint = RequestCoordinator.getPlanFingerprint(fullParams);
     this.activePlanFingerprint = fingerprint;
 
     return {
@@ -155,18 +169,35 @@ export class RequestCoordinator {
       cityKey,
       fingerprint,
       startedAt: Date.now(),
+      telemetryGeneration: this.currentTelemetryGeneration,
     };
   }
 
   /**
+   * Immediately invalidates any pending AI plans.
+   * Call whenever profile attributes or location change while plan generation is running.
+   */
+  invalidatePendingPlans(): void {
+    this.currentPlanGeneration += 1;
+    this.activePlanFingerprint = '';
+  }
+
+  /**
    * Evaluates whether a generated AI plan is still valid to commit.
-   * Rejects plans whose inputs have changed, city has switched, or generation is superseded.
+   * Rejects plans whose inputs have changed, city has switched, generation is superseded,
+   * or underlying telemetry generation has advanced.
    */
   isPlanResponseValid(context: PlanGenerationContext): boolean {
     if (context.generation !== this.currentPlanGeneration) {
       return false;
     }
     if (context.fingerprint !== this.activePlanFingerprint) {
+      return false;
+    }
+    if (
+      context.telemetryGeneration !== undefined &&
+      context.telemetryGeneration !== this.currentTelemetryGeneration
+    ) {
       return false;
     }
     return true;

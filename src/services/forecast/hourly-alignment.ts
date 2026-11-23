@@ -5,6 +5,8 @@
  */
 
 import { HourlyAtmosphericPoint } from '@/domain/types';
+
+export type { HourlyAtmosphericPoint };
 import { normalizeTimeInTimezone, resolveCityTimezone } from '@/lib/time/city-timezone';
 import { calculateAQIFromPM25 } from '@/domain/air-math';
 
@@ -292,11 +294,9 @@ export function lookupBoundaryLayerHeight(
 
   const blhArr = weatherHourly.boundary_layer_height;
 
-  // If time array is absent (e.g. legacy mock payloads without hourly time arrays), fallback gracefully
+  // If time array is absent, we strictly NEVER guess or fallback to index [0]
   if (!weatherHourly.time || !Array.isArray(weatherHourly.time) || weatherHourly.time.length === 0) {
-    const rawVal = blhArr[0];
-    const fallbackBlh = (typeof rawVal === 'number' && Number.isFinite(rawVal) && rawVal >= 0) ? Math.round(rawVal) : null;
-    return { blh: fallbackBlh, matchedValidAt: null, deltaMinutes: 0 };
+    return { blh: null, matchedValidAt: null, deltaMinutes: null };
   }
 
   let targetEpoch: number;
@@ -395,11 +395,55 @@ export function analyzeDiurnalRelativeWindows(
   };
   hasValidData: boolean;
 } {
-  const validPoints = hours.filter(
-    (h) => typeof h.pm25 === 'number' && Number.isFinite(h.pm25) && h.pm25 >= 0
-  );
+  type PointType = NormalizedForecastHour | HourlyAtmosphericPoint;
+  const windowSize = 3;
+  const validSlices: PointType[][] = [];
 
-  if (validPoints.length === 0) {
+  // Filter out any points without valid PM2.5, preserving chronological order
+  const validPoints: PointType[] = hours
+    .filter((h) => typeof h.pm25 === 'number' && Number.isFinite(h.pm25) && h.pm25 >= 0)
+    .sort((a, b) => {
+      const tA = a.validAtUtc ? new Date(a.validAtUtc).getTime() : 0;
+      const tB = b.validAtUtc ? new Date(b.validAtUtc).getTime() : 0;
+      return tA - tB;
+    });
+
+  // Find all strictly consecutive 3-hour slices (temporal adjacency, NOT array adjacency)
+  for (let i = 0; i <= validPoints.length - windowSize; i++) {
+    const candidate = validPoints.slice(i, i + windowSize);
+    let isStrictlyConsecutive = true;
+
+    for (let k = 0; k < candidate.length - 1; k++) {
+      const p1 = candidate[k];
+      const p2 = candidate[k + 1];
+
+      let deltaMs: number | null = null;
+      if (p1.validAtUtc && p2.validAtUtc) {
+        const t1 = new Date(p1.validAtUtc).getTime();
+        const t2 = new Date(p2.validAtUtc).getTime();
+        deltaMs = t2 - t1;
+      } else {
+        const h1 = (p1 as any).localHour ?? (p1 as any).hour;
+        const h2 = (p2 as any).localHour ?? (p2 as any).hour;
+        if (typeof h1 === 'number' && typeof h2 === 'number') {
+          const hourDiff = (h2 - h1 + 24) % 24;
+          if (hourDiff === 1) deltaMs = 3600000;
+        }
+      }
+
+      // Must be adjacent hours (3600000 ms +/- 60000 ms tolerance)
+      if (deltaMs === null || Math.abs(deltaMs - 3600000) > 60000) {
+        isStrictlyConsecutive = false;
+        break;
+      }
+    }
+
+    if (isStrictlyConsecutive) {
+      validSlices.push(candidate);
+    }
+  }
+
+  if (validSlices.length === 0) {
     return {
       lowestSmogWindow: {
         startDisplayTime: '--:--',
@@ -408,7 +452,7 @@ export function analyzeDiurnalRelativeWindows(
         avgAqi: null,
         avgBlh: null,
         description: 'Forecast data unavailable',
-        recommendation: 'Hourly particulate forecasts are currently unverified for this location.',
+        recommendation: 'Sufficient contiguous hourly forecast data unavailable (requires at least 3 consecutive hourly intervals).',
       },
       highestSmogWindow: {
         startDisplayTime: '--:--',
@@ -423,31 +467,26 @@ export function analyzeDiurnalRelativeWindows(
     };
   }
 
-  // Find 3-hour sliding windows across available valid hours
-  const windowSize = Math.min(3, validPoints.length);
-  let bestWindowStartIndex = 0;
+  // Find best and worst consecutive slices
+  let bestSlice = validSlices[0];
   let lowestAvgPm25 = Infinity;
 
-  let worstWindowStartIndex = 0;
+  let worstSlice = validSlices[0];
   let highestAvgPm25 = -Infinity;
 
-  for (let i = 0; i <= validPoints.length - windowSize; i++) {
-    const slice = validPoints.slice(i, i + windowSize);
+  for (const slice of validSlices) {
     const sumPm25 = slice.reduce((s, pt) => s + (pt.pm25 || 0), 0);
-    const avg = sumPm25 / windowSize;
+    const avg = sumPm25 / slice.length;
 
     if (avg < lowestAvgPm25) {
       lowestAvgPm25 = avg;
-      bestWindowStartIndex = i;
+      bestSlice = slice;
     }
     if (avg > highestAvgPm25) {
       highestAvgPm25 = avg;
-      worstWindowStartIndex = i;
+      worstSlice = slice;
     }
   }
-
-  const bestSlice = validPoints.slice(bestWindowStartIndex, bestWindowStartIndex + windowSize);
-  const worstSlice = validPoints.slice(worstWindowStartIndex, worstWindowStartIndex + windowSize);
 
   const getSliceAverages = (slice: typeof validPoints) => {
     const avgPm25 = Math.round((slice.reduce((s, p) => s + (p.pm25 || 0), 0) / slice.length) * 10) / 10;
