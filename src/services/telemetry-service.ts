@@ -17,6 +17,8 @@ import { getNearestGroundStation, discoverGroundStationSources } from './ground-
 import { createOpenMeteoModelRecord, compareEnvironmentalSources, deduplicateEnvironmentalSources } from '@/domain/source-comparison';
 import { OPENAQ_DEFAULT_RADIUS_KM } from '@/config/environmental-sources';
 import { telemetryCache } from '@/lib/cache';
+import { lookupBoundaryLayerHeight, alignHourlyForecasts, toHourlyAtmosphericPoints } from '@/services/forecast/hourly-alignment';
+import { resolveCityTimezone } from '@/lib/time/city-timezone';
 
 export interface GeocodedLocation {
   id: number;
@@ -380,9 +382,10 @@ export async function fetchLiveAtmosphericMetrics(
 
     const current = (data.current && typeof data.current === 'object') ? data.current : {};
     const weatherCurrent = (weatherData.current && typeof weatherData.current === 'object') ? weatherData.current : {};
-    const timezone = typeof data.timezone === 'string' && data.timezone
+    const rawTz = typeof data.timezone === 'string' && data.timezone
       ? data.timezone
-      : (typeof weatherData.timezone === 'string' && weatherData.timezone ? weatherData.timezone : 'auto');
+      : (typeof weatherData.timezone === 'string' && weatherData.timezone ? weatherData.timezone : null);
+    const timezone = resolveCityTimezone(options?.cityName, rawTz);
 
     // Parse target location's wall-clock hour directly from location ISO timestamp to avoid browser timezone drift
     const currentTimeStr: string = current.time || weatherCurrent.time || '';
@@ -392,21 +395,14 @@ export async function fetchLiveAtmosphericMetrics(
       if (!isNaN(parsedHour)) currentHour = parsedHour;
     }
 
-    // Boundary Layer Height (mixing depth from NOAA/ECMWF forecast model) - null if unavailable, NEVER invented
-    const blhSourceArr = (weatherData.hourly && Array.isArray(weatherData.hourly.boundary_layer_height))
-      ? weatherData.hourly.boundary_layer_height
-      : (data.hourly && Array.isArray(data.hourly.boundary_layer_height))
-      ? data.hourly.boundary_layer_height
-      : null;
-
-    let blhRaw: unknown = null;
-    if (blhSourceArr && Array.isArray(blhSourceArr)) {
-      if (blhSourceArr.length > currentHour) {
-        blhRaw = blhSourceArr[currentHour];
-      } else if (blhSourceArr.length > 0) {
-        blhRaw = blhSourceArr[0];
-      }
-    }
+    // Boundary Layer Height: match the record corresponding to the current target instant
+    // Null if unavailable or outside 60-minute window, NEVER arbitrarily defaulted to array index [0]
+    const blhLookup = lookupBoundaryLayerHeight(
+      currentTimeStr || new Date(),
+      weatherData.hourly || data.hourly,
+      timezone
+    );
+    const blhRaw: unknown = blhLookup.blh;
 
     const blhField = validateWeatherValue(
       blhRaw,
@@ -509,56 +505,14 @@ export async function fetchLiveAtmosphericMetrics(
       status = 'partial';
     }
 
-    // Build 24-hour diurnal timeline from Open-Meteo hourly arrays
-    const hourlyForecast: HourlyAtmosphericPoint[] = [];
-    const times: string[] = (data.hourly && Array.isArray(data.hourly.time)) 
-      ? data.hourly.time 
-      : (weatherData.hourly && Array.isArray(weatherData.hourly.time)) 
-      ? weatherData.hourly.time 
-      : [];
-
-    if (times.length > 0) {
-      const pm25Arr: (number | null)[] = data.hourly?.pm2_5 || [];
-      const blhArr: (number | null)[] = weatherData.hourly?.boundary_layer_height || data.hourly?.boundary_layer_height || [];
-      const tempArr: (number | null)[] = weatherData.hourly?.temperature_2m || data.hourly?.temperature_2m || [];
-      const rhArr: (number | null)[] = weatherData.hourly?.relative_humidity_2m || data.hourly?.relative_humidity_2m || [];
-      const windArr: (number | null)[] = weatherData.hourly?.wind_speed_10m || data.hourly?.wind_speed_10m || [];
-      const limit = Math.min(24, times.length);
-
-      for (let i = 0; i < limit; i++) {
-        const timeStr = times[i];
-        const hourPart = timeStr.includes('T') ? timeStr.split('T')[1].slice(0, 2) : '0';
-        const hour = parseInt(hourPart, 10);
-        const rawPtPm25 = pm25Arr[i];
-        const ptPm25 = typeof rawPtPm25 === 'number' && Number.isFinite(rawPtPm25) && rawPtPm25 >= 0
-          ? Math.round(rawPtPm25 * 10) / 10
-          : null;
-        const rawPtBlh = blhArr[i];
-        const ptBlh = typeof rawPtBlh === 'number' && Number.isFinite(rawPtBlh) && rawPtBlh >= 0
-          ? Math.round(rawPtBlh)
-          : null;
-        const ptAqi = ptPm25 !== null ? calculateAQIFromPM25(ptPm25) : null;
-        const isForecast = currentTimeStr ? timeStr > currentTimeStr : i > currentHour;
-
-        const rawTemp = tempArr[i];
-        const rawRh = rhArr[i];
-        const rawWind = windArr[i];
-
-        hourlyForecast.push({
-          time: timeStr,
-          hour: isNaN(hour) ? i : hour,
-          pm25: ptPm25,
-          usAqi: ptAqi,
-          boundaryLayerHeight: ptBlh,
-          temperature: typeof rawTemp === 'number' && Number.isFinite(rawTemp) ? Math.round(rawTemp * 10) / 10 : null,
-          humidity: typeof rawRh === 'number' && Number.isFinite(rawRh) && rawRh >= 0 && rawRh <= 100 ? Math.round(rawRh) : null,
-          windSpeed: typeof rawWind === 'number' && Number.isFinite(rawWind) && rawWind >= 0 ? Math.round(rawWind * 10) / 10 : null,
-          isForecast,
-          isSafeVentingWindow: hour >= 12 && hour <= 16 && (ptBlh ? ptBlh >= 450 : false) && (ptAqi ? ptAqi <= 150 : false),
-          isStagnantDispersion: ptBlh !== null ? ptBlh < 200 : false,
-        });
-      }
-    }
+    // Build 24-hour diurnal timeline from timestamp-aligned Open-Meteo hourly streams
+    const alignedHours = alignHourlyForecasts(data.hourly, weatherData.hourly, {
+      cityName: options?.cityName,
+      timezone,
+      evaluationTime: new Date(),
+      maxHours: 24,
+    });
+    const hourlyForecast: HourlyAtmosphericPoint[] = toHourlyAtmosphericPoints(alignedHours);
 
     // Query physical ground monitoring station (CPCB / Sensor.Community)
     let groundStation = null;

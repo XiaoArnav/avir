@@ -1,9 +1,9 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { HourlyAtmosphericPoint } from '@/domain/types';
-import { analyzeDiurnalWindows } from '@/domain/advanced-air-math';
-import { Clock, Sun, AlertTriangle, CloudFog, ShieldCheck } from 'lucide-react';
+import { analyzeDiurnalRelativeWindows } from '@/services/forecast/hourly-alignment';
+import { Clock, Sun, AlertTriangle, ShieldCheck } from 'lucide-react';
 
 interface DiurnalForecastTimelineProps {
   hourlyForecast?: HourlyAtmosphericPoint[];
@@ -16,7 +16,20 @@ export const DiurnalForecastTimeline: React.FC<DiurnalForecastTimelineProps> = (
   currentHour = new Date().getHours(),
   cityName,
 }) => {
-  const [selectedHour, setSelectedHour] = useState<number>(currentHour);
+  // Use unique timestamp key (validAtUtc or time) for stable cross-date identity
+  const [selectedKey, setSelectedKey] = useState<string>('');
+
+  // Keep selected point in sync when forecast or city changes
+  useEffect(() => {
+    if (hourlyForecast.length > 0) {
+      // Find point matching current hour or first point
+      const defaultPt = hourlyForecast.find((p) => p.hour === currentHour) || hourlyForecast[0];
+      const key = defaultPt.validAtUtc || defaultPt.time || String(defaultPt.hour);
+      setSelectedKey(key);
+    } else {
+      setSelectedKey('');
+    }
+  }, [hourlyForecast, currentHour, cityName]);
 
   if (!hourlyForecast || hourlyForecast.length === 0) {
     return (
@@ -27,7 +40,7 @@ export const DiurnalForecastTimeline: React.FC<DiurnalForecastTimelineProps> = (
           </div>
           <div>
             <h3 className="text-base sm:text-lg font-bold text-ink dark:text-white">
-              24-Hour Smog Forecast &amp; Safe Hours
+              24-Hour Smog Forecast &amp; Diurnal Dispersion
             </h3>
             <p className="text-xs text-ink-muted dark:text-zinc-400">
               Atmospheric dispersion and diurnal cycle for {cityName}
@@ -41,10 +54,10 @@ export const DiurnalForecastTimeline: React.FC<DiurnalForecastTimelineProps> = (
     );
   }
 
-  const analysis = analyzeDiurnalWindows(hourlyForecast);
+  const analysis = analyzeDiurnalRelativeWindows(hourlyForecast);
 
   const activePoint =
-    hourlyForecast.find((p) => p.hour === selectedHour) ||
+    hourlyForecast.find((p) => (p.validAtUtc || p.time || String(p.hour)) === selectedKey) ||
     hourlyForecast[0];
 
   const getAqiColor = (aqi: number | null | undefined) => {
@@ -67,73 +80,93 @@ export const DiurnalForecastTimeline: React.FC<DiurnalForecastTimelineProps> = (
           </div>
           <div>
             <h3 className="text-base sm:text-lg font-bold text-ink dark:text-white">
-              24-Hour Smog Forecast &amp; Safe Hours
+              24-Hour Smog Forecast &amp; Diurnal Cycle
             </h3>
             <p className="text-xs text-ink-muted dark:text-zinc-400">
-              Best and worst hours for outdoor activities and opening windows in {cityName}
+              Diurnal atmospheric dispersion patterns for {cityName}
             </p>
           </div>
         </div>
 
         {/* Live Window Badges */}
-        <div className="flex items-center gap-2 text-xs">
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 font-medium">
-            <Sun className="w-3.5 h-3.5" />
-            Best Air: {analysis.bestVentingWindow.startHour}:00 - {analysis.bestVentingWindow.endHour}:00
-          </span>
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 font-medium">
-            <AlertTriangle className="w-3.5 h-3.5" />
-            Worst Smog: {analysis.worstInversionWindow.startHour}:00 - {analysis.worstInversionWindow.endHour}:00
-          </span>
-        </div>
+        {analysis.hasValidData && (
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 font-medium">
+              <Sun className="w-3.5 h-3.5" />
+              Lower Smog: {analysis.lowestSmogWindow.startDisplayTime} - {analysis.lowestSmogWindow.endDisplayTime}
+            </span>
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 font-medium">
+              <AlertTriangle className="w-3.5 h-3.5" />
+              Peak Smog: {analysis.highestSmogWindow.startDisplayTime} - {analysis.highestSmogWindow.endDisplayTime}
+            </span>
+          </div>
+        )}
       </div>
 
       {/* 24-Hour Interactive Timeline Rail */}
       <div className="relative">
         <div className="flex gap-2 overflow-x-auto pb-3 pt-1 scrollbar-thin scrollbar-thumb-stone-300 dark:scrollbar-thumb-zinc-700">
-          {hourlyForecast.map((point) => {
-            const isSelected = point.hour === selectedHour;
-            const isCurrent = point.hour === currentHour;
+          {hourlyForecast.map((point, idx) => {
+            const pointKey = point.validAtUtc || point.time || `${point.hour}-${idx}`;
+            const isSelected = pointKey === selectedKey;
+            const isCurrent = point.hour === currentHour && !point.isForecast;
+            const displayTime = point.localDisplayTime || `${point.hour < 10 ? `0${point.hour}` : point.hour}:00`;
+
+            // Check if this point crosses into a new day (e.g. hour 0 or date string changed)
+            const prevPoint = idx > 0 ? hourlyForecast[idx - 1] : null;
+            const isNewDay = prevPoint && point.localDisplayDate && prevPoint.localDisplayDate !== point.localDisplayDate;
 
             return (
-              <button
-                key={point.hour}
-                onClick={() => setSelectedHour(point.hour)}
-                className={`flex-shrink-0 flex flex-col items-center p-2.5 rounded-xl border text-center transition-all min-w-[70px] ${
-                  isSelected
-                    ? 'bg-stone-900 dark:bg-white text-white dark:text-black border-transparent shadow-md scale-105'
-                    : 'bg-stone-50 dark:bg-zinc-800/60 border-stone-200 dark:border-zinc-800 hover:bg-stone-100 dark:hover:bg-zinc-800 text-ink dark:text-zinc-300'
-                }`}
-              >
-                <div className="flex items-center gap-1 text-[10px] font-mono">
-                  <span>{point.hour < 10 ? `0${point.hour}` : point.hour}:00</span>
-                  {isCurrent && (
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  )}
-                </div>
-
-                <div
-                  className={`mt-1.5 text-xs font-mono font-bold px-1.5 py-0.5 rounded border ${
-                    isSelected ? 'bg-white/20 text-white dark:text-black' : getAqiColor(point.usAqi)
+              <React.Fragment key={pointKey}>
+                {isNewDay && (
+                  <div className="flex-shrink-0 flex items-center px-1">
+                    <span className="px-1.5 py-0.5 rounded bg-stone-200 dark:bg-zinc-800 text-[9px] font-mono font-semibold text-ink dark:text-zinc-300 whitespace-nowrap">
+                      {point.localDisplayDate}
+                    </span>
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setSelectedKey(pointKey)}
+                  className={`flex-shrink-0 flex flex-col items-center p-2.5 rounded-xl border text-center transition-all min-w-[70px] ${
+                    isSelected
+                      ? 'bg-stone-900 dark:bg-white text-white dark:text-black border-transparent shadow-md scale-105'
+                      : 'bg-stone-50 dark:bg-zinc-800/60 border-stone-200 dark:border-zinc-800 hover:bg-stone-100 dark:hover:bg-zinc-800 text-ink dark:text-zinc-300'
                   }`}
                 >
-                  {point.usAqi ?? '--'}
-                </div>
+                  <div className="flex items-center gap-1 text-[10px] font-mono">
+                    <span>{displayTime}</span>
+                    {isCurrent && (
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" title="Current Hour" />
+                    )}
+                  </div>
 
-                <div className="mt-1 text-[10px] font-mono opacity-80">
-                  {point.pm25 !== null ? `${point.pm25} µg` : '--'}
-                </div>
+                  <div
+                    className={`mt-1.5 text-xs font-mono font-bold px-1.5 py-0.5 rounded border ${
+                      isSelected ? 'bg-white/20 text-white dark:text-black' : getAqiColor(point.usAqi)
+                    }`}
+                  >
+                    {point.usAqi ?? '--'}
+                  </div>
 
-                <div className="mt-1 text-[9px] font-mono opacity-60">
-                  {point.boundaryLayerHeight !== null ? `${point.boundaryLayerHeight}m` : '--'}
-                </div>
+                  <div className="mt-1 text-[10px] font-mono opacity-80">
+                    {point.pm25 !== null ? `${point.pm25} µg` : '--'}
+                  </div>
 
-                {point.isForecast ? (
-                  <span className="mt-1 text-[8px] font-mono text-sky-500 font-bold uppercase">Fcst</span>
-                ) : (
-                  <span className="mt-1 text-[8px] font-mono text-stone-400 font-bold uppercase">Obs</span>
-                )}
-              </button>
+                  <div className="mt-1 text-[9px] font-mono opacity-60">
+                    {point.boundaryLayerHeight !== null ? `${point.boundaryLayerHeight}m` : '--'}
+                  </div>
+
+                  {/* Scientific Source Classification: Model vs Observation */}
+                  {point.isForecast ? (
+                    <span className="mt-1 text-[8px] font-mono text-sky-500 font-bold uppercase">Fcst</span>
+                  ) : point.isModel === false ? (
+                    <span className="mt-1 text-[8px] font-mono text-emerald-500 font-bold uppercase">Obs</span>
+                  ) : (
+                    <span className="mt-1 text-[8px] font-mono text-stone-400 font-bold uppercase">Model</span>
+                  )}
+                </button>
+              </React.Fragment>
             );
           })}
         </div>
@@ -142,50 +175,41 @@ export const DiurnalForecastTimeline: React.FC<DiurnalForecastTimelineProps> = (
       {/* Selected Hour Atmospheric Diagnostics Banner */}
       <div className="p-4 rounded-xl bg-stone-50 dark:bg-zinc-800/50 border border-stone-200 dark:border-zinc-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div className="space-y-1">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <span className="font-bold text-sm text-ink dark:text-white">
-              {activePoint.hour}:00 Forecast Focus
+              {activePoint.localDisplayTime || `${activePoint.hour}:00`} Focus ({activePoint.localDisplayDate || 'Today'})
             </span>
-            {activePoint.hour === currentHour && (
+            {activePoint.hour === currentHour && !activePoint.isForecast && (
               <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-500 font-bold">
                 Current Hour
               </span>
             )}
-            {activePoint.isSafeVentingWindow ? (
+            {activePoint.usAqi !== null && activePoint.usAqi <= 150 ? (
               <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-500 font-bold flex items-center gap-1">
-                <ShieldCheck className="w-3 h-3" /> Clean Air Window
+                <ShieldCheck className="w-3 h-3" /> Relatively Lower Smog
               </span>
             ) : (
               <span className="text-[10px] px-2 py-0.5 rounded-full bg-rose-500/10 text-rose-500 font-bold flex items-center gap-1">
-                <AlertTriangle className="w-3 h-3" /> Heavy Smog Window
+                <AlertTriangle className="w-3 h-3" /> Elevated Smog Window
               </span>
             )}
           </div>
-          <p className="text-xs text-ink-muted dark:text-zinc-400">
-            {activePoint.isSafeVentingWindow
-              ? analysis.bestVentingWindow.recommendation
-              : analysis.worstInversionWindow.warning}
+          <p className="text-xs text-ink-muted dark:text-zinc-400 max-w-xl">
+            {activePoint.boundaryLayerHeight !== null
+              ? `Modeled planetary boundary layer height is ~${activePoint.boundaryLayerHeight}m. ${
+                  activePoint.boundaryLayerHeight < 300
+                    ? 'Thermal surface cooling inhibits vertical mixing, confining particulates near ground level.'
+                    : 'Solar convection facilitates atmospheric dispersion.'
+                }`
+              : 'Boundary layer mixing depth is unavailable for this hour.'}
           </p>
         </div>
 
-        <div className="flex items-center gap-4 text-xs font-mono shrink-0">
-          <div>
-            <div className="text-[10px] text-ink-muted dark:text-zinc-400">US AQI</div>
-            <div className="font-bold text-ink dark:text-white text-base">
-              {activePoint.usAqi}
-            </div>
-          </div>
-          <div>
-            <div className="text-[10px] text-ink-muted dark:text-zinc-400">Fine Dust</div>
-            <div className="font-bold text-ink dark:text-white text-base">
-              {activePoint.pm25} <span className="text-[10px]">µg/m³</span>
-            </div>
-          </div>
-          <div>
-            <div className="text-[10px] text-ink-muted dark:text-zinc-400">Smoke Ceiling</div>
-            <div className="font-bold text-ink dark:text-white text-base">
-              {activePoint.boundaryLayerHeight} <span className="text-[10px]">m</span>
-            </div>
+        <div className="text-left sm:text-right text-xs font-mono text-ink-muted dark:text-zinc-400 shrink-0">
+          <div>PM2.5: {activePoint.pm25 !== null ? `${activePoint.pm25} µg/m³` : 'N/A'}</div>
+          <div>US AQI: {activePoint.usAqi ?? 'N/A'}</div>
+          <div className="text-[10px] text-stone-500 dark:text-zinc-500 mt-0.5">
+            {activePoint.isForecast ? 'Numerical Weather & Chemistry Forecast' : 'Modeled Atmospheric Telemetry'}
           </div>
         </div>
       </div>

@@ -340,7 +340,7 @@ export function resolveOfficialGrapStatus(
         governingOrderIds.add(order.id);
 
         // Remove the revoked invocation order from governing IDs
-        for (const supersededId of order.supersedesOrderIds) {
+        for (const supersededId of order.supersedesOrderIds || []) {
           governingOrderIds.delete(supersededId);
         }
       }

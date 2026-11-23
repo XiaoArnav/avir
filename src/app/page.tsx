@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { TopNav } from '@/components/TopNav';
 import { MetroRail } from '@/components/MetroRail';
 import { AtmosphereHero } from '@/components/AtmosphereHero';
@@ -25,6 +25,7 @@ import { ScienceExplainerModal } from '@/components/ScienceExplainerModal';
 import { MultiSourceInspectorModal } from '@/components/MultiSourceInspectorModal';
 import { VerifiedAdvisoryPanel } from '@/components/VerifiedAdvisoryPanel';
 import { resolveOfficialGrapStatus } from '@/services/advisories/grap-status-resolver';
+import { RequestCoordinator } from '@/lib/async/request-coordinator';
 import {
   AtmosphericMetrics,
   UserVulnerabilityProfile,
@@ -80,10 +81,17 @@ export default function Home() {
     }
   }, [isDarkMode]);
 
-  // Load telemetry when city changes with AbortController for race-free city transitions
+  // Coordinated request manager preventing race conditions and stale response leaks
+  const coordinatorRef = useRef<RequestCoordinator>(new RequestCoordinator());
+
+  // Load telemetry when city changes with RequestCoordinator generation protection
   useEffect(() => {
-    const controller = new AbortController();
     let isMounted = true;
+    const ctx = coordinatorRef.current.beginTelemetryRequest(
+      selectedCity.latitude,
+      selectedCity.longitude,
+      selectedCity.name
+    );
 
     async function loadTelemetry() {
       setIsTelemetryLoading(true);
@@ -91,38 +99,57 @@ export default function Home() {
         const data = await fetchLiveAtmosphericMetrics(
           selectedCity.latitude,
           selectedCity.longitude,
-          { signal: controller.signal, cityName: selectedCity.name }
+          { signal: ctx.signal, cityName: selectedCity.name }
         );
-        if (isMounted) {
-          setMetrics(data);
-          // Only generate plan if data is available and not in error, and required measurements exist
-          if (data.status !== 'error' && data.usAqi !== null && data.pm25 !== null) {
-            const initialPlan = await generateAirQualityPlan({
-              city: selectedCity.name,
-              metrics: data,
-              profile,
-              roomSizeSqFt,
-              customRoutine,
-              geminiApiKey,
-            });
-            if (isMounted) setPlan(initialPlan);
-          } else {
-            if (isMounted) setPlan(null);
+
+        if (!isMounted || !coordinatorRef.current.isTelemetryResponseValid(ctx)) {
+          return;
+        }
+
+        setMetrics(data);
+
+        // Only generate plan if data is available and not in error, and required measurements exist
+        if (data.status !== 'error' && data.usAqi !== null && data.pm25 !== null) {
+          const planCtx = coordinatorRef.current.beginPlanRequest({
+            cityName: selectedCity.name,
+            metricsTimestamp: data.timestamp,
+            usAqi: data.usAqi,
+            pm25: data.pm25,
+            profileId: `${profile.ageGroup}:${profile.hasAsthmaOrRespiratory ? 'resp' : 'norm'}`,
+            roomSizeSqFt,
+            customRoutine,
+          });
+
+          const initialPlan = await generateAirQualityPlan({
+            city: selectedCity.name,
+            metrics: data,
+            profile,
+            roomSizeSqFt,
+            customRoutine,
+            geminiApiKey,
+          });
+
+          if (isMounted && coordinatorRef.current.isPlanResponseValid(planCtx)) {
+            setPlan(initialPlan);
           }
+        } else {
+          setPlan(null);
         }
       } catch (err: any) {
         if (err?.name !== 'AbortError') {
           console.error('Failed to load telemetry:', err);
         }
       } finally {
-        if (isMounted) setIsTelemetryLoading(false);
+        if (isMounted && coordinatorRef.current.isTelemetryResponseValid(ctx)) {
+          setIsTelemetryLoading(false);
+        }
       }
     }
 
     loadTelemetry();
     return () => {
       isMounted = false;
-      controller.abort();
+      coordinatorRef.current.abortAll();
     };
   }, [selectedCity]);
 
@@ -135,17 +162,36 @@ export default function Home() {
     setSelectedCity(loc);
   };
 
-  // Handle manual live telemetry refresh & dependent plan recalculation
+  // Handle manual live telemetry refresh & dependent plan recalculation with generation protection
   const refreshTelemetry = async () => {
     setIsTelemetryLoading(true);
+    const ctx = coordinatorRef.current.beginTelemetryRequest(
+      selectedCity.latitude,
+      selectedCity.longitude,
+      selectedCity.name
+    );
+
     try {
       const data = await fetchLiveAtmosphericMetrics(
         selectedCity.latitude,
         selectedCity.longitude,
-        { forceRefresh: true, cityName: selectedCity.name }
+        { forceRefresh: true, cityName: selectedCity.name, signal: ctx.signal }
       );
+
+      if (!coordinatorRef.current.isTelemetryResponseValid(ctx)) return;
+
       setMetrics(data);
       if (data.status !== 'error' && data.usAqi !== null && data.pm25 !== null) {
+        const planCtx = coordinatorRef.current.beginPlanRequest({
+          cityName: selectedCity.name,
+          metricsTimestamp: data.timestamp,
+          usAqi: data.usAqi,
+          pm25: data.pm25,
+          profileId: `${profile.ageGroup}:${profile.hasAsthmaOrRespiratory ? 'resp' : 'norm'}`,
+          roomSizeSqFt,
+          customRoutine,
+        });
+
         const updatedPlan = await generateAirQualityPlan({
           city: selectedCity.name,
           metrics: data,
@@ -154,21 +200,38 @@ export default function Home() {
           customRoutine,
           geminiApiKey,
         });
-        setPlan(updatedPlan);
+
+        if (coordinatorRef.current.isPlanResponseValid(planCtx)) {
+          setPlan(updatedPlan);
+        }
       } else {
         setPlan(null);
       }
-    } catch (err) {
-      console.error('Failed to reload telemetry:', err);
+    } catch (err: any) {
+      if (err?.name !== 'AbortError') {
+        console.error('Failed to reload telemetry:', err);
+      }
     } finally {
-      setIsTelemetryLoading(false);
+      if (coordinatorRef.current.isTelemetryResponseValid(ctx)) {
+        setIsTelemetryLoading(false);
+      }
     }
   };
 
-  // Handle manual plan regeneration
+  // Handle manual plan regeneration with generation protection
   const handleGeneratePlan = async () => {
     if (!metrics || metrics.status === 'error' || metrics.usAqi === null || metrics.pm25 === null) return;
     setIsPlanGenerating(true);
+    const planCtx = coordinatorRef.current.beginPlanRequest({
+      cityName: selectedCity.name,
+      metricsTimestamp: metrics.timestamp,
+      usAqi: metrics.usAqi,
+      pm25: metrics.pm25,
+      profileId: `${profile.ageGroup}:${profile.hasAsthmaOrRespiratory ? 'resp' : 'norm'}`,
+      roomSizeSqFt,
+      customRoutine,
+    });
+
     try {
       const updatedPlan = await generateAirQualityPlan({
         city: selectedCity.name,
@@ -178,9 +241,12 @@ export default function Home() {
         customRoutine,
         geminiApiKey,
       });
-      setPlan(updatedPlan);
-      // Seamlessly switch to Daily Plan to view optimized results
-      setActiveTab('routine');
+
+      if (coordinatorRef.current.isPlanResponseValid(planCtx)) {
+        setPlan(updatedPlan);
+        // Seamlessly switch to Daily Plan to view optimized results
+        setActiveTab('routine');
+      }
     } catch (err) {
       console.error('Plan generation failed:', err);
     } finally {

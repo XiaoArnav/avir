@@ -142,7 +142,7 @@ export const VERIFIED_OFFICIAL_REGULATORY_ORDERS: RegulatoryOrder[] = [
     ],
   },
   {
-    id: 'caqm-dg-set-independent-direction-2026',
+    id: 'caqm-direction-76-dg-sets',
     issuingAuthority: 'Commission for Air Quality Management in NCR and Adjoining Areas (CAQM)',
     title: 'Statutory Direction on Emission Regulation and Retrofitment of Diesel Generator (DG) Sets in NCR',
     orderNumber: 'Direction No. 76 (CAQM/2026)',
@@ -165,6 +165,9 @@ export const VERIFIED_OFFICIAL_REGULATORY_ORDERS: RegulatoryOrder[] = [
     notes: [
       'Independent statutory mandate: DG sets above 19 kW must be equipped with Dual Fuel Kits or certified Emission Control Devices (RECD). Not automatically revoked by GRAP stage reductions.',
     ],
+    restrictions: {
+      dgSetRestrictions: true,
+    },
   },
   {
     id: 'delhi-doe-school-safety-circular-nov2026',
@@ -208,7 +211,10 @@ export class OfficialOrderRegistryService {
     return this.orders.filter((order) => {
       // Jurisdiction filter
       if (filter?.jurisdictionTerritory) {
-        const matchesTerritory = order.jurisdiction.some((j) =>
+        const jArr = Array.isArray(order.jurisdiction)
+          ? order.jurisdiction
+          : [order.jurisdiction.region, ...(order.jurisdiction.applicableDistricts ?? [])];
+        const matchesTerritory = jArr.some((j) =>
           j.toLowerCase().includes(filter.jurisdictionTerritory!.toLowerCase())
         );
         if (!matchesTerritory) return false;
@@ -229,6 +235,38 @@ export class OfficialOrderRegistryService {
         }
       }
 
+      return true;
+    });
+  }
+
+  /**
+   * Retrieves all verified orders.
+   */
+  public getVerifiedOrders(): RegulatoryOrder[] {
+    return this.orders.filter((o) => o.status === 'verified_official');
+  }
+
+  /**
+   * Flexible filter helper for orders by authority or territory.
+   */
+  public filterOrders(options: {
+    issuingAuthority?: string;
+    jurisdictionTerritory?: string;
+    activeOnly?: boolean;
+    atTime?: string;
+  }): RegulatoryOrder[] {
+    return this.orders.filter((order) => {
+      if (options.issuingAuthority && !order.issuingAuthority.toLowerCase().includes(options.issuingAuthority.toLowerCase())) {
+        return false;
+      }
+      if (options.jurisdictionTerritory) {
+        const jArr = Array.isArray(order.jurisdiction)
+          ? order.jurisdiction
+          : [order.jurisdiction.region, ...(order.jurisdiction.applicableDistricts ?? [])];
+        if (!jArr.some((j) => j.toLowerCase().includes(options.jurisdictionTerritory!.toLowerCase()))) {
+          return false;
+        }
+      }
       return true;
     });
   }

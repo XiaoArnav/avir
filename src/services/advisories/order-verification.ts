@@ -16,32 +16,52 @@ export const AUTHORITATIVE_GOVERNMENT_DOMAINS = [
   'parivesh.nic.in',
 ] as const;
 
+export const STRICT_GOV_DOMAIN_ALLOWLIST = AUTHORITATIVE_GOVERNMENT_DOMAINS;
+
 /**
- * Validates whether a URL originates strictly from an allowlisted government authority domain.
- * Blocks arbitrary URLs, open proxies, IP addresses, and SSRF attack vectors.
+ * Validates whether a URL originates strictly from an allowlisted government authority domain with https.
+ * Blocks arbitrary URLs, open proxies, IP addresses, insecure protocols, and SSRF attack vectors.
  */
-export function isAuthoritativeGovernmentDomain(urlStr: string): boolean {
-  if (!urlStr || typeof urlStr !== 'string') return false;
+export function validateOrderSourceUrl(urlStr: string): { isValid: boolean; error?: string } {
+  if (!urlStr || typeof urlStr !== 'string') {
+    return { isValid: false, error: 'URL must be a non-empty string' };
+  }
 
   try {
     const parsed = new URL(urlStr);
-    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
-      return false;
+    if (parsed.protocol !== 'https:') {
+      return { isValid: false, error: 'Protocol must be https:' };
     }
 
     const hostname = parsed.hostname.toLowerCase();
 
-    // Reject IP addresses (IPv4 or IPv6)
+    // Reject IP addresses (IPv4 or IPv6) or localhost
     if (/^(\d{1,3}\.){3}\d{1,3}$/.test(hostname) || hostname.startsWith('[') || hostname === 'localhost') {
-      return false;
+      return { isValid: false, error: 'IP addresses and localhost are strictly prohibited' };
     }
 
-    return AUTHORITATIVE_GOVERNMENT_DOMAINS.some(
+    const isGov = AUTHORITATIVE_GOVERNMENT_DOMAINS.some(
       (domain) => hostname === domain || hostname.endsWith(`.${domain}`)
     );
-  } catch {
-    return false;
+
+    if (!isGov) {
+      return {
+        isValid: false,
+        error: `Official source URL must belong to an allowlisted government domain (${AUTHORITATIVE_GOVERNMENT_DOMAINS.join(', ')})`,
+      };
+    }
+
+    return { isValid: true };
+  } catch (err: any) {
+    return { isValid: false, error: err?.message || 'Invalid URL' };
   }
+}
+
+/**
+ * Validates whether a URL originates strictly from an allowlisted government authority domain.
+ */
+export function isAuthoritativeGovernmentDomain(urlStr: string): boolean {
+  return validateOrderSourceUrl(urlStr).isValid;
 }
 
 export interface OrderValidationResult {
@@ -78,16 +98,24 @@ export function validateRegulatoryOrder(raw: unknown): OrderValidationResult {
   }
 
   // Official Source URL Security & Domain Allowlist
-  if (!o.officialSourceUrl || typeof o.officialSourceUrl !== 'string') {
+  const rawUrl = o.officialSourceUrl || o.sourceUrl;
+  if (!rawUrl || typeof rawUrl !== 'string') {
     errors.push('Official source URL must be specified');
-  } else if (!isAuthoritativeGovernmentDomain(o.officialSourceUrl)) {
-    errors.push(`Official source URL must belong to an allowlisted government domain (${AUTHORITATIVE_GOVERNMENT_DOMAINS.join(', ')})`);
+  } else {
+    const urlValidation = validateOrderSourceUrl(rawUrl);
+    if (!urlValidation.isValid) {
+      errors.push(urlValidation.error || 'Official source URL is invalid');
+    }
   }
 
   // Date validation (ISO 8601)
   const validateIsoDate = (field: string, val: unknown, required: boolean): string | null => {
-    if (val === null || val === undefined || val === '') {
+    if (val === null || val === undefined) {
       if (required) errors.push(`${field} is required`);
+      return null;
+    }
+    if (val === '') {
+      errors.push(`${field} cannot be empty`);
       return null;
     }
     if (typeof val !== 'string') {
@@ -114,7 +142,16 @@ export function validateRegulatoryOrder(raw: unknown): OrderValidationResult {
   }
 
   // Action validation
-  const validActions = ['invoke', 'revoke', 'amend', 'clarify', 'independent_restriction'];
+  const validActions = [
+    'invoke',
+    'revoke',
+    'amend',
+    'clarify',
+    'independent_restriction',
+    'invoke_stage',
+    'revoke_stage',
+    'independent_directive',
+  ];
   if (!o.action || typeof o.action !== 'string' || !validActions.includes(o.action)) {
     errors.push(`Action must be one of: ${validActions.join(', ')}`);
   }
@@ -141,8 +178,27 @@ export function validateRegulatoryOrder(raw: unknown): OrderValidationResult {
   }
 
   // Jurisdiction
-  if (!Array.isArray(o.jurisdiction) || o.jurisdiction.length === 0) {
-    errors.push('Jurisdiction must be a non-empty array of covered territories');
+  let sanitizedJurisdiction: any = null;
+  if (Array.isArray(o.jurisdiction)) {
+    if (o.jurisdiction.length === 0) {
+      errors.push('Jurisdiction must be a non-empty array of covered territories');
+    } else {
+      sanitizedJurisdiction = o.jurisdiction.map((j) => String(j).trim());
+    }
+  } else if (o.jurisdiction && typeof o.jurisdiction === 'object') {
+    const jObj = o.jurisdiction as Record<string, unknown>;
+    if (!jObj.region || typeof jObj.region !== 'string' || jObj.region.trim().length === 0) {
+      errors.push('Jurisdiction region must be specified');
+    } else {
+      sanitizedJurisdiction = {
+        region: String(jObj.region).trim(),
+        applicableDistricts: Array.isArray(jObj.applicableDistricts)
+          ? jObj.applicableDistricts.map(String)
+          : undefined,
+      };
+    }
+  } else {
+    errors.push('Jurisdiction must be specified');
   }
 
   if (errors.length > 0) {
@@ -154,18 +210,24 @@ export function validateRegulatoryOrder(raw: unknown): OrderValidationResult {
     issuingAuthority: String(o.issuingAuthority).trim(),
     title: String(o.title).trim(),
     orderNumber: typeof o.orderNumber === 'string' ? o.orderNumber.trim() : null,
-    officialSourceUrl: String(o.officialSourceUrl).trim(),
+    officialSourceUrl: String(rawUrl).trim(),
+    sourceUrl: String(rawUrl).trim(),
+    summary: typeof o.summary === 'string' ? o.summary.trim() : undefined,
     publishedAt,
     effectiveFrom,
     effectiveUntil,
-    jurisdiction: (o.jurisdiction as string[]).map((j) => String(j).trim()),
+    jurisdiction: sanitizedJurisdiction,
     jurisdictionBasis: typeof o.jurisdictionBasis === 'string' ? o.jurisdictionBasis.trim() : null,
     action: o.action as RegulatoryOrder['action'],
     grapStage: (o.grapStage as RegulatoryOrder['grapStage']) ?? null,
     status: o.status as RegulatoryVerificationStatus,
     verifiedAt,
+    verificationDate: typeof o.verificationDate === 'string' ? o.verificationDate : verifiedAt,
     supersedesOrderIds: Array.isArray(o.supersedesOrderIds) ? o.supersedesOrderIds.map(String) : [],
     notes: Array.isArray(o.notes) ? o.notes.map(String) : [],
+    specificDirectives: Array.isArray(o.specificDirectives) ? o.specificDirectives.map(String) : undefined,
+    restrictions: (o.restrictions as any) ?? undefined,
+    revokesStage: (o.revokesStage as any) ?? undefined,
   };
 
   return { isValid: true, errors: [], sanitizedOrder };

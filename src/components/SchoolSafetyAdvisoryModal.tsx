@@ -36,9 +36,15 @@ export const SchoolSafetyAdvisoryModal: React.FC<SchoolSafetyAdvisoryModalProps>
   const schoolOrders = officialOrderService
     .getOrders({ activeOnly: true })
     .filter(
-      (o) =>
-        (o.id.includes('school') || o.title.toLowerCase().includes('school')) &&
-        o.jurisdiction.some((j) => j.toLowerCase().includes(cityName.toLowerCase()) || officialGrap.jurisdiction.toLowerCase().includes(j.toLowerCase()))
+      (o) => {
+        if (!o.id.includes('school') && !o.title.toLowerCase().includes('school')) return false;
+        const jurList = Array.isArray(o.jurisdiction)
+          ? o.jurisdiction
+          : [o.jurisdiction.region, ...(o.jurisdiction.applicableDistricts ?? [])];
+        return jurList.some(
+          (j) => j.toLowerCase().includes(cityName.toLowerCase()) || officialGrap.jurisdiction.toLowerCase().includes(j.toLowerCase())
+        );
+      }
     );
 
   if (!isAvailable) {
