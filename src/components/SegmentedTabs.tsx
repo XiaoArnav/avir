@@ -1,7 +1,9 @@
 'use client';
 
 import React, { useRef } from 'react';
+import { motion, useReducedMotion } from 'motion/react';
 import { Activity, Globe, CalendarClock, Home, Users } from 'lucide-react';
+import { springs } from '@/lib/motion-tokens';
 
 export type ActiveTabId = 'overview' | 'world' | 'routine' | 'iaq' | 'rwa';
 
@@ -23,6 +25,8 @@ export const SegmentedTabs: React.FC<SegmentedTabsProps> = ({
   onChangeTab,
   reductionPercentage 
 }) => {
+  const shouldReduceMotion = useReducedMotion();
+
   // Misleading ₹2,950 and unqualified "Live" badges removed in Step 20 / UX25
   const tabs: TabItem[] = [
     {
@@ -106,19 +110,26 @@ export const SegmentedTabs: React.FC<SegmentedTabsProps> = ({
               tabIndex={isActive ? 0 : -1}
               onClick={() => onChangeTab(tab.id)}
               onKeyDown={(e) => handleKeyDown(e, idx)}
-              className={`flex-1 min-w-[110px] sm:min-w-0 py-2.5 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition-all duration-200 select-none touch-target focus-visible-ring cursor-pointer ${
+              className={`relative flex-1 min-w-[110px] sm:min-w-0 py-2.5 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 select-none touch-target focus-visible-ring cursor-pointer transition-colors ${
                 isActive
-                  ? 'bg-white text-ink shadow-sm dark:bg-white dark:text-black font-bold'
-                  : 'text-ink-muted hover:text-ink hover:bg-white/60 dark:text-zinc-400 dark:hover:text-white dark:hover:bg-zinc-900/60 border border-transparent'
+                  ? 'text-ink dark:text-black font-bold'
+                  : 'text-ink-muted hover:text-ink hover:bg-white/60 dark:text-zinc-400 dark:hover:text-white dark:hover:bg-zinc-900/60'
               }`}
             >
-              <span className={isActive ? 'text-ink dark:text-black' : 'text-ink-muted dark:text-zinc-500'}>
+              {isActive && (
+                <motion.div
+                  layoutId={shouldReduceMotion ? undefined : 'segmentedTabActive'}
+                  className="absolute inset-0 bg-white dark:bg-white rounded-lg shadow-sm"
+                  transition={springs.snappy}
+                />
+              )}
+              <span className={`relative z-10 ${isActive ? 'text-ink dark:text-black' : 'text-ink-muted dark:text-zinc-500'}`}>
                 {tab.icon}
               </span>
-              <span className="truncate">{tab.label}</span>
+              <span className="relative z-10 truncate">{tab.label}</span>
               {tab.badge && (
                 <span
-                  className={`text-[10px] px-1.5 py-0.5 rounded font-mono hidden sm:inline-block ${
+                  className={`relative z-10 text-[10px] px-1.5 py-0.5 rounded font-mono hidden sm:inline-block ${
                     isActive
                       ? 'bg-stone-100 text-ink dark:bg-black/10 dark:text-black font-bold'
                       : 'bg-stone-300/80 text-ink-muted dark:bg-zinc-800 dark:text-zinc-400'
