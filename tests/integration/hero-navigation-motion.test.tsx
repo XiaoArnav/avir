@@ -32,9 +32,9 @@ describe('Hero & Navigation Experience (Stage 2 & 3 Upgrades)', () => {
     cpcbCategory: 'Very Poor',
     cpcbStatus: 'statutory_compliant',
     hourlyForecast: [
-      { hour: 10, usAqi: 245, pm25: 185, boundaryLayerHeight: 320, isSafeVentingWindow: false },
-      { hour: 11, usAqi: 230, pm25: 170, boundaryLayerHeight: 450, isSafeVentingWindow: false },
-      { hour: 14, usAqi: 140, pm25: 90, boundaryLayerHeight: 950, isSafeVentingWindow: true },
+      { hour: 10, time: '2026-11-23T10:00:00Z', isForecast: false, usAqi: 245, pm25: 185, boundaryLayerHeight: 320, isSafeVentingWindow: false },
+      { hour: 11, time: '2026-11-23T11:00:00Z', isForecast: false, usAqi: 230, pm25: 170, boundaryLayerHeight: 450, isSafeVentingWindow: false },
+      { hour: 14, time: '2026-11-23T14:00:00Z', isForecast: true, usAqi: 140, pm25: 90, boundaryLayerHeight: 950, isSafeVentingWindow: true },
     ],
   };
 
