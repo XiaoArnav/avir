@@ -44,6 +44,9 @@ export const PREDEFINED_INDIAN_CITIES: GeocodedLocation[] = [
  * Searches global cities using Open-Meteo Geocoding API (0 keys required).
  */
 export async function searchCities(query: string, signal?: AbortSignal): Promise<GeocodedLocation[]> {
+  if (signal?.aborted) {
+    throw new DOMException('The operation was aborted', 'AbortError');
+  }
   if (!query || query.trim().length < 2) return [];
 
   const cacheKey = `geo:${query.toLowerCase().trim()}`;
