@@ -3,29 +3,22 @@
 import React, { useEffect, useRef, useCallback } from 'react';
 import { X } from 'lucide-react';
 
-export interface AccessibleDialogProps {
+export interface UseAccessibleDialogOptions {
   isOpen: boolean;
   onClose: () => void;
-  title: React.ReactNode;
-  description?: React.ReactNode;
-  children: React.ReactNode;
-  maxWidthClassName?: string;
-  ariaLabel?: string;
+  dialogRef: React.RefObject<HTMLElement | null>;
 }
 
-export const AccessibleDialog: React.FC<AccessibleDialogProps> = ({
-  isOpen,
-  onClose,
-  title,
-  description,
-  children,
-  maxWidthClassName = 'max-w-xl',
-  ariaLabel,
-}) => {
-  const dialogRef = useRef<HTMLDivElement>(null);
+/**
+ * Standard WAI-ARIA accessible dialog hook ensuring:
+ * 1. Body scroll lock and clean restore on unmount/close
+ * 2. Active element retention and focus restoration upon closing
+ * 3. Focus trapping within modal (Tab / Shift+Tab cycling)
+ * 4. Keyboard Escape key dismissal
+ */
+export function useAccessibleDialog({ isOpen, onClose, dialogRef }: UseAccessibleDialogOptions) {
   const previouslyFocusedElementRef = useRef<HTMLElement | null>(null);
 
-  // Focus trap query selector
   const getFocusableElements = useCallback(() => {
     if (!dialogRef.current) return [];
     return Array.from(
@@ -33,13 +26,13 @@ export const AccessibleDialog: React.FC<AccessibleDialogProps> = ({
         'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
       )
     );
-  }, []);
+  }, [dialogRef]);
 
-  // Handle open/close side effects: focus management, background scroll lock, Escape key
   useEffect(() => {
     if (!isOpen) return;
+    if (typeof document === 'undefined') return;
 
-    // Save previous active element
+    // Save previous active element for restoration
     previouslyFocusedElementRef.current = document.activeElement as HTMLElement | null;
 
     // Lock body scroll
@@ -100,7 +93,30 @@ export const AccessibleDialog: React.FC<AccessibleDialogProps> = ({
         previouslyFocusedElementRef.current.focus();
       }
     };
-  }, [isOpen, onClose, getFocusableElements]);
+  }, [isOpen, onClose, getFocusableElements, dialogRef]);
+}
+
+export interface AccessibleDialogProps {
+  isOpen: boolean;
+  onClose: () => void;
+  title: React.ReactNode;
+  description?: React.ReactNode;
+  children: React.ReactNode;
+  maxWidthClassName?: string;
+  ariaLabel?: string;
+}
+
+export const AccessibleDialog: React.FC<AccessibleDialogProps> = ({
+  isOpen,
+  onClose,
+  title,
+  description,
+  children,
+  maxWidthClassName = 'max-w-xl',
+  ariaLabel,
+}) => {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useAccessibleDialog({ isOpen, onClose, dialogRef });
 
   if (!isOpen) return null;
 
@@ -126,7 +142,7 @@ export const AccessibleDialog: React.FC<AccessibleDialogProps> = ({
         aria-describedby={description ? descId : undefined}
         aria-label={ariaLabel}
         tabIndex={-1}
-        className={`w-full ${maxWidthClassName} bg-white dark:bg-zinc-950 border border-stone-300 dark:border-zinc-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] transition-colors`}
+        className={`w-full ${maxWidthClassName} bg-white dark:bg-zinc-950 border border-stone-300 dark:border-zinc-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] transition-colors focus:outline-none`}
       >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-stone-200 dark:border-zinc-800 bg-stone-50/50 dark:bg-zinc-900/50 shrink-0">
@@ -144,7 +160,7 @@ export const AccessibleDialog: React.FC<AccessibleDialogProps> = ({
             type="button"
             onClick={onClose}
             aria-label="Close dialog"
-            className="p-2 rounded-xl text-ink-muted hover:text-ink hover:bg-stone-200/80 dark:text-zinc-400 dark:hover:text-white dark:hover:bg-zinc-800 transition-colors focus-visible-ring"
+            className="p-2 rounded-xl text-ink-muted hover:text-ink hover:bg-stone-200/80 dark:text-zinc-400 dark:hover:text-white dark:hover:bg-zinc-800 transition-colors focus-visible-ring cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>

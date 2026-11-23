@@ -1,7 +1,8 @@
 'use client';
 
-import React from 'react';
+import React, { useRef } from 'react';
 import { X, Atom, ShieldCheck, Wind, Flame } from 'lucide-react';
+import { useAccessibleDialog } from '@/components/ui/AccessibleDialog';
 
 interface ScienceExplainerModalProps {
   isOpen: boolean;
@@ -12,17 +13,26 @@ export const ScienceExplainerModal: React.FC<ScienceExplainerModalProps> = ({
   isOpen,
   onClose,
 }) => {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useAccessibleDialog({ isOpen, onClose, dialogRef });
+
   if (!isOpen) return null;
 
   return (
     <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="science-modal-title"
+      role="presentation"
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-in fade-in duration-200"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
     >
       <div 
-        className="relative w-full max-w-3xl rounded-2xl bg-white dark:bg-zinc-950 border border-stone-300 dark:border-zinc-800 p-6 sm:p-8 shadow-2xl overflow-y-auto max-h-[90vh] space-y-6 transition-colors"
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="science-modal-title"
+        tabIndex={-1}
+        className="relative w-full max-w-3xl rounded-2xl bg-white dark:bg-zinc-950 border border-stone-300 dark:border-zinc-800 p-6 sm:p-8 shadow-2xl overflow-y-auto max-h-[90vh] space-y-6 transition-colors focus:outline-none"
       >
         {/* Header */}
         <div className="flex items-center justify-between pb-4 border-b border-stone-200 dark:border-zinc-800">
@@ -42,7 +52,7 @@ export const ScienceExplainerModal: React.FC<ScienceExplainerModalProps> = ({
 
           <button
             onClick={onClose}
-            className="p-2 rounded-lg text-ink-muted hover:text-ink hover:bg-stone-100 dark:text-zinc-400 dark:hover:text-white dark:hover:bg-zinc-800 transition-colors"
+            className="p-2 rounded-lg text-ink-muted hover:text-ink hover:bg-stone-100 dark:text-zinc-400 dark:hover:text-white dark:hover:bg-zinc-800 transition-colors focus-visible-ring cursor-pointer"
             aria-label="Close modal"
           >
             <X className="w-5 h-5" />

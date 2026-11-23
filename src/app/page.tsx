@@ -353,6 +353,17 @@ export default function Home() {
       />
 
       <main id="main-content" className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 space-y-6 sm:space-y-8 pb-safe">
+        {/* Screen Reader Live Status Region (WCAG 4.1.3 Status Messages) */}
+        <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
+          {isTelemetryLoading
+            ? `Loading live air quality measurements for ${selectedCity.name}...`
+            : metrics?.status === 'error'
+            ? `Telemetry error: ${metrics.errorMessage || 'Live sensor data currently unavailable.'}`
+            : metrics
+            ? `Air quality data updated for ${selectedCity.name}. US EPA AQI: ${metrics.usAqi ?? 'unavailable'}, PM2.5: ${metrics.pm25 ?? 'unavailable'} micrograms per cubic meter.`
+            : `Selected city: ${selectedCity.name}.`}
+        </div>
+
         {/* Fast Metro Switcher Rail (One-tap swipe on mobile) */}
         <MetroRail
           currentCityName={selectedCity.name}

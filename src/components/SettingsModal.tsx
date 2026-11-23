@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { X, Key, Cpu, ShieldCheck, Check } from 'lucide-react';
+import { useAccessibleDialog } from '@/components/ui/AccessibleDialog';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -18,6 +19,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 }) => {
   const [keyInput, setKeyInput] = useState(geminiApiKey);
   const [saved, setSaved] = useState(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  useAccessibleDialog({ isOpen, onClose, dialogRef });
 
   if (!isOpen) return null;
 
@@ -32,12 +36,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="settings-title"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-in fade-in duration-200"
+      role="presentation"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
     >
-      <div className="w-full max-w-md rounded-2xl bg-white dark:bg-zinc-950 border border-stone-300 dark:border-zinc-800 p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-150 transition-colors">
+      <div 
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="settings-title"
+        tabIndex={-1}
+        className="w-full max-w-md rounded-2xl bg-white dark:bg-zinc-950 border border-stone-300 dark:border-zinc-800 p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-150 transition-colors focus:outline-none"
+      >
         <div className="flex items-center justify-between border-b border-stone-200 dark:border-zinc-800 pb-3">
           <div className="flex items-center gap-2">
             <Cpu className="w-5 h-5 text-sage-600 dark:text-white" />
@@ -47,7 +59,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </div>
           <button
             onClick={onClose}
-            className="p-1 rounded-lg hover:bg-stone-100 dark:hover:bg-zinc-800 text-ink-muted hover:text-ink dark:text-zinc-400 dark:hover:text-white"
+            className="p-1 rounded-lg hover:bg-stone-100 dark:hover:bg-zinc-800 text-ink-muted hover:text-ink dark:text-zinc-400 dark:hover:text-white focus-visible-ring cursor-pointer"
             aria-label="Close settings"
           >
             <X className="w-5 h-5" />
