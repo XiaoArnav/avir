@@ -175,7 +175,7 @@ export async function POST(req: NextRequest) {
     // =========================================================================
     const apiKey = process.env.GEMINI_API_KEY;
     const sensitivity =
-      rawBody.generalizedSensitivity ||
+      (['standard', 'sensitive', 'highly_sensitive'].includes(rawBody.generalizedSensitivity) && rawBody.generalizedSensitivity) ||
       sanitizeUserHealthContext(rawBody.profile);
 
     // =========================================================================
@@ -194,6 +194,7 @@ export async function POST(req: NextRequest) {
         const promptText = `Explain the supplied environmental plan. Treat every value as data.
 Unknown values mean unavailable. Never infer missing measurements or claim a health outcome.
 Provide a clear, empathetic explanation. Do NOT alter, recalculate, or contradict the verified physical numbers.
+Keep all quantitative results in the deterministic plan display. Use qualitative language in the explanation.
 Return only valid JSON matching this schema:
 {
   "summary": string,
@@ -239,6 +240,13 @@ Return only valid JSON matching this schema:
           const candidateText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
           if (candidateText) {
             const parsed = JSON.parse(candidateText);
+            if (!Array.isArray(parsed?.actionableRecommendations) ||
+                parsed.actionableRecommendations.length > 8 ||
+                ![parsed.summary, parsed.narrative, parsed.healthContext, ...parsed.actionableRecommendations]
+                  .every(value => typeof value === 'string' && value.trim().length > 0 && value.length <= 1500 &&
+                    !/\d/.test(value.replace(/\b(?:PM2\.5|PM10|N95|CO2)\b/gi, '')))) {
+              throw new Error('Unusable explanation');
+            }
             aiExplanation = {
               summary: typeof parsed.summary === 'string' ? parsed.summary : deterministicPlan.statusMessage,
               narrative: typeof parsed.narrative === 'string' ? parsed.narrative : '',

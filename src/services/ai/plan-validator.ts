@@ -199,7 +199,7 @@ export function sanitizeUserHealthContext(profile: {
 }): GeneralizedSensitivity {
   if (!profile) return 'standard';
 
-  const isHighRiskAge = profile.ageGroup === 'child' || profile.ageGroup === 'senior';
+  const isHighRiskAge = ['infant', 'child', 'senior'].includes(profile.ageGroup ?? '');
   const hasMultipleConditions =
     (profile.hasAsthmaOrRespiratory && profile.hasCardiovascularCondition) ||
     (profile.hasAsthmaOrRespiratory && profile.isPregnant) ||

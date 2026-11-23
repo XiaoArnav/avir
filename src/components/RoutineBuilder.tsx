@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useAccessibleDialog } from '@/components/ui/AccessibleDialog';
 import {
   DailySchedule,
   RoutineActivity,
@@ -65,6 +66,9 @@ export const RoutineBuilder: React.FC<RoutineBuilderProps> = ({
 }) => {
   const [schedule, setSchedule] = useState<DailySchedule>(() => loadScheduleFromStorage());
   const [isEditingModalOpen, setIsEditingModalOpen] = useState(false);
+  const dialogRef = React.useRef<HTMLDivElement>(null);
+  const closeEditor = React.useCallback(() => setIsEditingModalOpen(false), []);
+  useAccessibleDialog({ isOpen: isEditingModalOpen, onClose: closeEditor, dialogRef });
   const [editingActivity, setEditingActivity] = useState<Partial<RoutineActivity> | null>(null);
   const [formErrors, setFormErrors] = useState<string[]>([]);
 
@@ -315,6 +319,8 @@ export const RoutineBuilder: React.FC<RoutineBuilderProps> = ({
           return (
             <div
               key={act.id}
+              role="group"
+              aria-label={act.name}
               className="p-4 rounded-xl bg-white dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800/80 hover:border-stone-300 dark:hover:border-zinc-700 transition-all shadow-xs space-y-3"
             >
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -353,7 +359,7 @@ export const RoutineBuilder: React.FC<RoutineBuilderProps> = ({
                 <div className="flex items-center gap-4 self-end sm:self-auto shrink-0">
                   <div className="text-right">
                     <div className="text-xs font-mono font-bold text-ink dark:text-white">
-                      {exposure.status === 'available' ? `${actExposure?.inhaledMassUg ?? 0} µg` : '—'}
+                      {actExposure ? `${actExposure.inhaledMassUg} µg` : 'Unavailable'}
                     </div>
                     <div className="text-[10px] font-mono text-stone-400 dark:text-zinc-500">
                       inhaled mass
@@ -420,7 +426,7 @@ export const RoutineBuilder: React.FC<RoutineBuilderProps> = ({
                   <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
                     <button
                       onClick={() => handleAcceptShift(act.id, shiftProposal.proposedStart, shiftProposal.proposedEnd)}
-                      className="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-semibold transition-all shadow-xs"
+                      className="min-h-11 px-3 rounded bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold transition-all shadow-xs"
                     >
                       Accept Shift
                     </button>
@@ -466,17 +472,20 @@ export const RoutineBuilder: React.FC<RoutineBuilderProps> = ({
       {isEditingModalOpen && editingActivity && (
         <div
           role="dialog"
+          ref={dialogRef}
+          aria-labelledby="routine-editor-title"
           aria-modal="true"
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs"
         >
-          <div className="w-full max-w-md p-6 rounded-2xl bg-white dark:bg-zinc-900 border border-stone-300 dark:border-zinc-800 shadow-xl space-y-4">
+          <div className="w-full max-w-md max-h-[90dvh] overflow-y-auto p-6 rounded-2xl bg-white dark:bg-zinc-900 border border-stone-300 dark:border-zinc-800 shadow-xl space-y-4">
             <div className="flex items-center justify-between">
-              <h3 className="text-base font-bold text-ink dark:text-white">
+              <h3 id="routine-editor-title" className="text-base font-bold text-ink dark:text-white">
                 {editingActivity.id ? 'Edit Routine Activity' : 'Add New Activity'}
               </h3>
               <button
                 onClick={() => setIsEditingModalOpen(false)}
-                className="p-1 rounded text-stone-400 hover:text-ink dark:hover:text-white"
+                aria-label="Close activity editor"
+                className="min-h-11 min-w-11 grid place-items-center rounded text-stone-400 hover:text-ink dark:hover:text-white"
               >
                 <X className="w-4 h-4" />
               </button>

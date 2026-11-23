@@ -39,6 +39,7 @@ import {
   PREDEFINED_INDIAN_CITIES,
 } from '@/services/telemetry-service';
 import { generateAirQualityPlan } from '@/services/ai-assistant-service';
+import { sanitizeUserHealthContext } from '@/services/ai/plan-validator';
 import { loadScheduleFromStorage } from '@/services/routines/routine-storage';
 import { DeterministicPlanResult, AiPlanExplanation } from '@/domain/planning-types';
 import { DailySchedule } from '@/domain/routine-types';
@@ -51,6 +52,7 @@ export default function Home() {
   const [metrics, setMetrics] = useState<AtmosphericMetrics | null>(null);
   const [isTelemetryLoading, setIsTelemetryLoading] = useState(true);
   const [isPlanGenerating, setIsPlanGenerating] = useState(false);
+  const [plannerMessage, setPlannerMessage] = useState('');
   const [activeTab, setActiveTab] = useState<ActiveTabId>('overview');
 
   // User Profile State (Neutral un-opinionated default baseline)
@@ -206,6 +208,8 @@ export default function Home() {
       console.warn('Failed to persist selected city:', e);
     }
     planGenIdRef.current += 1;
+    setIsPlanGenerating(false);
+    setPlannerMessage('');
     setIsTelemetryLoading(true);
     setMetrics(null); // Clear stale city metrics immediately
     setPlan(null); // Clear stale previous city plan immediately
@@ -521,16 +525,10 @@ export default function Home() {
               aiExplanation={aiExplanation || undefined}
               onScheduleChange={(newSched) => {
                 planGenIdRef.current += 1;
+                setIsPlanGenerating(false);
+                setPlannerMessage('');
                 setDeterministicPlan(null);
                 setAiExplanation(null);
-              }}
-              onAcceptShift={(activityId) => {
-                if (deterministicPlan) {
-                  setDeterministicPlan({
-                    ...deterministicPlan,
-                    activityShifts: deterministicPlan.activityShifts.filter(s => s.activityId !== activityId),
-                  });
-                }
               }}
               onRejectShift={(activityId) => {
                 if (deterministicPlan) {
@@ -541,8 +539,16 @@ export default function Home() {
                 }
               }}
               onOptimizeClick={async () => {
-                if (!metrics || metrics.pm25 === null) return;
+                if (!metrics?.hourlyForecast?.length) {
+                  setDeterministicPlan(null);
+                  setAiExplanation(null);
+                  setPlannerMessage('Hourly forecast unavailable. Your routine is saved.');
+                  return;
+                }
                 const currentGen = ++planGenIdRef.current;
+                setPlannerMessage('');
+                setDeterministicPlan(null);
+                setAiExplanation(null);
                 setIsPlanGenerating(true);
                 try {
                   const savedSched = loadScheduleFromStorage();
@@ -552,21 +558,24 @@ export default function Home() {
                     body: JSON.stringify({
                       city: selectedCity.name,
                       coordinates: { lat: selectedCity.latitude, lng: selectedCity.longitude },
-                      schedule: savedSched,
+                      schedule: { ...savedSched, timezone: metrics.timezone || savedSched.timezone },
                       hourlyForecast: metrics.hourlyForecast || [],
-                      profile,
+                      generalizedSensitivity: sanitizeUserHealthContext(profile),
                     }),
                   });
-                  if (res.ok && currentGen === planGenIdRef.current) {
-                    const data = await res.json();
+                  if (!res.ok) throw new Error('Plan request failed');
+                  const data = await res.json();
+                  if (currentGen === planGenIdRef.current) {
                     if (data.deterministicPlan) {
                       setDeterministicPlan(data.deterministicPlan);
+                      setPlannerMessage(data.deterministicPlan.statusMessage);
                     }
                     if (data.aiExplanation) {
                       setAiExplanation(data.aiExplanation);
                     }
                   }
                 } catch (e) {
+                  if (currentGen === planGenIdRef.current) setPlannerMessage('Could not check the forecast. Your routine is saved. Try again.');
                   console.error('Plan optimization error:', e);
                 } finally {
                   if (currentGen === planGenIdRef.current) {
@@ -576,6 +585,7 @@ export default function Home() {
               }}
               isOptimizing={isPlanGenerating}
             />
+            <p role="status" aria-live="polite">{plannerMessage}</p>
             {plan && <ImpactScorecard plan={plan} />}
             {plan && <RoutineShifter routineShifts={plan.routineShifts} />}
           </div>

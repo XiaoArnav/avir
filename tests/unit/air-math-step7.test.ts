@@ -21,45 +21,39 @@ describe('AVIR Step 7 AQI Blockers — Regression & Corrective Test Suite', () =
   // AQI-01: US EPA PM2.5 Upper Hazardous Breakpoints & Historical Standards
   // ---------------------------------------------------------------------------
   describe('AQI-01: EPA PM2.5 Upper Hazardous Breakpoints & Historical Standards', () => {
-    it('1. EPA 2024 revised standard accurately computes Hazardous Tier 1 (225.5 - 325.4 µg/m³ -> AQI 301 - 400)', () => {
+    it('interpolates the revised hazardous range', () => {
       // 225.4 is upper bound of Very Unhealthy (AQI 300)
       expect(calculateAQIFromPM25(225.4)).toBe(300);
       expect(getAQICategory(300)).toBe('VeryUnhealthy');
 
-      // 225.5 enters Hazardous Tier 1 (AQI 301)
       expect(calculateAQIFromPM25(225.5)).toBe(301);
       expect(getAQICategory(301)).toBe('Hazardous');
 
-      // Midpoint: 275.45 -> (99 / 99.9) * (275.4 - 225.5) + 301 = 0.99099 * 49.9 + 301 = 49.45 + 301 = 350.45 -> 350
-      expect(calculateAQIFromPM25(275.4)).toBe(350);
+      expect(calculateAQIFromPM25(275.4)).toBe(400);
 
-      // 325.4 is upper bound of Tier 1 Hazardous (AQI 400)
-      expect(calculateAQIFromPM25(325.4)).toBe(400);
+      expect(calculateAQIFromPM25(325.4)).toBe(500);
       expect(getAQICategory(400)).toBe('Hazardous');
     });
 
-    it('2. EPA 2024 revised standard accurately computes Hazardous Tier 2 (325.5 - 500.4 µg/m³ -> AQI 401 - 500)', () => {
-      // 325.5 enters Hazardous Tier 2 (AQI 401)
-      expect(calculateAQIFromPM25(325.5)).toBe(401);
+    it('continues the hazardous slope above 325.4', () => {
+      expect(calculateAQIFromPM25(325.5)).toBe(500);
 
-      // Midpoint: 412.95 -> (99 / 174.9) * (412.9 - 325.5) + 401 = 0.566037 * 87.4 + 401 = 49.47 + 401 = 450.47 -> 450
-      expect(calculateAQIFromPM25(412.9)).toBe(450);
+      expect(calculateAQIFromPM25(412.9)).toBe(674);
 
-      // 500.4 reaches maximum AQI 500
-      expect(calculateAQIFromPM25(500.4)).toBe(500);
+      expect(calculateAQIFromPM25(500.4)).toBe(849);
       expect(getAQICategory(500)).toBe('Hazardous');
     });
 
-    it('3. Concentrations above 500.4 µg/m³ are capped at AQI 500 and flagged as Beyond AQI in detailed metadata', () => {
-      expect(calculateAQIFromPM25(500.5)).toBe(500);
-      expect(calculateAQIFromPM25(750.0)).toBe(500);
-      expect(calculateAQIFromPM25(999.9)).toBe(500);
+    it('reports values beyond the AQI 500 reference point', () => {
+      expect(calculateAQIFromPM25(500.5)).toBe(849);
+      expect(calculateAQIFromPM25(750.0)).toBe(1346);
+      expect(calculateAQIFromPM25(999.9)).toBe(1844);
 
       const detailed = calculateDetailedEpaPm25Aqi(650.0);
-      expect(detailed.aqi).toBe(500);
+      expect(detailed.aqi).toBe(1147);
       expect(detailed.category).toBe('Hazardous');
       expect(detailed.isBeyondAqi).toBe(true);
-      expect(detailed.evidence.notes).toContain('exceeds maximum defined breakpoint (500.4 µg/m³)');
+      expect(detailed.evidence.notes).toContain('extrapolated above 500');
     });
 
     it('4. Historical EPA standard (1999/2012) calculates distinct breakpoints (e.g. 12.0 µg/m³ Good vs Moderate)', () => {
