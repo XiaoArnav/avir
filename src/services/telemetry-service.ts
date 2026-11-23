@@ -9,6 +9,7 @@ import {
   TelemetryStatus,
   EnvironmentalSourceRecord,
   SourceComparison,
+  AqiEvidence,
 } from '@/domain/types';
 import { isThermalInversion, calculateAQIFromPM25, calculateCpcbNaqi } from '@/domain/air-math';
 import { calculateComprehensiveCpcbNaqi } from '@/domain/cpcb-naqi';
@@ -433,6 +434,7 @@ export async function fetchLiveAtmosphericMetrics(
 
     // US AQI: if provided, validate directly; otherwise derive cleanly from valid PM2.5 using EPA breakpoints
     let usAqiField: TelemetryFieldMetadata<number>;
+    let aqiEvidence: AqiEvidence;
     if (current.us_aqi !== undefined && current.us_aqi !== null) {
       usAqiField = validatePollutantValue(current.us_aqi, 'usAqi', 'AQI', {
         min: 0,
@@ -440,6 +442,19 @@ export async function fetchLiveAtmosphericMetrics(
         provider: 'Open-Meteo Air Quality (ECMWF CAMS)',
         classification: 'modeled_forecast',
       });
+      aqiEvidence = {
+        indexValue: usAqiField.value,
+        standard: 'US_EPA',
+        method: 'provider_reported',
+        classification: 'modeled_forecast',
+        sourceProvider: 'Open-Meteo Air Quality (ECMWF CAMS)',
+        pollutantCount: 6,
+        averagingVerified: false,
+        isOfficialPublished: false,
+        missingRequirements: [],
+        standardVersion: 'EPA 2024 PM NAAQS (40 CFR Part 58 App G, May 2024)',
+        notes: 'Provider-reported modeled US AQI from multi-pollutant chemistry model.',
+      };
     } else if (pm25 !== null) {
       const derivedAqi = calculateAQIFromPM25(pm25);
       usAqiField = {
@@ -447,7 +462,20 @@ export async function fetchLiveAtmosphericMetrics(
         unit: 'AQI',
         provider: 'Avir Derived (EPA Breakpoints)',
         classification: 'derived_calculation',
-        status: 'valid',
+        status: derivedAqi !== null ? 'valid' : 'unavailable',
+      };
+      aqiEvidence = {
+        indexValue: derivedAqi,
+        standard: 'US_EPA',
+        method: 'epa_pm25_24h_subindex',
+        classification: 'derived_calculation',
+        sourceProvider: 'Avir Derived (EPA Breakpoints)',
+        pollutantCount: 1,
+        averagingVerified: false,
+        isOfficialPublished: false,
+        missingRequirements: ['Multi-pollutant inputs unavailable; derived from single-species PM2.5.'],
+        standardVersion: 'EPA 2024 PM NAAQS (40 CFR Part 58 App G, May 2024)',
+        notes: 'Derived from PM2.5 concentration using EPA 2024 revised piecewise breakpoints.',
       };
     } else {
       usAqiField = {
@@ -456,6 +484,19 @@ export async function fetchLiveAtmosphericMetrics(
         provider: 'Open-Meteo Air Quality (ECMWF CAMS)',
         classification: 'unavailable',
         status: 'unavailable',
+      };
+      aqiEvidence = {
+        indexValue: null,
+        standard: 'US_EPA',
+        method: 'unavailable',
+        classification: 'unavailable',
+        sourceProvider: 'Open-Meteo Air Quality (ECMWF CAMS)',
+        pollutantCount: 0,
+        averagingVerified: false,
+        isOfficialPublished: false,
+        missingRequirements: ['Neither provider AQI nor PM2.5 concentration is available.'],
+        standardVersion: 'EPA 2024 PM NAAQS (40 CFR Part 58 App G, May 2024)',
+        notes: 'AQI unavailable due to missing atmospheric telemetry.',
       };
     }
     const usAqi = usAqiField.value;
@@ -685,9 +726,11 @@ export async function fetchLiveAtmosphericMetrics(
       cacheMetadata,
       groundStation,
       groundModelDelta,
-      cpcbAqi: cpcbResult.aqi ?? cpcb?.aqi ?? null,
-      cpcbCategory: cpcbResult.category ?? cpcb?.category ?? null,
+      cpcbAqi: cpcbResult.aqi ?? (cpcb?.aqi ?? null),
+      cpcbCategory: cpcbResult.category ?? (cpcb?.category === 'Unavailable' ? null : cpcb?.category ?? null),
       cpcbStatus: cpcbResult.classification,
+      aqiEvidence,
+      cpcbEvidence: cpcbResult.evidence,
       sourceAttribution: 'Open-Meteo Air Quality (ECMWF CAMS) & Weather (NOAA GFS)',
       hourlyForecast: hourlyForecast.length > 0 ? hourlyForecast : undefined,
       ensemble,

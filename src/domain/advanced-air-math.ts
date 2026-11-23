@@ -5,7 +5,7 @@
  */
 
 import { HourlyAtmosphericPoint, MultiSourceTelemetryFeed, EnsembleConsensusAnalysis, GroundStationMetadata } from './types';
-import { calculateAQIFromPM25 } from './air-math';
+import { calculateAQIFromPM25, calculateCpcbNaqi } from './air-math';
 
 // ---------------------------------------------------------------------------
 // 1. DIURNAL SAFE HOURS FORECAST LOGIC
@@ -654,25 +654,37 @@ export function buildMultiSourceFeeds(params: {
     groundStation &&
     groundStation.pm25 !== null &&
     Number.isFinite(groundStation.pm25) &&
+    groundStation.pm25 >= 0 &&
     groundStation.stationState !== 'registry_only'
   ) {
     const groundPm25 = groundStation.pm25;
-    const groundAqi = calculateAQIFromPM25(groundPm25);
-    const stationLabel = `${groundStation.stationName}${groundStation.distanceKm !== null && groundStation.distanceKm !== undefined ? ` (${groundStation.distanceKm}km)` : ''}`;
+    const isOfficialCpcb = groundStation.stationType === 'official_reference';
+    const standard: 'CPCB-NAQI' | 'US-EPA' = isOfficialCpcb ? 'CPCB-NAQI' : 'US-EPA';
 
-    feeds.push({
-      id: `ground-${groundStation.stationId}`,
-      sourceName: stationLabel,
-      provider: groundStation.provider,
-      aqi: groundAqi,
-      pm25: groundPm25,
-      confidence: groundStation.isCalibrated ? 'Calibrated' : 'High',
-      standard: groundStation.stationType === 'official_reference' ? 'CPCB-NAQI' : 'US-EPA',
-      description: groundStation.isCalibrated
-        ? `Citizen-science optical monitor with ${groundStation.calibrationFormula || 'US EPA Barkjohn'} de-humidification.`
-        : 'In-situ physical ground monitor at human breathing height.',
-      provenance: 'observed',
-    });
+    // SCIENTIFIC INTEGRITY (AQI-04): Calculate AQI matching the exact regulatory standard
+    const groundAqi = isOfficialCpcb
+      ? calculateCpcbNaqi(groundPm25, groundStation.pm10).aqi
+      : calculateAQIFromPM25(groundPm25);
+
+    if (groundAqi !== null) {
+      const stationLabel = `${groundStation.stationName}${groundStation.distanceKm !== null && groundStation.distanceKm !== undefined ? ` (${groundStation.distanceKm}km)` : ''}`;
+
+      feeds.push({
+        id: `ground-${groundStation.stationId}`,
+        sourceName: stationLabel,
+        provider: groundStation.provider,
+        aqi: groundAqi,
+        pm25: groundPm25,
+        confidence: groundStation.isCalibrated ? 'Calibrated' : 'High',
+        standard,
+        description: isOfficialCpcb
+          ? 'Official reference CAAQMS monitor (Indian CPCB NAQI standard sub-index).'
+          : groundStation.isCalibrated
+          ? `Citizen-science optical monitor with ${groundStation.calibrationFormula || 'US EPA Barkjohn'} de-humidification.`
+          : 'In-situ physical ground monitor at human breathing height (US EPA AQI).',
+        provenance: 'observed',
+      });
+    }
   }
 
   // 3. Derived Regulatory Standards (Mathematical conversions from the same physical concentration)

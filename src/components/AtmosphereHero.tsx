@@ -326,8 +326,8 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
   }
 
   const cigarettes = calculateCigaretteEquivalence(metrics.pm25);
-  const cpcb = metrics.cpcbAqi
-    ? { aqi: metrics.cpcbAqi, category: metrics.cpcbCategory || 'Poor' }
+  const cpcb = metrics.cpcbAqi !== null && metrics.cpcbAqi !== undefined
+    ? { aqi: metrics.cpcbAqi, category: metrics.cpcbCategory || 'Unavailable' }
     : calculateCpcbNaqi(metrics.pm25, metrics.pm10);
   const grap = getGrapStage(metrics.usAqi);
   const officialGrap = resolveOfficialGrapStatus(undefined, { cityName: city });
@@ -477,7 +477,13 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
             </div>
             <div className="flex flex-col">
               <span className="text-xs uppercase font-mono tracking-widest text-ink-muted dark:text-zinc-400 font-semibold">
-                US AQI
+                {metrics.usAqi === null
+                  ? 'AQI Unavailable'
+                  : metrics.aqiEvidence?.method === 'provider_reported'
+                  ? 'US AQI (Modeled)'
+                  : metrics.aqiEvidence?.method === 'epa_pm25_24h_subindex'
+                  ? 'PM2.5 AQI Sub-Index'
+                  : 'US AQI'}
               </span>
               <span className="text-xs font-mono text-ink-muted dark:text-zinc-400 mt-0.5">
                 {metrics.cpcbStatus === 'statutory_compliant' ? 'CPCB NAQI' : 'Indicative CPCB Sub-Index'}:{' '}

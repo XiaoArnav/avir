@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   compareEnvironmentalSources,
   createOpenMeteoModelRecord,
@@ -8,6 +8,14 @@ import {
 import { EnvironmentalSourceRecord } from '@/domain/types';
 
 describe('AVIR STEP 3 CORRECTIVE — Group D: Comparison Integrity & Parity (30-42)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-22T09:00:00Z'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
   it('30. A single source does not generate consensus or artificial spread (Mode A)', () => {
     const singleModel = createOpenMeteoModelRecord({
       pm25: 145,
