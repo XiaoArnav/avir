@@ -9,11 +9,11 @@ import { HourlyAtmosphericPoint, AtmosphericMetrics } from '@/domain/types';
 
 describe('Charts & Interactive Features (Stage 4 & 5 Upgrades)', () => {
   const mockHourlyForecast: HourlyAtmosphericPoint[] = [
-    { hour: 0, usAqi: 220, pm25: 160, boundaryLayerHeight: 280, isForecast: false },
-    { hour: 1, usAqi: 240, pm25: 175, boundaryLayerHeight: 260, isForecast: false },
-    { hour: 2, usAqi: 250, pm25: 185, boundaryLayerHeight: 250, isForecast: false },
-    { hour: 12, usAqi: 120, pm25: 65, boundaryLayerHeight: 850, isForecast: true, isSafeVentingWindow: true },
-    { hour: 13, usAqi: 110, pm25: 55, boundaryLayerHeight: 920, isForecast: true, isSafeVentingWindow: true },
+    { hour: 0, time: '2026-11-23T00:00:00Z', usAqi: 220, pm25: 160, boundaryLayerHeight: 280, isForecast: false },
+    { hour: 1, time: '2026-11-23T01:00:00Z', usAqi: 240, pm25: 175, boundaryLayerHeight: 260, isForecast: false },
+    { hour: 2, time: '2026-11-23T02:00:00Z', usAqi: 250, pm25: 185, boundaryLayerHeight: 250, isForecast: false },
+    { hour: 12, time: '2026-11-23T12:00:00Z', usAqi: 120, pm25: 65, boundaryLayerHeight: 850, isForecast: true, isSafeVentingWindow: true },
+    { hour: 13, time: '2026-11-23T13:00:00Z', usAqi: 110, pm25: 55, boundaryLayerHeight: 920, isForecast: true, isSafeVentingWindow: true },
   ];
 
   const mockMetrics: AtmosphericMetrics = {
