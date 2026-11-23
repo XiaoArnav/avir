@@ -9,9 +9,8 @@ import { CityPicker } from '@/components/CityPicker';
 import { FamilyProfileForm } from '@/components/FamilyProfileForm';
 import { RoutineBuilder } from '@/components/RoutineBuilder';
 import { RoutineShifter } from '@/components/RoutineShifter';
-import { IAQStudio } from '@/components/IAQStudio';
+import dynamic from 'next/dynamic';
 import { ImpactScorecard } from '@/components/ImpactScorecard';
-import { WorldDataExplorer } from '@/components/WorldDataExplorer';
 import { DiurnalForecastTimeline } from '@/components/DiurnalForecastTimeline';
 import { CityShootout } from '@/components/CityShootout';
 import { CommuteCalculator } from '@/components/CommuteCalculator';
@@ -43,6 +42,9 @@ import { generateAirQualityPlan } from '@/services/ai-assistant-service';
 import { loadScheduleFromStorage } from '@/services/routines/routine-storage';
 import { DeterministicPlanResult, AiPlanExplanation } from '@/domain/planning-types';
 import { DailySchedule } from '@/domain/routine-types';
+
+const IAQStudio = dynamic(() => import('@/components/IAQStudio').then(module => module.IAQStudio));
+const WorldDataExplorer = dynamic(() => import('@/components/WorldDataExplorer').then(module => module.WorldDataExplorer));
 
 export default function Home() {
   const [selectedCity, setSelectedCity] = useState<GeocodedLocation>(PREDEFINED_INDIAN_CITIES[0]);

@@ -255,7 +255,7 @@ export function DeviceConnectorModal({
             ref={closeButtonRef}
             onClick={handleClose}
             aria-label="Close dialog"
-            className="p-1.5 rounded-lg text-ink-muted dark:text-zinc-400 hover:bg-stone-100 dark:hover:bg-zinc-800 transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            className="min-h-11 min-w-11 inline-flex shrink-0 items-center justify-center rounded-lg text-ink-muted dark:text-zinc-400 hover:bg-stone-100 dark:hover:bg-zinc-800 transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500"
           >
             <X className="w-5 h-5" />
           </button>

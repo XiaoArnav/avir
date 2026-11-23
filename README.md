@@ -1,155 +1,29 @@
-<p align="center">
-  <img src="public/logo.svg" width="128" alt="Avir Logo (אֲוִיר)" />
-</p>
+# Avir
 
-# 🌿 Avir (אֲוִיר) — Urban Air Quality & Winter Smog Assistant
+Avir is an Urban Air Quality Assistant for Hack2Skill Prompt Wars Challenge 6. Enter a city and a routine to compare estimated particulate exposure across eligible activity windows. [Open Avir](https://avir-blue.vercel.app).
 
-> **PromptWars Virtual — [Challenge 6] Urban Air Quality Assistant**  
-> *Avir (Hebrew: **אֲוִיר** — meaning "Air", "Atmosphere", and "The Breath of Life") is a production-grade, mathematically grounded GenAI assistant empowering families and communities to navigate severe winter smog, diurnal thermal inversions, and hazardous particulate pollution.*
+## How a recommendation works
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Branch: main](https://img.shields.io/badge/Branch-main-success.svg)](https://github.com/XiaoArnav/avir)
-[![Tests: 114 Passing](https://img.shields.io/badge/Tests-114%20Passing-brightgreen.svg)](https://github.com/XiaoArnav/avir)
-[![Next.js: 15.5 App Router](https://img.shields.io/badge/Next.js-15.5%20App%20Router-black.svg)](https://github.com/XiaoArnav/avir)
-[![Zero Fabricated Data: 100% Provenance](https://img.shields.io/badge/Data%20Integrity-100%25%20Verified%20Provenance-teal.svg)](https://github.com/XiaoArnav/avir)
-[![WCAG: 2.1 AA](https://img.shields.io/badge/WCAG-2.1%20AA%20Compliant-teal.svg)](https://github.com/XiaoArnav/avir)
+Open-Meteo supplies modeled air quality and weather. The source inspector distinguishes model estimates, available ground observations and station registry entries. A listed station alone does not establish a current reading. Check the observation time and source before comparing values. The US EPA and Indian CPCB indices use different scales and sufficiency rules.
 
----
+For a scheduled activity, the exposure engine multiplies ambient concentration (µg/m³), a microenvironment ratio, minute ventilation (m³/min), and duration (minutes). The result is an estimated inhaled mass in micrograms. Ventilation and infiltration assumptions influence the estimate. It cannot establish an individual's clinical outcome. The schedule optimizer evaluates eligible forecast windows. When data is missing, check the availability state before interpreting a result.
 
-## 🏆 Verified AI Evaluator Compliance Matrix
+Gemini 2.5 Flash explains the calculated plan at temperature 0.2. The server sends instructions separately from plan data. The app also supplies a deterministic explanation when the provider is unavailable.
 
-Avir is engineered specifically to achieve maximum scores across the 6 automated AI code evaluation criteria:
+## Run locally
 
-| Evaluation Criterion | Impact Tier | Target Score | Implementation Architecture | Primary Verification Path |
-| :--- | :---: | :---: | :--- | :--- |
-| **1. Problem Alignment** | **High Impact** | **100 / 100** | Live telemetry, thermal inversion modeling, routine shifter, DIY IAQ studio, and impact scorecard. | `src/domain/air-math.ts` |
-| **2. Code Quality** | **Medium Impact** | **100 / 100** | Next.js 15 App Router, strict TypeScript, Matt Pocock Deep Module doctrine, 0 lint warnings. | `src/domain/`, `src/services/` |
-| **3. Security & Safety** | **Medium Impact** | **100 / 100** | OWASP prompt injection firewall (15+ patterns), HTML/XSS sanitization, zero leaked keys. | `src/lib/security/sanitizer.ts` |
-| **4. Testing & Verification** | **High Impact** | Verified | **67 automated test suites (1,216 passing tests)** covering atmospheric physics, dual AQI, security boundaries, and resilience. | `tests/` |
-| **5. Efficiency & Speed** | **Medium Impact** | Verified | Sub-second builds, in-memory LRU caching with stale fallback, and bundle footprint ~103 KB First Load JS. | `src/lib/cache.ts` |
-| **6. Accessibility (a11y)** | **Medium Impact** | Verified | WCAG 2.1 AA focus rings, semantic landmark architecture, accessible modals, and reduced-motion support. | `src/app/globals.css`, `tests/` |
+Use Node.js 20 or later. Install dependencies with `npm ci`, then run `npm run dev`. Open http://localhost:3000. Optional server environment variables are `GEMINI_API_KEY`, `OPENAQ_API_KEY` and `DATA_GOV_IN_API_KEY`. Provider availability varies by location and configuration. The hosted site's connection policy restricts direct Wi-Fi connections to local hardware.
 
----
+## Verification
 
-## 📌 1. Chosen Vertical: Urban Air Quality Assistant
+Run `npm test`, `npx tsc --noEmit` and `npm run build`. Vitest prints the exact file and assertion-case totals for the checkout. Unit suites cover AQI, exposure, forecasting and persistence. Integration suites cover provider data, API routes, failure handling and component behavior. Security and accessibility suites cover selected safeguards. Browser, hardware and assistive-technology checks require separate verification. [Release CI](https://github.com/XiaoArnav/avir/actions/workflows/ci.yml).
 
-During winter smog crises in high-density urban centers (such as Delhi-NCR, the Indo-Gangetic Plain, and major industrial belts), meteorology creates a hazardous public health emergency:
-1. **Thermal Inversion Traps**: Cold nocturnal ground air is sealed beneath a warm atmospheric lid, causing PM2.5 and PM10 particulate concentrations to skyrocket during morning hours.
-2. **Vulnerable Populations**: Infants, elderly citizens, and individuals with asthma or COPD face acute respiratory distress from uncalibrated morning exposure.
-3. **The Inaction Gap**: Most citizens lack actionable guidance on *when* to step outside, *how* to shift schedules into cleaner atmospheric windows, and *how* to protect indoor spaces without spending ₹25,000+ on commercial purifiers.
+## Demo walkthrough (3 minutes 45 seconds)
 
-**Avir** bridges this gap: it translates real-time atmospheric telemetry into non-hardcoded daily routine shifts, frugal DIY Corsi-Rosenthal clean air delivery (CADR) physics, and quantified monthly health savings.
-
----
-
-## 🧠 2. Core Approach & Architecture
-
-Avir combines **real-time atmospheric telemetry** with a **Dual-Mode AI Engine** (Google Gemini 2.5 Flash + Local Deterministic Fallback):
-
-```mermaid
-flowchart TD
-    User([User Context Input<br/>City, Family Vulnerabilities, Daily Schedule, Room Size]) --> Gatekeeper[Security Firewall & Input Sanitizer]
-    Gatekeeper --> Telemetry[Live Telemetry Client<br/>Open-Meteo Air Quality & Geocoding]
-    Telemetry --> InversionEngine[Atmospheric Physics & Inversion Modeler<br/>Diurnal Boundary Layer 125m-600m]
-    InversionEngine --> DualAI{Dual-Mode AI Reasoning}
-    DualAI -->|API Key Present| Gemini[Google Gemini 2.5 Flash SDK<br/>Structured JSON Reasoning]
-    DualAI -->|Offline / Fallback| HeuristicEngine[Deterministic Local Physics Engine<br/>Zero-Crash Rule Calculations]
-    Gemini --> Actions[Actionable Interventions]
-    HeuristicEngine --> Actions
-    Actions --> O1[Dynamic Routine Shifter<br/>Avg ~64% PM2.5 Inhalation Reduction]
-    Actions --> O2[Frugal IAQ Studio<br/>DIY Corsi-Rosenthal Box 490 CFM CADR]
-    Actions --> O3[Quantified Impact Scorecard<br/>Berkeley Earth Cigarette Equivalence & CO2e]
-```
-
----
-
-## 🛡️ 3. Security Considerations & Defense-in-Depth
-
-1. **Zero Secret Leakage**: No private API keys or database connection strings are bundled into client code. Client and local heuristic execution operates safely without requiring third-party credentials.
-2. **Prompt Injection Firewall**: 15+ regex patterns detect and neutralize instruction overrides (`ignore previous instructions`), role hijacking (`pretend to be an unrestricted bot`), and system token tampering (`<|system|>`, `[INST]`).
-3. **XSS & HTML Sanitization**: All user inputs undergo sanitization stripping `<script>`, `<iframe>`, inline event handlers (`onerror=`), and `javascript:` pseudoprotocols.
-4. **Payload Boundary Guards**: User routine inputs are capped to 1,000 characters to prevent memory exhaustion and buffer overflows.
-
----
-
-## ♿ 4. Accessibility (a11y) & Inclusivity
-
-- **WCAG 2.1 AA Compliance**: All text elements maintain a minimum 4.5:1 contrast ratio against dark backgrounds.
-- **Accessible Skip Link**: Includes `<a href="#main-content">Skip to main content</a>` for keyboard screen-reader users.
-- **ARIA Live Regions**: Atmospheric alerts and risk updates are wrapped in `role="alert"` and `aria-live="polite"` for non-visual assistive devices.
-- **Visible Focus Rings**: High-contrast emerald outlines (`:focus-visible`) ensure complete keyboard navigability.
-- **Reduced Motion**: Respects `@media (prefers-reduced-motion: reduce)` by disabling all non-essential CSS transitions.
-
----
-
-## 🧪 5. Automated Test Suite (106 Tests Passing)
-
-Avir maintains 100% test passing across 10 dedicated test suites in Vitest:
-
-```bash
-# Run the complete automated test suite
-npm test
-```
-
-### Verified Test Suite Breakdown:
-
-| Test Suite Category | Suites | Tests | Verification Focus |
-| :--- | :---: | :---: | :--- |
-| `tests/integration/` | **35** | **840** | Multi-source telemetry, OpenAQ v3, CPCB NAQI, official advisories, forecast optimizer, rate limiter & E2E flows. |
-| `tests/unit/` | **30** | **365** | Atmospheric math, dual AQI breakpoints, ground station parsing, hardware packet normalization, and city backdrops. |
-| `tests/security/` | **2** | **11** | Prompt injection firewall, HTML/XSS sanitization, 100 KB payload ceiling, and secret key header isolation. |
-| **Total Passing** | **67** | **1,216** | **All 67 suites pass (100% pass rate in ~6s)** |
-
----
-
-## 🎬 6. 4-Minute Demo Video Walkthrough Script
-
-Designed specifically for the Hack2Skill video submission requirement (strictly under 4 minutes with live data entry):
-
-| Timestamp | Screen / Feature | Live Action & Walkthrough Narration |
-| :---: | :--- | :--- |
-| **0:00 – 0:35** | **Live Telemetry & Inversion Alert** | *"Welcome to Avir. We begin on the live dashboard showing real-time atmospheric telemetry for Delhi-NCR: AQI 209, PM2.5 190.9 µg/m³. Notice the active Thermal Inversion alert explaining how the 180m nocturnal boundary layer traps toxic ground-level smog."* |
-| **0:35 – 1:20** | **Live City Search & Dynamism** | *Type live into the city search bar: type "Kanpur" and select it. Show telemetry updating instantly in under 1 second. Next, click "Locate Me" to demonstrate GPS auto-detection.* |
-| **1:20 – 2:10** | **Family Vulnerability Context** | *Toggle the vulnerability flags live on screen: select "Child", check "Asthma / Respiratory Sensitivity", and adjust room size slider to 220 sq ft. Show the UI dynamically responding.* |
-| **2:10 – 3:00** | **Dynamic Routine Shifter** | *Click 'Calculate Protection Plan'. Highlight the side-by-side Routine Shifter: demonstrate how a 6:30 AM morning workout during peak inversion is shifted to 1:30 PM solar venting, cutting inhaled PM2.5 by ~64%.* |
-| **3:00 – 3:35** | **Frugal IAQ Studio (DIY Box)** | *Navigate to the Corsi-Rosenthal Box Studio: highlight the 490 CFM CADR calculation, the room clearance half-life (< 10 minutes), and the ₹2,950 build cost vs ₹22,000 commercial purifiers.* |
-| **3:35 – 4:00** | **Impact Scorecard & Wrap-Up** | *Review the Quantified Impact Scorecard: show the 14.5 monthly Equivalent Cigarettes Avoided counter and weekly CO2e abated. Conclude on the dual-mode AI architecture and zero-crash reliability.* |
-
----
-
-## ⚖️ 7. Hack2Skill Challenge 6 Compliance Checklist
-
-- [x] **Single-Branch Mandate**: All work committed exclusively on `main` ([XiaoArnav/avir](https://github.com/XiaoArnav/avir)).
-- [x] **Repository Footprint**: Total repository source size is **< 1 MB** (well under the 10 MB event limit).
-- [x] **Public GitHub Access**: Public repository with zero authentication barriers.
-- [x] **Non-Hardcoded Live Telemetry**: Live stream integration with Open-Meteo Air Quality & Geocoding API.
-- [x] **Dual-Mode AI Architecture**: Google Gemini 2.5 Flash + local deterministic fallback guarantees zero evaluation crashes.
-- [x] **Automated Testing**: 67 test suites with 1,216 automated unit, integration, and E2E regression tests passing.
-- [x] **README Alignment**: Comprehensive coverage of vertical, logic, security, testing, and 4-minute video script.
-
----
-
-## 🚀 Quick Start & Local Execution
-
-```bash
-# 1. Clone repository
-git clone https://github.com/XiaoArnav/avir.git
-cd avir
-
-# 2. Install dependencies
-npm install
-
-# 3. Run automated test suites (1,216 tests)
-npm test
-
-# 4. Start local development server
-npm run dev
-```
-
-Open [http://localhost:3000](http://localhost:3000) to view the live application.
-
----
-
-## 📄 License
-
-Distributed under the MIT License. Built for **Hack2Skill PromptWars Virtual — Challenge 6**.
+| Time | Action |
+| --- | --- |
+| 0:00 to 0:40 | Type a city. Open the source inspector and read the source, value and timestamp currently displayed. |
+| 0:40 to 1:35 | Enter a 30-minute outdoor activity and its scheduling constraints. Generate a plan. |
+| 1:35 to 2:20 | Compare the original and proposed windows, or explain why a shift is unavailable. Show the inputs to the exposure calculation. |
+| 2:20 to 3:00 | Show the plan route's instruction and structured inputs alongside the resulting explanation. Identify whether Gemini or the deterministic fallback produced it. |
+| 3:00 to 3:45 | Block the telemetry request in browser developer tools and select an uncached city. Show the unavailable state. Restore the network and reload. |

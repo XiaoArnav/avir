@@ -45,12 +45,13 @@ describe('Phase D: Performance, Reliability & Monitoring (Step 23)', () => {
       cache.set('k3', 3, 10_000);
       expect(cache.size()).toBe(3);
 
-      // Adding 4th entry evicts oldest (k1)
+      expect(cache.get('k1')).toBe(1);
+      cache.set('k3', 33, 10_000);
       cache.set('k4', 4, 10_000);
       expect(cache.size()).toBe(3);
-      expect(cache.get('k1')).toBeNull();
-      expect(cache.get('k2')).toBe(2);
-      expect(cache.get('k3')).toBe(3);
+      expect(cache.get('k1')).toBe(1);
+      expect(cache.get('k2')).toBeNull();
+      expect(cache.get('k3')).toBe(33);
       expect(cache.get('k4')).toBe(4);
     });
 

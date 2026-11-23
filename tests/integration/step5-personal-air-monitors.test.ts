@@ -950,18 +950,6 @@ describe('AVIR — Step 5 Personal Air-Monitor Integration (90 Scenarios)', () =
   // Group G — UI and Integration Safeguards (75–90)
   // =========================================================================
   describe('Group G: UI and Integration Safeguards (75–90)', () => {
-    it('75. Modal opens cleanly when triggered', () => {
-      expect(true).toBe(true);
-    });
-
-    it('76. Modal closes cleanly on Escape or backdrop click', () => {
-      expect(true).toBe(true);
-    });
-
-    it('77. Focus is restored to trigger button on close', () => {
-      expect(true).toBe(true);
-    });
-
     it('78. Permission pending state displayed during browser prompt', () => {
       const service = new HardwareDeviceService();
       (service as any).setConnectionState('requesting_permission');

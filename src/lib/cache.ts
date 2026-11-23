@@ -33,6 +33,8 @@ export class MemoryCache<T> {
     }
 
     this.hits++;
+    this.cache.delete(key);
+    this.cache.set(key, entry);
     return entry.value;
   }
 
@@ -48,11 +50,9 @@ export class MemoryCache<T> {
     }
 
     const isExpired = Date.now() > entry.expiresAt;
-    if (isExpired) {
-      this.hits++; // Stale hit
-    } else {
-      this.hits++; // Fresh hit
-    }
+    this.hits++;
+    this.cache.delete(key);
+    this.cache.set(key, entry);
 
     return {
       value: entry.value,
@@ -62,10 +62,11 @@ export class MemoryCache<T> {
   }
 
   set(key: string, value: T, ttlMs: number): void {
+    this.cache.delete(key);
     if (this.cache.size >= this.maxEntries) {
       // Evict oldest entry
       const oldestKey = this.cache.keys().next().value;
-      if (oldestKey) this.cache.delete(oldestKey);
+      if (oldestKey !== undefined) this.cache.delete(oldestKey);
     }
 
     this.cache.set(key, {
