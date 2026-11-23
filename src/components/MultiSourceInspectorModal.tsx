@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useRef } from 'react';
 import {
   EnsembleConsensusAnalysis,
   EnvironmentalSourceRecord,
@@ -29,6 +29,7 @@ import {
   Scale,
   Cpu,
 } from 'lucide-react';
+import { useAccessibleDialog } from '@/components/ui/AccessibleDialog';
 
 interface MultiSourceInspectorModalProps {
   isOpen: boolean;
@@ -50,6 +51,9 @@ export const MultiSourceInspectorModal: React.FC<MultiSourceInspectorModalProps>
   metrics,
   personalHardwareSource: propPersonalSource,
 }) => {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useAccessibleDialog({ isOpen, onClose, dialogRef });
+
   if (!isOpen) return null;
 
   // Retrieve client-side connected personal hardware monitor if active
@@ -148,12 +152,20 @@ export const MultiSourceInspectorModal: React.FC<MultiSourceInspectorModalProps>
 
   return (
     <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="modal-sources-title"
+      role="presentation"
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
     >
-      <div className="bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl max-w-3xl w-full p-6 shadow-2xl space-y-6 max-h-[90vh] overflow-y-auto">
+      <div 
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="modal-sources-title"
+        tabIndex={-1}
+        className="bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl max-w-3xl w-full p-6 shadow-2xl space-y-6 max-h-[90vh] overflow-y-auto focus:outline-none"
+      >
         {/* Header */}
         <div className="flex items-center justify-between pb-3 border-b border-stone-200 dark:border-zinc-800">
           <div className="flex items-center gap-2.5">
@@ -172,7 +184,7 @@ export const MultiSourceInspectorModal: React.FC<MultiSourceInspectorModalProps>
 
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg text-ink-muted hover:text-ink dark:text-zinc-400 dark:hover:text-white transition-colors"
+            className="p-1.5 rounded-lg text-ink-muted hover:text-ink dark:text-zinc-400 dark:hover:text-white transition-colors focus-visible-ring cursor-pointer"
             aria-label="Close modal"
           >
             <X className="w-5 h-5" />

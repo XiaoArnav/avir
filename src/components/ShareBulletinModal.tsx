@@ -1,9 +1,10 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { formatWhatsAppBulletin } from '@/domain/advanced-air-math';
 import { Share2, X, Check, Copy, MessageCircle, AlertTriangle } from 'lucide-react';
 import { resolveOfficialGrapStatus } from '@/services/advisories/grap-status-resolver';
+import { useAccessibleDialog } from '@/components/ui/AccessibleDialog';
 
 interface ShareBulletinModalProps {
   isOpen: boolean;
@@ -33,6 +34,9 @@ export const ShareBulletinModal: React.FC<ShareBulletinModalProps> = ({
   timestamp,
 }) => {
   const [copied, setCopied] = useState(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  useAccessibleDialog({ isOpen, onClose, dialogRef });
 
   if (!isOpen) return null;
 
@@ -75,12 +79,20 @@ https://avir-blue.vercel.app`;
 
     return (
       <div 
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="share-modal-title"
+        role="presentation"
         className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
+        onClick={(e) => {
+          if (e.target === e.currentTarget) onClose();
+        }}
       >
-        <div className="bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4">
+        <div 
+          ref={dialogRef}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="share-modal-title"
+          tabIndex={-1}
+          className="bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 focus:outline-none"
+        >
           <div className="flex items-center justify-between pb-3 border-b border-stone-200 dark:border-zinc-800">
             <div className="flex items-center gap-2">
               <Share2 className="w-5 h-5 text-emerald-500" />
@@ -90,7 +102,7 @@ https://avir-blue.vercel.app`;
             </div>
             <button 
               onClick={onClose} 
-              className="p-1.5 rounded-lg text-ink-muted hover:text-ink dark:text-zinc-400 dark:hover:text-white" 
+              className="p-1.5 rounded-lg text-ink-muted hover:text-ink dark:text-zinc-400 dark:hover:text-white focus-visible-ring cursor-pointer" 
               aria-label="Close modal"
             >
               <X className="w-5 h-5" />
@@ -165,12 +177,20 @@ _Notice: Avir evidence-based briefing • Not a formal government circular_`;
 
   return (
     <div 
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="share-modal-title"
+      role="presentation"
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
     >
-      <div className="bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-5">
+      <div 
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="share-modal-title"
+        tabIndex={-1}
+        className="bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-5 focus:outline-none"
+      >
         {/* Header */}
         <div className="flex items-center justify-between pb-3 border-b border-stone-200 dark:border-zinc-800">
           <div className="flex items-center gap-2.5">
@@ -189,7 +209,7 @@ _Notice: Avir evidence-based briefing • Not a formal government circular_`;
 
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg text-ink-muted hover:text-ink dark:text-zinc-400 dark:hover:text-white transition-colors"
+            className="p-1.5 rounded-lg text-ink-muted hover:text-ink dark:text-zinc-400 dark:hover:text-white transition-colors focus-visible-ring cursor-pointer"
             aria-label="Close modal"
           >
             <X className="w-5 h-5" />

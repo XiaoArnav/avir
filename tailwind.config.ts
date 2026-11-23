@@ -20,6 +20,24 @@ const config: Config = {
         warning: '#f59e0b',
         danger: '#ef4444',
         hazardous: '#7c3aed',
+        // Step 17: Semantic surface, text and border tokens
+        surface: {
+          primary: 'var(--surface-primary)',
+          secondary: 'var(--surface-secondary)',
+          elevated: 'var(--surface-elevated)',
+          muted: 'var(--surface-muted)',
+        },
+        'text-theme': {
+          primary: 'var(--text-primary)',
+          secondary: 'var(--text-secondary)',
+          muted: 'var(--text-muted)',
+          faint: 'var(--text-faint)',
+        },
+        'border-theme': {
+          default: 'var(--border-default)',
+          subtle: 'var(--border-subtle)',
+          strong: 'var(--border-strong)',
+        },
         // Vikas VayuSaathi Warm Editorial Palette
         stone: {
           50: '#FAF9F5',

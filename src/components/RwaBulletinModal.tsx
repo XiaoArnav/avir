@@ -1,10 +1,11 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { Megaphone, X, Copy, Check, Printer, ShieldAlert, Building2, AlertTriangle, ShieldCheck } from 'lucide-react';
 import { AtmosphericMetrics } from '@/domain/types';
 import { getIndicativeGrapThreshold, calculateCigaretteEquivalence } from '@/domain/air-math';
 import { resolveOfficialGrapStatus } from '@/services/advisories/grap-status-resolver';
+import { useAccessibleDialog } from '@/components/ui/AccessibleDialog';
 
 interface RwaBulletinModalProps {
   isOpen: boolean;
@@ -21,6 +22,9 @@ export const RwaBulletinModal: React.FC<RwaBulletinModalProps> = ({
 }) => {
   const [societyName, setSocietyName] = useState('');
   const [copied, setCopied] = useState(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  useAccessibleDialog({ isOpen, onClose, dialogRef });
 
   if (!isOpen) return null;
 
@@ -93,13 +97,19 @@ _Official CAQM Orders: https://caqm.nic.in/ | https://avir-blue.vercel.app_`
 
   return (
     <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="rwa-modal-title"
+      role="presentation"
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-in fade-in duration-200"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
     >
       <div 
-        className="relative w-full max-w-2xl rounded-2xl bg-white dark:bg-zinc-950 border border-stone-300 dark:border-zinc-800 p-6 sm:p-8 shadow-2xl overflow-y-auto max-h-[90vh] transition-colors"
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="rwa-modal-title"
+        tabIndex={-1}
+        className="relative w-full max-w-2xl rounded-2xl bg-white dark:bg-zinc-950 border border-stone-300 dark:border-zinc-800 p-6 sm:p-8 shadow-2xl overflow-y-auto max-h-[90vh] transition-colors focus:outline-none"
       >
         {/* Header */}
         <div className="flex items-center justify-between pb-4 border-b border-stone-200 dark:border-zinc-800">
@@ -119,7 +129,7 @@ _Official CAQM Orders: https://caqm.nic.in/ | https://avir-blue.vercel.app_`
 
           <button
             onClick={onClose}
-            className="p-2 rounded-lg text-ink-muted hover:text-ink hover:bg-stone-100 dark:text-zinc-400 dark:hover:text-white dark:hover:bg-zinc-800 transition-colors"
+            className="p-2 rounded-lg text-ink-muted hover:text-ink hover:bg-stone-100 dark:text-zinc-400 dark:hover:text-white dark:hover:bg-zinc-800 transition-colors focus-visible-ring cursor-pointer"
             aria-label="Close modal"
           >
             <X className="w-5 h-5" />

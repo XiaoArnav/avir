@@ -25,6 +25,7 @@ import { RwaBulletinModal } from '@/components/RwaBulletinModal';
 import { ScienceExplainerModal } from '@/components/ScienceExplainerModal';
 import { MultiSourceInspectorModal } from '@/components/MultiSourceInspectorModal';
 import { VerifiedAdvisoryPanel } from '@/components/VerifiedAdvisoryPanel';
+import { ActionDecisionCard } from '@/components/ui/ActionDecisionCard';
 import { resolveOfficialGrapStatus } from '@/services/advisories/grap-status-resolver';
 import { RequestCoordinator } from '@/lib/async/request-coordinator';
 import {
@@ -77,7 +78,33 @@ export default function Home() {
   const [geminiApiKey, setGeminiApiKey] = useState('');
   const [isDarkMode, setIsDarkMode] = useState(true);
 
-  // Sync dark class on root document element for seamless Duo Theme toggle
+  // Restore persisted preferences on client mount (UX29)
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const savedTheme = localStorage.getItem('avir_theme_mode_v1');
+        if (savedTheme === 'light') {
+          setIsDarkMode(false);
+        } else if (savedTheme === 'dark') {
+          setIsDarkMode(true);
+        } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
+          setIsDarkMode(false);
+        }
+
+        const savedCityJson = localStorage.getItem('avir_selected_city_v1');
+        if (savedCityJson) {
+          const parsed = JSON.parse(savedCityJson);
+          if (parsed && typeof parsed.name === 'string' && typeof parsed.latitude === 'number' && typeof parsed.longitude === 'number') {
+            setSelectedCity(parsed);
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to load user preferences from localStorage:', e);
+      }
+    }
+  }, []);
+
+  // Sync dark class on root document element and persist preference
   useEffect(() => {
     if (typeof document !== 'undefined') {
       if (isDarkMode) {
@@ -85,6 +112,9 @@ export default function Home() {
       } else {
         document.documentElement.classList.remove('dark');
       }
+      try {
+        localStorage.setItem('avir_theme_mode_v1', isDarkMode ? 'dark' : 'light');
+      } catch (e) {}
     }
   }, [isDarkMode]);
 
@@ -168,6 +198,11 @@ export default function Home() {
   // Handle city selection with clean transition to avoid race condition
   const handleCitySelect = (loc: GeocodedLocation) => {
     if (loc.id === selectedCity.id && loc.name === selectedCity.name) return;
+    try {
+      localStorage.setItem('avir_selected_city_v1', JSON.stringify(loc));
+    } catch (e) {
+      console.warn('Failed to persist selected city:', e);
+    }
     planGenIdRef.current += 1;
     setIsTelemetryLoading(true);
     setMetrics(null); // Clear stale city metrics immediately
@@ -318,6 +353,17 @@ export default function Home() {
       />
 
       <main id="main-content" className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 space-y-6 sm:space-y-8 pb-safe">
+        {/* Screen Reader Live Status Region (WCAG 4.1.3 Status Messages) */}
+        <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
+          {isTelemetryLoading
+            ? `Loading live air quality measurements for ${selectedCity.name}...`
+            : metrics?.status === 'error'
+            ? `Telemetry error: ${metrics.errorMessage || 'Live sensor data currently unavailable.'}`
+            : metrics
+            ? `Air quality data updated for ${selectedCity.name}. US EPA AQI: ${metrics.usAqi ?? 'unavailable'}, PM2.5: ${metrics.pm25 ?? 'unavailable'} micrograms per cubic meter.`
+            : `Selected city: ${selectedCity.name}.`}
+        </div>
+
         {/* Fast Metro Switcher Rail (One-tap swipe on mobile) */}
         <MetroRail
           currentCityName={selectedCity.name}
@@ -339,6 +385,13 @@ export default function Home() {
           isDarkMode={isDarkMode}
         />
 
+        {/* Action-First Quick Health & Activity Decision Guide */}
+        <ActionDecisionCard
+          metrics={metrics}
+          category={aqiCategory}
+          onOpenDailyPlan={() => setActiveTab('routine')}
+        />
+
         {/* High-Contrast Segmented Navigation View Controller */}
         <SegmentedTabs 
           activeTab={activeTab} 
@@ -348,7 +401,13 @@ export default function Home() {
 
         {/* Tab 1: Overview, Location Search, Profile & Scorecard */}
         {activeTab === 'overview' && (
-          <div className="space-y-8 animate-in fade-in duration-300">
+          <div 
+            role="tabpanel"
+            id="panel-overview"
+            aria-labelledby="tab-overview"
+            tabIndex={0}
+            className="space-y-8 animate-in fade-in duration-300 focus-visible-ring rounded-2xl outline-none"
+          >
             {plan && <ImpactScorecard plan={plan} />}
 
             {/* 1. 24-Hour Diurnal Safe Hours Forecast Timeline */}
@@ -428,18 +487,32 @@ export default function Home() {
 
         {/* Tab: World Data Explorer (Global IQAir style rankings & search) */}
         {activeTab === 'world' && (
-          <WorldDataExplorer
-            onSelectCity={(loc) => {
-              handleCitySelect(loc);
-              setActiveTab('overview');
-            }}
-            activeCityName={selectedCity.name}
-          />
+          <div
+            role="tabpanel"
+            id="panel-world"
+            aria-labelledby="tab-world"
+            tabIndex={0}
+            className="animate-in fade-in duration-300 focus-visible-ring rounded-2xl outline-none"
+          >
+            <WorldDataExplorer
+              onSelectCity={(loc) => {
+                handleCitySelect(loc);
+                setActiveTab('overview');
+              }}
+              activeCityName={selectedCity.name}
+            />
+          </div>
         )}
 
         {/* Tab 2: Dynamic Routine Shifter & Personal Schedule Builder */}
         {activeTab === 'routine' && (
-          <div className="space-y-8 animate-in fade-in duration-300">
+          <div 
+            role="tabpanel"
+            id="panel-routine"
+            aria-labelledby="tab-routine"
+            tabIndex={0}
+            className="space-y-8 animate-in fade-in duration-300 focus-visible-ring rounded-2xl outline-none"
+          >
             <RoutineBuilder
               currentPm25={metrics?.pm25 ?? null}
               proposedShifts={deterministicPlan?.activityShifts}
@@ -507,15 +580,30 @@ export default function Home() {
         )}
 
         {/* Tab 3: Frugal IAQ Studio: DIY Corsi-Rosenthal Air Cleaner */}
-        {activeTab === 'iaq' && plan && (
-          <div className="space-y-8 animate-in fade-in duration-300">
-            <IAQStudio spec={plan.corsiRosenthalBox} />
+        {activeTab === 'iaq' && (
+          <div 
+            role="tabpanel"
+            id="panel-iaq"
+            aria-labelledby="tab-iaq"
+            tabIndex={0}
+            className="space-y-8 animate-in fade-in duration-300 focus-visible-ring rounded-2xl outline-none"
+          >
+            <IAQStudio 
+              spec={plan?.corsiRosenthalBox} 
+              initialRoomVolumeM3={Math.round(roomSizeSqFt * 0.0929 * 2.7)} 
+            />
           </div>
         )}
 
         {/* Tab 4: Community Action & Verified Advisories */}
         {activeTab === 'rwa' && (
-          <div className="space-y-6 animate-in fade-in duration-300">
+          <div 
+            role="tabpanel"
+            id="panel-rwa"
+            aria-labelledby="tab-rwa"
+            tabIndex={0}
+            className="space-y-6 animate-in fade-in duration-300 focus-visible-ring rounded-2xl outline-none"
+          >
             {/* Official Regulatory Status Panel */}
             <VerifiedAdvisoryPanel
               status={officialGrapStatus}

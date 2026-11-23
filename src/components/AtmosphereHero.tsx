@@ -8,6 +8,7 @@ import {
   getGrapStage,
 } from '@/domain/air-math';
 import { resolveOfficialGrapStatus } from '@/services/advisories/grap-status-resolver';
+import { formatTimeAgo } from '@/domain/presentation-contract';
 import { CityPanoramicBackdrop } from './CityPanoramicBackdrop';
 import { GroundStationBadge } from './GroundStationBadge';
 import {
@@ -337,6 +338,7 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
     minute: '2-digit',
     hour12: true,
   });
+  const relativeAge = formatTimeAgo(metrics.timestamp);
 
   return (
     <section
@@ -402,6 +404,11 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
                 : 'Modeled for:'}
             </span>
             <span className="text-ink dark:text-zinc-200 font-semibold">{formattedTime}</span>
+            {relativeAge && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-stone-200 dark:bg-zinc-800 text-ink dark:text-zinc-300 font-mono">
+                {relativeAge}
+              </span>
+            )}
             {onRefresh && (
               <button
                 onClick={onRefresh}
@@ -480,13 +487,13 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
                 {metrics.usAqi === null
                   ? 'AQI Unavailable'
                   : metrics.aqiEvidence?.method === 'provider_reported'
-                  ? 'US AQI (Modeled)'
+                  ? 'US EPA AQI (Modeled)'
                   : metrics.aqiEvidence?.method === 'epa_pm25_24h_subindex'
-                  ? 'PM2.5 AQI Sub-Index'
-                  : 'US AQI'}
+                  ? 'US EPA PM2.5 Sub-Index'
+                  : 'US EPA AQI'}
               </span>
               <span className="text-xs font-mono text-ink-muted dark:text-zinc-400 mt-0.5">
-                {metrics.cpcbStatus === 'statutory_compliant' ? 'CPCB NAQI' : 'Indicative CPCB Sub-Index'}:{' '}
+                {metrics.cpcbStatus === 'statutory_compliant' ? 'Indian CPCB NAQI' : 'Indicative CPCB Sub-Index'}:{' '}
                 <strong className="text-ink dark:text-zinc-200">{cpcb.aqi !== null ? cpcb.aqi : '—'}</strong> ({cpcb.category})
               </span>
             </div>

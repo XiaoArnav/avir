@@ -1,3 +1,5 @@
+import React from 'react';
+import ReactDOMServer from 'react-dom/server';
 import { describe, it, expect } from 'vitest';
 import {
   buildMultiSourceFeeds,
@@ -140,28 +142,30 @@ describe('Multi-Source Atmospheric Consensus & Uncertainty Engine', () => {
   });
 
   it('20. renders MultiSourceInspectorModal cleanly without throwing', () => {
-    const modal = MultiSourceInspectorModal({
-      isOpen: true,
-      onClose: () => {},
-      cityName: 'Delhi',
-      ensemble: {
-        primaryModel: 'Open-Meteo ECMWF IFS',
-        weatherModel: 'NOAA GFS',
-        pm25Min: 150,
-        pm25Max: 170,
-        provenanceNote: 'Calculated from Open-Meteo ensemble',
-        feeds: [],
-        consensusAqi: 210,
-        consensusPm25: 160,
-        aqiMin: 195,
-        aqiMax: 225,
-        deviationSpread: 15,
-        confidenceScorePercent: 94,
-        agreementLevel: 'High Consensus',
-        summaryNote: 'All feeds agree within 15 AQI points.',
-      },
-    });
+    const html = ReactDOMServer.renderToString(
+      React.createElement(MultiSourceInspectorModal, {
+        isOpen: true,
+        onClose: () => {},
+        cityName: 'Delhi',
+        ensemble: {
+          primaryModel: 'Open-Meteo ECMWF IFS',
+          weatherModel: 'NOAA GFS',
+          pm25Min: 150,
+          pm25Max: 170,
+          provenanceNote: 'Calculated from Open-Meteo ensemble',
+          feeds: [],
+          consensusAqi: 210,
+          consensusPm25: 160,
+          aqiMin: 195,
+          aqiMax: 225,
+          deviationSpread: 15,
+          confidenceScorePercent: 94,
+          agreementLevel: 'High Consensus',
+          summaryNote: 'All feeds agree within 15 AQI points.',
+        },
+      })
+    );
 
-    expect(modal).not.toBeNull();
+    expect(html).toContain('Data Sources, Provenance');
   });
 });
