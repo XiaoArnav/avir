@@ -26,13 +26,15 @@ describe('World Telemetry & Global Air Quality Rankings', () => {
   });
 
   it('parses batch Open-Meteo responses and assigns AQI rank and category', () => {
+    const london = WORLD_METROS.find(c => c.name === 'London')!;
+    const testCities = [WORLD_METROS[0], WORLD_METROS[1], london];
     const mockBatchResponse = [
       { latitude: 28.6, longitude: 77.2, current: { us_aqi: 280, pm2_5: 230 } },
       { latitude: 31.5, longitude: 74.3, current: { us_aqi: 320, pm2_5: 290 } },
       { latitude: 51.5, longitude: -0.1, current: { us_aqi: 35, pm2_5: 8 } },
     ];
 
-    const parsed = parseBatchTelemetryResponse(WORLD_METROS.slice(0, 3), mockBatchResponse);
+    const parsed = parseBatchTelemetryResponse(testCities, mockBatchResponse);
     expect(parsed.length).toBe(3);
     
     // First should be highest AQI after sorting

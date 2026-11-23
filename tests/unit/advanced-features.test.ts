@@ -47,25 +47,28 @@ describe('Advanced Air Quality & Exposure Features', () => {
 
   describe('2. City vs. City Smog Shootout', () => {
     it('computes toxicity multiplier and cigarette differential correctly', () => {
-      const delhi = { name: 'Delhi', country: 'India', aqi: 280, pm25: 220 };
-      const tokyo = { name: 'Tokyo', country: 'Japan', aqi: 28, pm25: 11 };
+      const delhi = { name: 'Delhi', country: 'India', aqi: 280, pm25: 220, timestamp: '2026-11-23T10:00:00Z', modelDomain: 'cams_global' };
+      const tokyo = { name: 'Tokyo', country: 'Japan', aqi: 28, pm25: 11, timestamp: '2026-11-23T10:00:00Z', modelDomain: 'cams_global' };
 
       const result = calculateCityComparison(delhi, tokyo);
+      expect(result.comparable).toBe(true);
       expect(result.dirtierCityName).toBe('Delhi');
       expect(result.cleanerCityName).toBe('Tokyo');
-      expect(result.toxicityMultiplier).toBe(10); // 280 / 28 = 10x
+      expect(result.pm25ConcentrationRatio).toBe(20); // 220 / 11 = 20x PM2.5 physical concentration ratio
+      expect(result.toxicityMultiplier).toBe(20);
       expect(result.cityA.cigarettes).toBe(10); // 220 / 22 = 10
       expect(result.cityB.cigarettes).toBe(0.5); // 11 / 22 = 0.5
       expect(result.cigaretteDifferential).toBe(9.5);
-      expect(result.verdict).toContain('10× more polluted');
+      expect(result.verdict).toContain("Delhi's ambient PM2.5 concentration is 20× that of Tokyo");
     });
 
     it('identifies comparable air quality when multiplier is within 15%', () => {
-      const city1 = { name: 'Munich', country: 'Germany', aqi: 40, pm25: 10 };
-      const city2 = { name: 'Vienna', country: 'Austria', aqi: 42, pm25: 11 };
+      const city1 = { name: 'Munich', country: 'Germany', aqi: 40, pm25: 10, timestamp: '2026-11-23T10:00:00Z' };
+      const city2 = { name: 'Vienna', country: 'Austria', aqi: 40, pm25: 10, timestamp: '2026-11-23T10:00:00Z' };
 
       const result = calculateCityComparison(city1, city2);
-      expect(result.verdict).toContain('comparable atmospheric quality');
+      expect(result.comparable).toBe(true);
+      expect(result.verdict).toContain('identical PM2.5 particulate concentrations');
     });
   });
 

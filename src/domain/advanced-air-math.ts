@@ -105,43 +105,190 @@ export function analyzeDiurnalWindows(
 // 2. CITY VS. CITY SHOOTOUT COMPARATOR
 // ---------------------------------------------------------------------------
 
+export interface CityComparisonInput {
+  name: string;
+  country: string;
+  aqi: number | null;
+  pm25: number | null;
+  timestamp?: string | null;
+  modelDomain?: string | null;
+  sourceKind?: 'atmospheric_model' | 'ground_station' | 'sensor_community' | 'personal_device' | string | null;
+  units?: {
+    pm25?: string;
+    pm10?: string;
+  } | null;
+  status?: string | null;
+}
+
 export interface CityComparisonResult {
-  cityA: { name: string; country: string; aqi: number; pm25: number; cigarettes: number };
-  cityB: { name: string; country: string; aqi: number; pm25: number; cigarettes: number };
-  toxicityMultiplier: number;
-  dirtierCityName: string;
-  cleanerCityName: string;
-  cigaretteDifferential: number;
+  cityA: { name: string; country: string; aqi: number | null; pm25: number | null; cigarettes: number | null };
+  cityB: { name: string; country: string; aqi: number | null; pm25: number | null; cigarettes: number | null };
+  comparable: boolean;
+  reasons: string[];
+  commonMetric: 'pm25_concentration' | 'us_aqi' | null;
+  pm25ConcentrationRatio: number | null;
+  aqiRatio: number | null;
+  toxicityMultiplier: number | null; // Null when unavailable/incompatible (zero numerical fallback)
+  dirtierCityName: string | null;
+  cleanerCityName: string | null;
+  cigaretteDifferential: number | null;
   verdict: string;
 }
 
 export function calculateCityComparison(
-  cityA: { name: string; country: string; aqi: number; pm25: number },
-  cityB: { name: string; country: string; aqi: number; pm25: number }
+  cityA: CityComparisonInput,
+  cityB: CityComparisonInput
 ): CityComparisonResult {
-  const cigA = Math.round((cityA.pm25 / 22) * 10) / 10;
-  const cigB = Math.round((cityB.pm25 / 22) * 10) / 10;
+  const reasons: string[] = [];
+  const hasAqiA = typeof cityA.aqi === 'number' && Number.isFinite(cityA.aqi) && cityA.aqi >= 0;
+  const hasAqiB = typeof cityB.aqi === 'number' && Number.isFinite(cityB.aqi) && cityB.aqi >= 0;
+  const hasPm25A = typeof cityA.pm25 === 'number' && Number.isFinite(cityA.pm25) && cityA.pm25 >= 0;
+  const hasPm25B = typeof cityB.pm25 === 'number' && Number.isFinite(cityB.pm25) && cityB.pm25 >= 0;
 
-  const higher = cityA.aqi >= cityB.aqi ? cityA : cityB;
-  const lower = cityA.aqi >= cityB.aqi ? cityB : cityA;
+  const cigA = hasPm25A ? Math.round(((cityA.pm25 as number) / 22) * 10) / 10 : null;
+  const cigB = hasPm25B ? Math.round(((cityB.pm25 as number) / 22) * 10) / 10 : null;
 
-  const minAqi = Math.max(1, lower.aqi);
-  const multiplier = Math.round((higher.aqi / minAqi) * 10) / 10;
-  const cigDiff = Math.abs(Math.round((cigA - cigB) * 10) / 10);
+  // Incompatibility checks
+  if (!hasAqiA && !hasPm25A) {
+    reasons.push(`Missing environmental telemetry for ${cityA.name}.`);
+  }
+  if (!hasAqiB && !hasPm25B) {
+    reasons.push(`Missing environmental telemetry for ${cityB.name}.`);
+  }
+  if (!hasAqiA || !hasAqiB) {
+    reasons.push('US AQI metric is not available for both comparison entities.');
+  }
+  if (!hasPm25A || !hasPm25B) {
+    reasons.push('PM2.5 mass concentration metric is not available for both comparison entities.');
+  }
 
-  let verdict = '';
-  if (multiplier <= 1.15) {
-    verdict = `${cityA.name} and ${cityB.name} currently share comparable atmospheric quality levels.`;
+  // Required observation timestamps
+  if (!cityA.timestamp || !cityB.timestamp) {
+    reasons.push('Observation or forecast valid timestamp is missing for one or both locations.');
   } else {
-    verdict = `${higher.name}'s ambient air is ${multiplier}× more polluted than ${lower.name}, exposing residents to an extra ~${cigDiff} cigarettes per day of toxic particulate equivalent.`;
+    // Temporal skew check
+    const timeA = new Date(cityA.timestamp).getTime();
+    const timeB = new Date(cityB.timestamp).getTime();
+    if (!isNaN(timeA) && !isNaN(timeB)) {
+      const diffHours = Math.abs(timeA - timeB) / (1000 * 60 * 60);
+      if (diffHours > 6) {
+        reasons.push(`Model observation time skew exceeds 6 hours (${Math.round(diffHours)}h difference). Readings reflect different diurnal atmospheric cycles.`);
+      }
+    } else {
+      reasons.push('One or both observation timestamps are unparseable.');
+    }
+  }
+
+  // Stale status check
+  if (cityA.status === 'stale' || cityB.status === 'stale') {
+    reasons.push('Telemetry for one or both locations is stale or expired.');
+  }
+
+  // Model domain check
+  if (cityA.modelDomain && cityB.modelDomain && cityA.modelDomain !== cityB.modelDomain) {
+    reasons.push(`Model domains differ (${cityA.modelDomain} vs ${cityB.modelDomain}). Direct comparison reflects differing grid resolutions.`);
+  }
+
+  // Source methodology check (model vs ground station)
+  if (cityA.sourceKind && cityB.sourceKind && cityA.sourceKind !== cityB.sourceKind) {
+    reasons.push(`Source methodologies differ (${cityA.sourceKind} vs ${cityB.sourceKind}). Atmospheric models cannot be directly equated with point-source ground stations.`);
+  }
+
+  // Units check
+  if (cityA.units?.pm25 && cityB.units?.pm25 && cityA.units.pm25 !== cityB.units.pm25) {
+    reasons.push(`Incompatible PM2.5 measurement units (${cityA.units.pm25} vs ${cityB.units.pm25}).`);
+  }
+
+  const isComparable = reasons.length === 0 && hasAqiA && hasAqiB && hasPm25A && hasPm25B;
+
+  // STRICT GATE: When comparison eligibility is not met, return structured unavailable result with ZERO numerical fallbacks
+  if (!isComparable) {
+    return {
+      cityA: { ...cityA, cigarettes: cigA },
+      cityB: { ...cityB, cigarettes: cigB },
+      comparable: false,
+      reasons,
+      commonMetric: null,
+      pm25ConcentrationRatio: null,
+      aqiRatio: null,
+      toxicityMultiplier: null,
+      dirtierCityName: null,
+      cleanerCityName: null,
+      cigaretteDifferential: null,
+      verdict: reasons.length > 0
+        ? `Atmospheric comparison unavailable: ${reasons.join(' ')}`
+        : 'Atmospheric comparison unavailable due to missing or incompatible telemetry.',
+    };
+  }
+
+  const aqiA = cityA.aqi as number;
+  const aqiB = cityB.aqi as number;
+  const pmA = cityA.pm25 as number;
+  const pmB = cityB.pm25 as number;
+
+  const cigDiff = (cigA !== null && cigB !== null)
+    ? Math.abs(Math.round((cigA - cigB) * 10) / 10)
+    : null;
+
+  // 1. Scientific PM2.5 Concentration Ratio (Physical Mass Density)
+  let pm25Ratio: number | null = null;
+  let dirtierCityName: string | null = null;
+  let cleanerCityName: string | null = null;
+  let verdict = '';
+
+  if (pmA === 0 && pmB === 0) {
+    pm25Ratio = 1.0;
+    dirtierCityName = null;
+    cleanerCityName = null;
+    verdict = `${cityA.name} and ${cityB.name} both currently report pristine zero-AQI clean air (0 µg/m³ PM2.5).`;
+  } else if (Math.min(pmA, pmB) === 0) {
+    pm25Ratio = null; // Zero denominator: do NOT return infinite multiplier
+    const cleanCity = pmA === 0 ? cityA : cityB;
+    const dirtyCity = pmA === 0 ? cityB : cityA;
+    dirtierCityName = dirtyCity.name;
+    cleanerCityName = cleanCity.name;
+    verdict = `${cleanCity.name} currently reports clean air baseline (0 µg/m³ PM2.5), while ${dirtyCity.name} reports an elevated PM2.5 concentration of ${Math.max(pmA, pmB)} µg/m³. Direct concentration ratio undefined for zero-exposure baseline.`;
+  } else {
+    const higherPm = Math.max(pmA, pmB);
+    const lowerPm = Math.min(pmA, pmB);
+    pm25Ratio = Math.round((higherPm / lowerPm) * 10) / 10;
+    const dirtyCity = pmA >= pmB ? cityA : cityB;
+    const cleanCity = pmA >= pmB ? cityB : cityA;
+    dirtierCityName = pmA !== pmB ? dirtyCity.name : null;
+    cleanerCityName = pmA !== pmB ? cleanCity.name : null;
+
+    const cigClause = cigDiff !== null && cigDiff > 0
+      ? `, exposing residents to an illustrative particulate difference of ~${cigDiff} cigarettes/day (Berkeley Earth exposure analogy)`
+      : '';
+
+    verdict = pmA === pmB
+      ? `${cityA.name} and ${cityB.name} currently report identical PM2.5 particulate concentrations (${pmA} µg/m³).`
+      : `${dirtyCity.name}'s ambient PM2.5 concentration is ${pm25Ratio}× that of ${cleanCity.name} (${higherPm} µg/m³ vs ${lowerPm} µg/m³)${cigClause}.`;
+  }
+
+  // 2. US AQI Ratio (Disclosed as dimensionless piecewise index ratio, NEVER toxicity)
+  let aqiRatio: number | null = null;
+  if (aqiA === 0 && aqiB === 0) {
+    aqiRatio = 1.0;
+  } else if (Math.min(aqiA, aqiB) > 0) {
+    aqiRatio = Math.round((Math.max(aqiA, aqiB) / Math.min(aqiA, aqiB)) * 10) / 10;
+  } else {
+    // When one city is 0, clamp denominator to 1 to represent elevation above zero baseline without Infinity
+    const higherAqi = Math.max(aqiA, aqiB);
+    aqiRatio = Math.round((higherAqi / Math.max(1, Math.min(aqiA, aqiB))) * 10) / 10;
   }
 
   return {
     cityA: { ...cityA, cigarettes: cigA },
     cityB: { ...cityB, cigarettes: cigB },
-    toxicityMultiplier: multiplier,
-    dirtierCityName: higher.name,
-    cleanerCityName: lower.name,
+    comparable: true,
+    reasons: [],
+    commonMetric: 'pm25_concentration',
+    pm25ConcentrationRatio: pm25Ratio,
+    aqiRatio,
+    toxicityMultiplier: pm25Ratio, // Backward compatibility alias
+    dirtierCityName,
+    cleanerCityName,
     cigaretteDifferential: cigDiff,
     verdict,
   };

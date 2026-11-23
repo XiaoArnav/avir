@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   WorldCityItem, 
   WorldRegion, 
@@ -12,20 +12,21 @@ import {
 } from '@/services/world-telemetry-service';
 import { GeocodedLocation } from '@/services/telemetry-service';
 import { calculateCigaretteEquivalence } from '@/domain/air-math';
+import { savedComparisonsService, SavedCityComparisonRecord } from '@/services/saved-comparisons-service';
 import { 
   Globe, 
   Search, 
   ArrowUpDown, 
   LayoutGrid, 
   List, 
-  CloudFog, 
   Cigarette, 
-  ArrowRight, 
   Loader2, 
-  CheckCircle2, 
-  AlertTriangle,
-  Compass,
-  X
+  X,
+  Bookmark,
+  Trash2,
+  Info,
+  Clock,
+  Layers
 } from 'lucide-react';
 
 interface WorldDataExplorerProps {
@@ -46,16 +47,29 @@ export const WorldDataExplorer: React.FC<WorldDataExplorerProps> = ({
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
   const [isSearchingOnline, setIsSearchingOnline] = useState(false);
   const [onlineResults, setOnlineResults] = useState<WorldCityItem[]>([]);
+  const [savedComparisons, setSavedComparisons] = useState<SavedCityComparisonRecord[]>(() =>
+    typeof window !== 'undefined' ? savedComparisonsService.getSavedComparisons() : []
+  );
+
+  // Search race condition protection refs
+  const searchGenRef = useRef(0);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   // Load curated world cities
   useEffect(() => {
     let isMounted = true;
     async function loadData() {
       setIsLoading(true);
-      const data = await fetchAllWorldCities();
-      if (isMounted) {
-        setCities(data);
-        setIsLoading(false);
+      try {
+        const data = await fetchAllWorldCities();
+        if (isMounted) {
+          setCities(data);
+          setIsLoading(false);
+        }
+      } catch (err) {
+        if (isMounted) {
+          setIsLoading(false);
+        }
       }
     }
     loadData();
@@ -64,39 +78,85 @@ export const WorldDataExplorer: React.FC<WorldDataExplorerProps> = ({
     };
   }, []);
 
-  // Handle dynamic global geocoded search if query has no local matches
+  // Handle dynamic global geocoded search with generation token and abort protection
   useEffect(() => {
-    if (!searchQuery || searchQuery.trim().length < 3) {
+    if (!searchQuery || searchQuery.trim().length < 2) {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
+      }
       setOnlineResults([]);
+      setIsSearchingOnline(false);
       return;
     }
 
+    const currentGen = ++searchGenRef.current;
     const timer = setTimeout(async () => {
-      // Check if local matches exist
+      const q = searchQuery.toLowerCase().trim();
+      // Check if local matches exist in curated list
       const localMatches = cities.filter(
         (c) =>
-          c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          c.country.toLowerCase().includes(searchQuery.toLowerCase())
+          c.name.toLowerCase().includes(q) ||
+          c.country.toLowerCase().includes(q) ||
+          (c.countryCode && c.countryCode.toLowerCase().includes(q))
       );
 
       // If fewer than 2 local matches, query Open-Meteo geocoding globally
       if (localMatches.length < 2) {
+        if (abortControllerRef.current) {
+          abortControllerRef.current.abort();
+        }
+        const controller = new AbortController();
+        abortControllerRef.current = controller;
+
         setIsSearchingOnline(true);
-        const external = await searchAndFetchGlobalCity(searchQuery);
-        setOnlineResults(external);
-        setIsSearchingOnline(false);
+        try {
+          const external = await searchAndFetchGlobalCity(searchQuery, controller.signal);
+          if (searchGenRef.current === currentGen) {
+            setOnlineResults(external);
+          }
+        } catch (err: any) {
+          if (err?.name !== 'AbortError') {
+            console.warn('Dynamic geocoded world search error:', err);
+          }
+        } finally {
+          if (searchGenRef.current === currentGen) {
+            setIsSearchingOnline(false);
+          }
+        }
       } else {
         setOnlineResults([]);
+        setIsSearchingOnline(false);
       }
-    }, 350);
+    }, 300);
 
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
+      }
+    };
   }, [searchQuery, cities]);
 
-  // Combine curated + online results
+  // Combine curated + online results with strict geographic deduplication
   const combinedList = [...cities];
   onlineResults.forEach((ext) => {
-    if (!combinedList.some((c) => c.name.toLowerCase() === ext.name.toLowerCase())) {
+    const extLat = Math.round(ext.latitude * 100);
+    const extLon = Math.round(ext.longitude * 100);
+    const alreadyExists = combinedList.some((c) => {
+      const cLat = Math.round(c.latitude * 100);
+      const cLon = Math.round(c.longitude * 100);
+      return (
+        c.cityId === ext.cityId ||
+        (c.name.toLowerCase() === ext.name.toLowerCase() &&
+          c.country.toLowerCase() === ext.country.toLowerCase() &&
+          cLat === extLat &&
+          cLon === extLon)
+      );
+    });
+
+    if (!alreadyExists) {
       combinedList.push(ext);
     }
   });
@@ -108,6 +168,11 @@ export const WorldDataExplorer: React.FC<WorldDataExplorerProps> = ({
     selectedSeverity,
     sortOrder
   );
+
+  // Calculate cohort transparency statistics
+  const comparableCities = cities.filter((c) => c.comparable && c.cohortRank !== null);
+  const dominantTimestamp = cities.find((c) => c.modelValidAt)?.modelValidAt || null;
+  const isStaleFeed = cities.some((c) => c.status === 'stale');
 
   const getAqiBadgeColor = (aqi: number | null | undefined) => {
     if (aqi === null || aqi === undefined) return 'bg-stone-200/60 border-stone-300 text-stone-500 dark:bg-zinc-800 dark:border-zinc-700 dark:text-zinc-400';
@@ -124,9 +189,15 @@ export const WorldDataExplorer: React.FC<WorldDataExplorerProps> = ({
       id: city.id,
       name: city.name,
       country: city.country,
+      admin1: city.admin1 || undefined,
       latitude: city.latitude,
       longitude: city.longitude,
     });
+  };
+
+  const handleDeleteSavedComparison = (id: string) => {
+    savedComparisonsService.removeSavedComparison(id);
+    setSavedComparisons(savedComparisonsService.getSavedComparisons());
   };
 
   return (
@@ -140,20 +211,29 @@ export const WorldDataExplorer: React.FC<WorldDataExplorerProps> = ({
           <div>
             <div className="flex items-center gap-2 text-xs font-mono text-ink-muted dark:text-zinc-400 uppercase tracking-wider mb-1">
               <Globe className="w-3.5 h-3.5 text-sage-600 dark:text-emerald-400" />
-              <span>Global Atmospheric Telemetry Network</span>
+              <span>Global Air Quality — Tracked City Comparison</span>
             </div>
             <h2 className="text-xl sm:text-2xl font-extrabold text-ink dark:text-white tracking-tight flex items-center gap-2">
-              <span>Air Quality Across Tracked Cities</span>
+              <span>Worldwide Modeled Telemetry &amp; Cohort Rankings</span>
             </h2>
             <p className="text-xs text-ink-muted dark:text-zinc-400 mt-1 max-w-2xl leading-relaxed">
-              Real-time atmospheric telemetry across 35+ tracked world metros. Search any city worldwide to inspect air quality, mixing ceilings, and exposure reduction plans.
+              Compare modeled air quality across selected cities. Rankings include only cities with compatible, available data. Telemetry is modeled forecast data from ECMWF CAMS Global, not regulatory ground-station monitors.
             </p>
           </div>
 
-          <div className="flex items-center gap-2 self-start lg:self-auto">
+          {/* Model Transparency & Cohort Badges */}
+          <div className="flex items-center gap-2 flex-wrap self-start lg:self-auto">
             <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-stone-100 dark:bg-zinc-900 border border-stone-300 dark:border-zinc-800 text-xs font-mono font-bold text-ink dark:text-zinc-200 shadow-xs">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span className={`w-2 h-2 rounded-full ${isStaleFeed ? 'bg-amber-500' : 'bg-emerald-500 animate-pulse'}`} />
               <span>{cities.length} Tracked Metros</span>
+            </span>
+            <span className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 text-xs font-mono font-semibold">
+              <Layers className="w-3 h-3" />
+              <span>{comparableCities.length} Comparable</span>
+            </span>
+            <span className="hidden sm:flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-stone-100 dark:bg-zinc-900 border border-stone-300 dark:border-zinc-800 text-[11px] font-mono text-ink-muted dark:text-zinc-400">
+              <Clock className="w-3 h-3" />
+              <span>{dominantTimestamp ? new Date(dominantTimestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Model valid time unavailable'}</span>
             </span>
           </div>
         </div>
@@ -173,11 +253,14 @@ export const WorldDataExplorer: React.FC<WorldDataExplorerProps> = ({
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search any global city or country (e.g. Tokyo, Paris, New York, Cairo, Dubai, London, Zurich)..."
             className="w-full pl-10 pr-10 py-3 bg-stone-50 dark:bg-zinc-900/80 border border-stone-300 dark:border-zinc-800 rounded-xl text-sm text-ink dark:text-white placeholder-stone-400 dark:placeholder-zinc-500 focus:outline-none focus:border-ink dark:focus:border-white transition-colors"
+            aria-label="Search global cities or countries"
           />
           {searchQuery && (
             <button
+              type="button"
               onClick={() => setSearchQuery('')}
-              className="absolute inset-y-0 right-0 pr-3 flex items-center text-stone-400 hover:text-ink dark:hover:text-white"
+              className="absolute inset-y-0 right-0 pr-3 flex items-center text-stone-400 hover:text-ink dark:hover:text-white focus:outline-none"
+              aria-label="Clear search query"
             >
               <X className="w-4 h-4" />
             </button>
@@ -192,12 +275,14 @@ export const WorldDataExplorer: React.FC<WorldDataExplorerProps> = ({
               (reg) => (
                 <button
                   key={reg}
+                  type="button"
                   onClick={() => setSelectedRegion(reg)}
-                  className={`px-3 py-1.5 rounded-lg font-medium whitespace-nowrap transition-colors touch-target ${
+                  className={`px-3 py-1.5 rounded-lg font-medium whitespace-nowrap transition-colors touch-target focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
                     selectedRegion === reg
                       ? 'bg-ink text-white dark:bg-white dark:text-black font-bold shadow-xs'
                       : 'bg-stone-100 hover:bg-stone-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-ink-muted dark:text-zinc-400'
                   }`}
+                  aria-pressed={selectedRegion === reg}
                 >
                   {reg}
                 </button>
@@ -207,26 +292,29 @@ export const WorldDataExplorer: React.FC<WorldDataExplorerProps> = ({
 
           {/* Severity & View Controls */}
           <div className="flex items-center gap-2 self-start md:self-auto shrink-0">
-            {/* Severity Dropdown Filter */}
+            {/* Severity Dropdown Filter (US EPA standard categories) */}
             <select
               value={selectedSeverity}
               onChange={(e) => setSelectedSeverity(e.target.value as SeverityFilter)}
-              className="px-3 py-1.5 rounded-lg bg-stone-100 dark:bg-zinc-900 border border-stone-300 dark:border-zinc-800 text-ink dark:text-zinc-200 text-xs font-medium focus:outline-none"
+              className="px-3 py-1.5 rounded-lg bg-stone-100 dark:bg-zinc-900 border border-stone-300 dark:border-zinc-800 text-ink dark:text-zinc-200 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              aria-label="Filter by air quality severity"
             >
               <option value="All">All Pollution Levels</option>
-              <option value="hazardous">Hazardous (AQI 300+)</option>
-              <option value="unhealthy">Unhealthy (AQI 150+)</option>
-              <option value="moderate">Moderate (AQI 50–150)</option>
-              <option value="clean">Clean Air (AQI &lt; 50)</option>
+              <option value="hazardous">Hazardous &amp; Very Unhealthy (AQI &gt; 200)</option>
+              <option value="unhealthy">Unhealthy &amp; Sensitive (AQI 101–200)</option>
+              <option value="moderate">Moderate (AQI 51–100)</option>
+              <option value="clean">Good / Clean Air (AQI ≤ 50)</option>
             </select>
 
             {/* Sort Toggle Button */}
             <button
+              type="button"
               onClick={() =>
                 setSortOrder(sortOrder === 'most_polluted' ? 'cleanest' : 'most_polluted')
               }
-              className="px-3 py-1.5 rounded-lg bg-stone-100 hover:bg-stone-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 border border-stone-300 dark:border-zinc-800 text-ink dark:text-zinc-200 font-medium flex items-center gap-1.5 transition-colors"
+              className="px-3 py-1.5 rounded-lg bg-stone-100 hover:bg-stone-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 border border-stone-300 dark:border-zinc-800 text-ink dark:text-zinc-200 font-medium flex items-center gap-1.5 transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500"
               title="Toggle Sort Order"
+              aria-label={`Sort order: currently ${sortOrder === 'most_polluted' ? 'Most Polluted' : 'Cleanest First'}`}
             >
               <ArrowUpDown className="w-3.5 h-3.5" />
               <span>{sortOrder === 'most_polluted' ? 'Most Polluted' : 'Cleanest First'}</span>
@@ -235,30 +323,60 @@ export const WorldDataExplorer: React.FC<WorldDataExplorerProps> = ({
             {/* View Mode Toggle */}
             <div className="hidden sm:flex items-center p-0.5 rounded-lg bg-stone-100 dark:bg-zinc-900 border border-stone-300 dark:border-zinc-800">
               <button
+                type="button"
                 onClick={() => setViewMode('grid')}
-                className={`p-1.5 rounded-md transition-colors ${
+                className={`p-1.5 rounded-md transition-colors focus:outline-none ${
                   viewMode === 'grid'
                     ? 'bg-white dark:bg-zinc-800 text-ink dark:text-white shadow-xs'
                     : 'text-stone-400 hover:text-ink dark:hover:text-white'
                 }`}
                 title="Grid Card View"
+                aria-label="Switch to grid card view"
               >
                 <LayoutGrid className="w-3.5 h-3.5" />
               </button>
               <button
+                type="button"
                 onClick={() => setViewMode('table')}
-                className={`p-1.5 rounded-md transition-colors ${
+                className={`p-1.5 rounded-md transition-colors focus:outline-none ${
                   viewMode === 'table'
                     ? 'bg-white dark:bg-zinc-800 text-ink dark:text-white shadow-xs'
                     : 'text-stone-400 hover:text-ink dark:hover:text-white'
                 }`}
                 title="Ranked Table View"
+                aria-label="Switch to ranked table view"
               >
                 <List className="w-3.5 h-3.5" />
               </button>
             </div>
           </div>
         </div>
+
+        {/* Saved City Comparisons Drawer */}
+        {savedComparisons.length > 0 && (
+          <div className="pt-2 border-t border-stone-200 dark:border-zinc-800/80 flex items-center gap-2 overflow-x-auto text-xs">
+            <span className="text-[11px] font-mono text-ink-muted dark:text-zinc-400 shrink-0 flex items-center gap-1">
+              <Bookmark className="w-3 h-3 text-emerald-500" />
+              <span>Saved on this device:</span>
+            </span>
+            {savedComparisons.map((sc) => (
+              <span
+                key={sc.id}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-stone-100 dark:bg-zinc-800 border border-stone-200 dark:border-zinc-700 text-[11px] shrink-0"
+              >
+                <span className="font-medium text-ink dark:text-zinc-200">{sc.cityA.name} vs {sc.cityB.name}</span>
+                <button
+                  type="button"
+                  onClick={() => handleDeleteSavedComparison(sc.id)}
+                  className="text-stone-400 hover:text-rose-500"
+                  aria-label={`Remove saved comparison ${sc.cityA.name} vs ${sc.cityB.name}`}
+                >
+                  <Trash2 className="w-2.5 h-2.5" />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Loading Skeletons */}
@@ -288,9 +406,18 @@ export const WorldDataExplorer: React.FC<WorldDataExplorerProps> = ({
 
             return (
               <div
-                key={city.id || idx}
+                key={city.cityId || city.id || idx}
                 onClick={() => handleCityClick(city)}
-                className={`group relative rounded-2xl p-5 border transition-all duration-200 cursor-pointer select-none shadow-xs hover:shadow-md ${
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    handleCityClick(city);
+                  }
+                }}
+                tabIndex={0}
+                role="button"
+                aria-label={`Select ${city.name}, ${city.country} to inspect air quality`}
+                className={`group relative rounded-2xl p-5 border transition-all duration-200 cursor-pointer select-none shadow-xs hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
                   isActive
                     ? 'bg-white dark:bg-zinc-900 border-ink dark:border-white ring-2 ring-ink/20 dark:ring-white/20'
                     : 'bg-white/95 dark:bg-[#0c0c0e]/95 border-stone-300 dark:border-zinc-800/90 hover:border-stone-400 dark:hover:border-zinc-700'
@@ -299,12 +426,12 @@ export const WorldDataExplorer: React.FC<WorldDataExplorerProps> = ({
                 {/* Header: Rank + City + Country */}
                 <div className="flex items-start justify-between gap-3 mb-3">
                   <div>
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1.5 flex-wrap">
                       <span className="text-[11px] font-mono font-bold px-1.5 py-0.5 rounded bg-stone-100 dark:bg-zinc-800 text-ink dark:text-zinc-300 border border-stone-200 dark:border-zinc-700">
-                        {city.rank ? `#${city.rank}` : 'Unranked'}
+                        {city.cohortRank ? `#${city.cohortRank} of ${city.cohortSize}` : (city.rank ? `#${city.rank}` : 'Unranked')}
                       </span>
                       <span className="text-[11px] font-mono text-ink-muted dark:text-zinc-400">
-                        {city.country}
+                        {city.country} {city.admin1 ? `• ${city.admin1}` : ''}
                       </span>
                     </div>
                     <h3 className="text-lg font-bold text-ink dark:text-white tracking-tight mt-1 group-hover:text-primary transition-colors">
@@ -349,10 +476,13 @@ export const WorldDataExplorer: React.FC<WorldDataExplorerProps> = ({
                   </div>
                 </div>
 
-                {/* Footer Action */}
+                {/* Footer Action & Provenance Label */}
                 <div className="mt-3.5 pt-2.5 border-t border-stone-100 dark:border-zinc-800/80 flex items-center justify-between text-xs font-semibold text-ink dark:text-zinc-300">
-                  <span className="text-[11px] text-ink-muted dark:text-zinc-400">
-                    {city.category}
+                  <span className="text-[11px] text-ink-muted dark:text-zinc-400 flex items-center gap-1">
+                    <span>{city.category}</span>
+                    {city.status === 'stale' && (
+                      <span className="text-[9px] px-1 rounded bg-amber-500/10 text-amber-500 font-mono">Stale</span>
+                    )}
                   </span>
                   <span className="flex items-center gap-1 text-[11px] text-sage-700 dark:text-emerald-400 group-hover:translate-x-0.5 transition-transform">
                     {isActive ? 'Active City' : 'Inspect City'} &rarr;
@@ -369,7 +499,7 @@ export const WorldDataExplorer: React.FC<WorldDataExplorerProps> = ({
             <table className="w-full text-left text-xs">
               <thead className="bg-stone-100 dark:bg-zinc-900 border-b border-stone-200 dark:border-zinc-800 text-ink-muted dark:text-zinc-400 uppercase font-mono text-[11px]">
                 <tr>
-                  <th className="py-3 px-4 w-14">Rank</th>
+                  <th className="py-3 px-4 w-16">Rank</th>
                   <th className="py-3 px-4">City</th>
                   <th className="py-3 px-4">Country / Region</th>
                   <th className="py-3 px-4 text-center">US AQI</th>
@@ -386,7 +516,7 @@ export const WorldDataExplorer: React.FC<WorldDataExplorerProps> = ({
 
                   return (
                     <tr
-                      key={city.id || idx}
+                      key={city.cityId || city.id || idx}
                       onClick={() => handleCityClick(city)}
                       className={`cursor-pointer transition-colors ${
                         isActive
@@ -395,13 +525,13 @@ export const WorldDataExplorer: React.FC<WorldDataExplorerProps> = ({
                       }`}
                     >
                       <td className="py-3 px-4 font-mono font-bold text-ink-muted dark:text-zinc-400">
-                        {city.rank ? `#${city.rank}` : '-'}
+                        {city.cohortRank ? `#${city.cohortRank}` : (city.rank ? `#${city.rank}` : '-')}
                       </td>
                       <td className="py-3 px-4 font-bold text-ink dark:text-white">
                         {city.name}
                       </td>
                       <td className="py-3 px-4 text-ink-muted dark:text-zinc-400">
-                        {city.country} <span className="text-[10px] font-mono text-stone-400">({city.region})</span>
+                        {city.country} {city.admin1 ? `(${city.admin1})` : ''} <span className="text-[10px] font-mono text-stone-400">({city.region})</span>
                       </td>
                       <td className="py-3 px-4 text-center">
                         <span
@@ -420,11 +550,13 @@ export const WorldDataExplorer: React.FC<WorldDataExplorerProps> = ({
                       </td>
                       <td className="py-3 px-4 text-right">
                         <button
+                          type="button"
                           onClick={(e) => {
                             e.stopPropagation();
                             handleCityClick(city);
                           }}
-                          className="px-3 py-1.5 rounded-lg bg-stone-100 dark:bg-zinc-800 hover:bg-stone-200 dark:hover:bg-zinc-700 text-ink dark:text-white font-semibold text-[11px] transition-colors"
+                          className="px-3 py-1.5 rounded-lg bg-stone-100 dark:bg-zinc-800 hover:bg-stone-200 dark:hover:bg-zinc-700 text-ink dark:text-white font-semibold text-[11px] transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                          aria-label={`Inspect ${city.name}`}
                         >
                           {isActive ? 'Active' : 'Inspect'} &rarr;
                         </button>
