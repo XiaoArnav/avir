@@ -414,7 +414,7 @@ describe('AVIR STEP 03 FINAL PRODUCTION CLOSURE — Comprehensive Verification G
   // GROUP D: COMPARISON INTEGRITY & PARITY
   // ==========================================
   describe('Group D: Comparison Integrity & Parity (31-40)', () => {
-    const timestamp = '2026-11-22T08:00:00Z';
+    const timestamp = new Date(Date.now() - 30 * 60 * 1000).toISOString();
     const model = createOpenMeteoModelRecord({
       pm25: 120,
       timestamp,

@@ -2,7 +2,9 @@
 
 import React, { useState } from 'react';
 import { getSchoolSportsAdvisory } from '@/domain/advanced-air-math';
-import { GraduationCap, X, Check, Copy, AlertTriangle, ShieldCheck, HeartPulse } from 'lucide-react';
+import { GraduationCap, X, Check, Copy, AlertTriangle, ShieldCheck, HeartPulse, FileText, ExternalLink } from 'lucide-react';
+import { officialOrderService } from '@/services/advisories/official-order-service';
+import { resolveOfficialGrapStatus } from '@/services/advisories/grap-status-resolver';
 
 interface SchoolSafetyAdvisoryModalProps {
   isOpen: boolean;
@@ -28,6 +30,17 @@ export const SchoolSafetyAdvisoryModal: React.FC<SchoolSafetyAdvisoryModalProps>
   const hasPm25 = typeof pm25 === 'number' && Number.isFinite(pm25) && pm25 >= 0;
   const isAvailable = hasAqi && hasPm25;
 
+  const officialGrap = resolveOfficialGrapStatus(undefined, { cityName });
+
+  // Look for official school administrative directives matching this city/jurisdiction
+  const schoolOrders = officialOrderService
+    .getOrders({ activeOnly: true })
+    .filter(
+      (o) =>
+        (o.id.includes('school') || o.title.toLowerCase().includes('school')) &&
+        o.jurisdiction.some((j) => j.toLowerCase().includes(cityName.toLowerCase()) || officialGrap.jurisdiction.toLowerCase().includes(j.toLowerCase()))
+    );
+
   if (!isAvailable) {
     return (
       <div 
@@ -41,7 +54,7 @@ export const SchoolSafetyAdvisoryModal: React.FC<SchoolSafetyAdvisoryModalProps>
             <div className="flex items-center gap-2">
               <GraduationCap className="w-5 h-5 text-amber-500" />
               <h3 id="school-modal-title" className="text-lg font-bold text-ink dark:text-white">
-                School Sports Advisory
+                School Safety &amp; Outdoor Sports Advisory
               </h3>
             </div>
             <button 
@@ -55,7 +68,7 @@ export const SchoolSafetyAdvisoryModal: React.FC<SchoolSafetyAdvisoryModalProps>
           <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-800 dark:text-amber-300 text-xs flex items-start gap-3">
             <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5 text-amber-500" />
             <p className="leading-relaxed">
-              Atmospheric telemetry is currently unavailable for {cityName}. School health circulars require verified live PM2.5 readings to calculate safety recommendations. Zero synthetic data is substituted.
+              Atmospheric telemetry is currently unavailable for {cityName}. School health guidance requires verified live PM2.5 readings to evaluate pediatric exposure risk. Zero synthetic data is substituted.
             </p>
           </div>
           <div className="flex justify-end pt-2">
@@ -75,14 +88,23 @@ export const SchoolSafetyAdvisoryModal: React.FC<SchoolSafetyAdvisoryModalProps>
   const validPm25 = pm25!;
   const advisory = getSchoolSportsAdvisory(validAqi, validPm25);
 
+  const officialDirectiveSummary =
+    schoolOrders.length > 0
+      ? `🏛️ OFFICIAL ADMINISTRATIVE DIRECTIVE:
+${schoolOrders.map((o) => `• ${o.title} (${o.issuingAuthority}, ${o.orderNumber || 'Official Circular'}) — Source: ${o.officialSourceUrl}`).join('\n')}`
+      : `🏛️ OFFICIAL ADMINISTRATIVE STATUS:
+• No statutory school closure or physical activity suspension order is currently verified for ${cityName}. (Operational orders are issued exclusively by the Directorate of Education / District Magistrate).`;
+
   const copyNotice = () => {
-    const text = `SCHOOL HEALTH CIRCULAR — ${cityName.toUpperCase()}
+    const text = `AVIR-GENERATED SCHOOL HEALTH GUIDANCE — NOT A GOVERNMENT ORDER
+Location: ${cityName.toUpperCase()}
 Date: ${new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
-Risk Level: ${advisory.statusLabel.toUpperCase()}
+Ambient Reading: ${validAqi} US AQI (${validPm25} µg/m³ PM2.5)
+Pediatric Risk Tier: ${advisory.statusLabel.toUpperCase()}
 
-Verified Telemetry: ${validAqi} US AQI (${validPm25} µg/m³ PM2.5)
+${officialDirectiveSummary}
 
-RECOMMENDED CAMPUS HEALTH PROTOCOLS:
+RECOMMENDED CAMPUS HEALTH PROTOCOLS (VOLUNTARY PEDIATRIC GUIDELINES):
 1. Outdoor Morning Assembly: ${advisory.morningAssemblyAction}
 2. Physical Education & Athletics: ${advisory.highExertionSportsAction}
 3. Recess & Outdoor Play: ${advisory.recessAction}
@@ -90,7 +112,8 @@ RECOMMENDED CAMPUS HEALTH PROTOCOLS:
 PEDIATRIC HEALTH ADVISORY:
 ${advisory.pediatricVulnerabilityNote}
 
-Note: Advisories reflect pediatric respiratory guidelines. Official school operational changes are governed by statutory administrative notifications.
+CRITICAL DISCLAIMER:
+Advisories reflect voluntary pediatric respiratory guidance based on atmospheric data. Never infer mandatory school closures, schedule alterations, or statutory directives solely from ambient AQI measurements.
 Issued via Avir: https://avir-blue.vercel.app`;
 
     navigator.clipboard.writeText(text);
@@ -105,7 +128,7 @@ Issued via Avir: https://avir-blue.vercel.app`;
       aria-labelledby="school-modal-title"
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
     >
-      <div className="bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl max-w-xl w-full p-6 shadow-2xl space-y-6">
+      <div className="bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl max-w-xl w-full p-6 shadow-2xl space-y-5 max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div className="flex items-center justify-between pb-3 border-b border-stone-200 dark:border-zinc-800">
           <div className="flex items-center gap-2.5">
@@ -131,6 +154,16 @@ Issued via Avir: https://avir-blue.vercel.app`;
           </button>
         </div>
 
+        {/* Classification Banner */}
+        <div className="p-2.5 rounded-xl bg-stone-100 dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 text-[11px] text-ink-muted dark:text-zinc-400 flex items-center justify-between">
+          <span className="font-semibold text-ink dark:text-white">
+            Classification: Avir-Generated Health Guidance
+          </span>
+          <span className="text-stone-500 dark:text-zinc-500 font-mono">
+            Not a Government Order
+          </span>
+        </div>
+
         {/* Status Badge */}
         <div
           className={`p-4 rounded-xl border flex items-center gap-3 ${
@@ -149,8 +182,42 @@ Issued via Avir: https://avir-blue.vercel.app`;
           <div>
             <div className="text-xs font-mono uppercase font-bold">Campus Guidance Level</div>
             <div className="text-sm font-bold">{advisory.statusLabel}</div>
+            <div className="text-[11px] font-mono mt-0.5 opacity-80">
+              Verified Telemetry: {validAqi} AQI • {validPm25} µg/m³ PM2.5
+            </div>
           </div>
         </div>
+
+        {/* Official Directives Section if present */}
+        {schoolOrders.length > 0 ? (
+          <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs space-y-2">
+            <div className="flex items-center gap-1.5 font-bold text-amber-900 dark:text-amber-300">
+              <FileText className="w-4 h-4" />
+              <span>Verified Administrative School Directive:</span>
+            </div>
+            {schoolOrders.map((order) => (
+              <div key={order.id} className="text-amber-950 dark:text-amber-200 space-y-1 pl-2 border-l border-amber-400">
+                <div className="font-semibold">{order.title}</div>
+                <div className="text-[11px] text-amber-800 dark:text-amber-400 font-mono">
+                  {order.issuingAuthority} • {order.orderNumber}
+                </div>
+                <a
+                  href={order.officialSourceUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-[11px] text-emerald-600 dark:text-emerald-400 underline font-mono"
+                >
+                  <span>View Official Notification</span>
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="p-3 rounded-xl bg-stone-50 dark:bg-zinc-800/40 border border-stone-200 dark:border-zinc-800 text-[11px] text-ink-muted dark:text-zinc-400">
+            <strong>Official Administrative Status:</strong> No statutory school closure or outdoor activity ban is verified for {cityName}. School schedules are governed exclusively by formal notifications from the local Directorate of Education or District Administration.
+          </div>
+        )}
 
         {/* Protocols Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">

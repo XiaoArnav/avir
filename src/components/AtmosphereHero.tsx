@@ -7,6 +7,7 @@ import {
   calculateCpcbNaqi,
   getGrapStage,
 } from '@/domain/air-math';
+import { resolveOfficialGrapStatus } from '@/services/advisories/grap-status-resolver';
 import { CityPanoramicBackdrop } from './CityPanoramicBackdrop';
 import { GroundStationBadge } from './GroundStationBadge';
 import {
@@ -329,6 +330,7 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
     ? { aqi: metrics.cpcbAqi, category: metrics.cpcbCategory || 'Poor' }
     : calculateCpcbNaqi(metrics.pm25, metrics.pm10);
   const grap = getGrapStage(metrics.usAqi);
+  const officialGrap = resolveOfficialGrapStatus(undefined, { cityName: city });
 
   const formattedTime = new Date(metrics.timestamp).toLocaleTimeString([], {
     hour: '2-digit',
@@ -507,10 +509,18 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
           {/* CAQM GRAP Emergency Stage Pill */}
           <div className="mt-2.5 flex items-center gap-2">
             <span className="text-[11px] font-mono px-2 py-0.5 rounded border font-semibold bg-stone-100 dark:bg-zinc-900 text-ink dark:text-zinc-300 border-stone-300 dark:border-zinc-700">
-              {grap.label}
+              {officialGrap.verification === 'not_applicable'
+                ? 'GRAP: NCR Only'
+                : officialGrap.verification === 'verified' && officialGrap.highestActiveStage !== null
+                ? `CAQM Stage-${officialGrap.highestActiveStage} Active`
+                : grap.label}
             </span>
             <span className="text-[11px] text-ink-muted dark:text-zinc-400 truncate">
-              {grap.advisory}
+              {officialGrap.verification === 'not_applicable'
+                ? `Statutory GRAP applies exclusively within NCR (not applicable to ${city})`
+                : officialGrap.verification === 'verified' && officialGrap.highestActiveStage !== null
+                ? officialGrap.explanation
+                : grap.advisory}
             </span>
           </div>
         </div>
