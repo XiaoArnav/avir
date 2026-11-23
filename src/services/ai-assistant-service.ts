@@ -42,15 +42,15 @@ export function generateLocalHeuristicPlan(req: PlanGenerationRequest): Recommen
     ? daytimeForecast.reduce((prev, curr) => ((curr.pm25 ?? 999) < (prev.pm25 ?? 999) ? curr : prev))
     : null;
 
+  // B-001 Elimination: Do not fabricate 35% convective dilution when forecast is missing
   const ventedPM25 = bestDaytimeSlot?.pm25 !== null && bestDaytimeSlot?.pm25 !== undefined
     ? bestDaytimeSlot.pm25
-    : peakPM25 !== null
-    ? Math.round(peakPM25 * 0.65 * 10) / 10 // conservative 35% midday solar convective dilution estimate
     : null;
 
+  // B-002 Elimination: Do not default to fixed 13:00-14:00 window when forecast is missing
   const optimalWorkoutTime = bestDaytimeSlot
     ? `${bestDaytimeSlot.hour.toString().padStart(2, '0')}:00 - ${(bestDaytimeSlot.hour + 1).toString().padStart(2, '0')}:00`
-    : '13:00 - 14:00';
+    : null;
 
   const isOptimizationAvailable = peakPM25 !== null && ventedPM25 !== null;
 
@@ -64,12 +64,14 @@ export function generateLocalHeuristicPlan(req: PlanGenerationRequest): Recommen
       baselineExposureUg: peakPM25 !== null ? Math.round(peakPM25 * 2.8 * 1.0 * 10) / 10 : null,
       optimizedTimeWindow: optimalWorkoutTime,
       optimizedExposureUg: ventedPM25 !== null ? Math.round(ventedPM25 * 2.8 * 1.0 * 10) / 10 : null,
-      reductionPercentage: isOptimizationAvailable && peakPM25! > 0
+      reductionPercentage: isOptimizationAvailable && peakPM25! > 0 && ventedPM25 !== null
         ? Math.max(0, Math.round(((peakPM25! - ventedPM25!) / peakPM25!) * 100))
         : null,
-      rationale: metrics.boundaryLayerHeight !== null
-        ? `During early morning, nocturnal boundary layer contracts (~${metrics.boundaryLayerHeight}m), concentrating tailpipe and biomass smoke at breathing height. Shifting toward midday utilizes solar convective mixing to reduce inhaled toxic dose.`
-        : 'Early morning inversion conditions concentrate ground pollutants. Shifting workout to midday convective mixing hours reduces particulate exposure.',
+      rationale: isOptimizationAvailable
+        ? (metrics.boundaryLayerHeight !== null
+          ? `During early morning, nocturnal boundary layer contracts (~${metrics.boundaryLayerHeight}m), concentrating ground-level pollutants. Shifting workout to ${optimalWorkoutTime} utilizes atmospheric mixing to reduce inhaled toxic dose.`
+          : `Shifting workout to ${optimalWorkoutTime} utilizes lower predicted daytime concentrations to reduce particulate exposure.`)
+        : 'Hourly forecast data is unavailable for time-shift optimization. Avoid intense outdoor exertion when ambient concentration is elevated.',
       isOptimizationAvailable,
     },
     {
@@ -79,11 +81,11 @@ export function generateLocalHeuristicPlan(req: PlanGenerationRequest): Recommen
       intensity: 'light_walk',
       isOutdoor: true,
       baselineExposureUg: peakPM25 !== null ? Math.round(peakPM25 * 0.8 * 0.75 * 10) / 10 : null,
-      optimizedTimeWindow: '08:15 - 08:45',
-      optimizedExposureUg: peakPM25 !== null ? Math.round(peakPM25 * 0.8 * 0.75 * 0.25 * 10) / 10 : null,
-      reductionPercentage: peakPM25 !== null ? 75 : null,
-      rationale: 'Switch from open exposure (two-wheeler/walking arterial roads) to closed transit with internal cabin recirculation or certified N95 respirator mask (certified 75-80% inhaled mass reduction).',
-      isOptimizationAvailable: peakPM25 !== null,
+      optimizedTimeWindow: null,
+      optimizedExposureUg: null,
+      reductionPercentage: null,
+      rationale: 'Commute timings are generally constrained; use personal protective measures such as certified N95 respirator or closed cabin recirculation to reduce arterial roadside particulate exposure.',
+      isOptimizationAvailable: false,
     },
     {
       id: 'shift-3',
@@ -94,13 +96,15 @@ export function generateLocalHeuristicPlan(req: PlanGenerationRequest): Recommen
       baselineExposureUg: peakPM25 !== null ? Math.round(peakPM25 * 0.45 * 1.0 * 10) / 10 : null,
       optimizedTimeWindow: bestDaytimeSlot
         ? `${bestDaytimeSlot.hour.toString().padStart(2, '0')}:30 - ${(bestDaytimeSlot.hour + 1).toString().padStart(2, '0')}:15`
-        : '13:30 - 14:15',
+        : null,
       optimizedExposureUg: ventedPM25 !== null ? Math.round(ventedPM25 * 0.45 * 0.75 * 10) / 10 : null,
       reductionPercentage: isOptimizationAvailable && peakPM25! > 0
         ? Math.max(0, Math.round(((peakPM25! - ventedPM25!) / peakPM25!) * 100))
         : null,
-      rationale: 'Opening windows during early morning traps cold nocturnal inversion smog indoors. Ventilate briefly during peak daytime boundary layer expansion, followed by indoor air filtration.',
-      isOptimizationAvailable,
+      rationale: isOptimizationAvailable
+        ? 'Opening windows during early morning traps cold nocturnal inversion smog indoors. Ventilate briefly during peak daytime boundary layer expansion, followed by indoor air filtration.'
+        : 'Hourly forecast data is unavailable to identify a lower-concentration ventilation window. Keep windows closed during elevated ambient pollution.',
+      isOptimizationAvailable: isOptimizationAvailable && bestDaytimeSlot !== null,
     },
   ];
 
@@ -110,14 +114,31 @@ export function generateLocalHeuristicPlan(req: PlanGenerationRequest): Recommen
   let totalBaseline: number | null = null;
   let totalOptimized: number | null = null;
 
-  if (isOptimizationAvailable) {
-    let baseSum = 0;
-    let optSum = 0;
-    routineShifts.forEach((r) => {
-      if (r.baselineExposureUg !== null) baseSum += r.baselineExposureUg;
-      if (r.optimizedExposureUg !== null) optSum += r.optimizedExposureUg;
-    });
+  let baseSum = 0;
+  let hasBaseline = false;
+  routineShifts.forEach((r) => {
+    if (r.baselineExposureUg !== null) {
+      baseSum += r.baselineExposureUg;
+      hasBaseline = true;
+    }
+  });
+
+  if (hasBaseline) {
     totalBaseline = Math.round(baseSum * 10) / 10;
+  }
+
+  let optSum = 0;
+  let hasCalculableShift = false;
+  routineShifts.forEach((r) => {
+    if (r.baselineExposureUg !== null && r.optimizedExposureUg !== null) {
+      optSum += r.optimizedExposureUg;
+      hasCalculableShift = true;
+    } else if (r.baselineExposureUg !== null) {
+      optSum += r.baselineExposureUg;
+    }
+  });
+
+  if (isOptimizationAvailable && hasCalculableShift) {
     totalOptimized = Math.round(optSum * 10) / 10;
   }
 
@@ -125,14 +146,18 @@ export function generateLocalHeuristicPlan(req: PlanGenerationRequest): Recommen
     ? Math.max(0, Math.round((totalBaseline - totalOptimized) * 10) / 10)
     : null;
 
-  const avoidedCigarettesDaily = netAvoidedPM25Ug !== null ? netAvoidedPM25Ug / 22.0 : null;
-  const avoidedCigarettesMonthly = avoidedCigarettesDaily !== null
-    ? Math.max(0, Math.round(avoidedCigarettesDaily * 30 * 10) / 10)
-    : null;
+  const hasVerifiedInversion =
+    metrics.boundaryLayerHeight !== null &&
+    metrics.boundaryLayerHeight !== undefined &&
+    metrics.isThermalInversionActive === true;
+
+  const inversionClause = hasVerifiedInversion
+    ? ' Ground thermal inversion is ACTIVE under compressed boundary layer.'
+    : '';
 
   let summaryAdvisory = metrics.usAqi !== null
-    ? `Air quality advisory active for ${city} with AQI ${metrics.usAqi} (${aqiCategory}). Ground thermal inversion is ${metrics.isThermalInversionActive ? 'ACTIVE' : 'DISSIPATING'}. High-exposure individuals must prioritize indoor clean air zones and reschedule peak morning workouts.`
-    : `Air quality telemetry synchronizing for ${city}. Ground thermal inversion is ${metrics.isThermalInversionActive ? 'ACTIVE' : 'DISSIPATING'}. Follow standard preventive guidelines.`;
+    ? `Air quality advisory active for ${city} with AQI ${metrics.usAqi} (${aqiCategory}).${inversionClause} High-exposure individuals must prioritize indoor clean air zones and reschedule peak morning workouts.`
+    : `Air quality telemetry synchronizing for ${city}.${inversionClause} Follow standard preventive guidelines.`;
 
   if (profile.hasAsthmaOrRespiratory || profile.ageGroup === 'infant') {
     summaryAdvisory += ' High clinical vulnerability detected: enforce indoor N95 seals and run air cleaning continuously.';
@@ -150,7 +175,6 @@ export function generateLocalHeuristicPlan(req: PlanGenerationRequest): Recommen
       totalInhaledBaselineUg: totalBaseline,
       totalInhaledOptimizedUg: totalOptimized,
       netAvoidedPM25Ug,
-      avoidedCigarettesMonthly,
       carbonSavedKgWeekly: null, // Zero fabrication: omitted because user vehicle mileage is not modeled
       respiratorySafetyScore: null, // Zero fabrication: unscientific scores omitted
       isImpactCalculated: isOptimizationAvailable,

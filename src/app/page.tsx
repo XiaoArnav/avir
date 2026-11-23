@@ -7,6 +7,7 @@ import { AtmosphereHero } from '@/components/AtmosphereHero';
 import { SegmentedTabs, ActiveTabId } from '@/components/SegmentedTabs';
 import { CityPicker } from '@/components/CityPicker';
 import { FamilyProfileForm } from '@/components/FamilyProfileForm';
+import { RoutineBuilder } from '@/components/RoutineBuilder';
 import { RoutineShifter } from '@/components/RoutineShifter';
 import { IAQStudio } from '@/components/IAQStudio';
 import { ImpactScorecard } from '@/components/ImpactScorecard';
@@ -38,6 +39,9 @@ import {
   PREDEFINED_INDIAN_CITIES,
 } from '@/services/telemetry-service';
 import { generateAirQualityPlan } from '@/services/ai-assistant-service';
+import { loadScheduleFromStorage } from '@/services/routines/routine-storage';
+import { DeterministicPlanResult, AiPlanExplanation } from '@/domain/planning-types';
+import { DailySchedule } from '@/domain/routine-types';
 
 export default function Home() {
   const [selectedCity, setSelectedCity] = useState<GeocodedLocation>(PREDEFINED_INDIAN_CITIES[0]);
@@ -59,6 +63,9 @@ export default function Home() {
 
   // Plan State
   const [plan, setPlan] = useState<RecommendationPlan | null>(null);
+  const [deterministicPlan, setDeterministicPlan] = useState<DeterministicPlanResult | null>(null);
+  const [aiExplanation, setAiExplanation] = useState<AiPlanExplanation | null>(null);
+  const planGenIdRef = React.useRef(0);
 
   // Modals State
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -161,9 +168,12 @@ export default function Home() {
   // Handle city selection with clean transition to avoid race condition
   const handleCitySelect = (loc: GeocodedLocation) => {
     if (loc.id === selectedCity.id && loc.name === selectedCity.name) return;
+    planGenIdRef.current += 1;
     setIsTelemetryLoading(true);
     setMetrics(null); // Clear stale city metrics immediately
     setPlan(null); // Clear stale previous city plan immediately
+    setDeterministicPlan(null);
+    setAiExplanation(null);
     setSelectedCity(loc);
   };
 
@@ -427,11 +437,72 @@ export default function Home() {
           />
         )}
 
-        {/* Tab 2: Dynamic Routine Shifter */}
-        {activeTab === 'routine' && plan && (
+        {/* Tab 2: Dynamic Routine Shifter & Personal Schedule Builder */}
+        {activeTab === 'routine' && (
           <div className="space-y-8 animate-in fade-in duration-300">
-            <ImpactScorecard plan={plan} />
-            <RoutineShifter routineShifts={plan.routineShifts} />
+            <RoutineBuilder
+              currentPm25={metrics?.pm25 ?? null}
+              proposedShifts={deterministicPlan?.activityShifts}
+              aiExplanation={aiExplanation || undefined}
+              onScheduleChange={(newSched) => {
+                planGenIdRef.current += 1;
+                setDeterministicPlan(null);
+                setAiExplanation(null);
+              }}
+              onAcceptShift={(activityId) => {
+                if (deterministicPlan) {
+                  setDeterministicPlan({
+                    ...deterministicPlan,
+                    activityShifts: deterministicPlan.activityShifts.filter(s => s.activityId !== activityId),
+                  });
+                }
+              }}
+              onRejectShift={(activityId) => {
+                if (deterministicPlan) {
+                  setDeterministicPlan({
+                    ...deterministicPlan,
+                    activityShifts: deterministicPlan.activityShifts.filter(s => s.activityId !== activityId),
+                  });
+                }
+              }}
+              onOptimizeClick={async () => {
+                if (!metrics || metrics.pm25 === null) return;
+                const currentGen = ++planGenIdRef.current;
+                setIsPlanGenerating(true);
+                try {
+                  const savedSched = loadScheduleFromStorage();
+                  const res = await fetch('/api/ai/plan', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      city: selectedCity.name,
+                      coordinates: { lat: selectedCity.latitude, lng: selectedCity.longitude },
+                      schedule: savedSched,
+                      hourlyForecast: metrics.hourlyForecast || [],
+                      profile,
+                    }),
+                  });
+                  if (res.ok && currentGen === planGenIdRef.current) {
+                    const data = await res.json();
+                    if (data.deterministicPlan) {
+                      setDeterministicPlan(data.deterministicPlan);
+                    }
+                    if (data.aiExplanation) {
+                      setAiExplanation(data.aiExplanation);
+                    }
+                  }
+                } catch (e) {
+                  console.error('Plan optimization error:', e);
+                } finally {
+                  if (currentGen === planGenIdRef.current) {
+                    setIsPlanGenerating(false);
+                  }
+                }
+              }}
+              isOptimizing={isPlanGenerating}
+            />
+            {plan && <ImpactScorecard plan={plan} />}
+            {plan && <RoutineShifter routineShifts={plan.routineShifts} />}
           </div>
         )}
 
