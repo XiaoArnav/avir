@@ -1,6 +1,10 @@
+'use client';
+
 import React from 'react';
+import { motion, useReducedMotion } from 'motion/react';
 import { AQICategory, AtmosphericMetrics } from '@/domain/types';
-import { ShieldCheck, AlertTriangle, Wind, Home, Footprints, CalendarClock } from 'lucide-react';
+import { ShieldCheck, AlertTriangle, Home, Footprints, CalendarClock } from 'lucide-react';
+import { springs } from '@/lib/motion-tokens';
 
 export interface ActionDecisionCardProps {
   metrics: AtmosphericMetrics | null;
@@ -15,6 +19,8 @@ export const ActionDecisionCard: React.FC<ActionDecisionCardProps> = ({
   onOpenDailyPlan,
   className = '',
 }) => {
+  const shouldReduceMotion = useReducedMotion();
+
   // Derive actionable guidance directly from validated environmental parameters
   const aqi = metrics?.usAqi ?? null;
   const pm25 = metrics?.pm25 ?? null;
@@ -93,20 +99,27 @@ export const ActionDecisionCard: React.FC<ActionDecisionCardProps> = ({
         </div>
 
         {onOpenDailyPlan && (
-          <button
+          <motion.button
             type="button"
             onClick={onOpenDailyPlan}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-ink hover:bg-stone-800 text-white dark:bg-white dark:hover:bg-zinc-200 dark:text-black text-xs font-semibold transition-all shadow-xs active:scale-95 shrink-0 self-start sm:self-auto cursor-pointer focus-visible-ring"
+            whileHover={shouldReduceMotion ? undefined : { scale: 1.02 }}
+            whileTap={shouldReduceMotion ? undefined : { scale: 0.96 }}
+            transition={springs.snappy}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-ink hover:bg-stone-800 text-white dark:bg-white dark:hover:bg-zinc-200 dark:text-black text-xs font-semibold transition-all shadow-xs shrink-0 self-start sm:self-auto cursor-pointer focus-visible-ring"
           >
             <CalendarClock className="w-3.5 h-3.5" />
             <span>Optimize Daily Schedule &rarr;</span>
-          </button>
+          </motion.button>
         )}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
         {/* Answer 1: How bad is the air? */}
-        <div className="p-4 rounded-xl bg-stone-50 dark:bg-zinc-800/60 border border-stone-200 dark:border-zinc-800 space-y-1.5">
+        <motion.div
+          whileHover={shouldReduceMotion ? undefined : { y: -2 }}
+          transition={springs.snappy}
+          className="p-4 rounded-xl bg-stone-50 dark:bg-zinc-800/60 border border-stone-200 dark:border-zinc-800 space-y-1.5 shadow-2xs"
+        >
           <div className="flex items-center gap-2 font-bold text-ink dark:text-white">
             <AlertTriangle className="w-4 h-4 text-amber-500" />
             <span>1. Air Quality Status</span>
@@ -114,10 +127,14 @@ export const ActionDecisionCard: React.FC<ActionDecisionCardProps> = ({
           <p className="text-ink-muted dark:text-zinc-300 leading-relaxed">
             {guidance.severityText}
           </p>
-        </div>
+        </motion.div>
 
         {/* Answer 2: Can I go outside? */}
-        <div className="p-4 rounded-xl bg-stone-50 dark:bg-zinc-800/60 border border-stone-200 dark:border-zinc-800 space-y-1.5">
+        <motion.div
+          whileHover={shouldReduceMotion ? undefined : { y: -2 }}
+          transition={springs.snappy}
+          className="p-4 rounded-xl bg-stone-50 dark:bg-zinc-800/60 border border-stone-200 dark:border-zinc-800 space-y-1.5 shadow-2xs"
+        >
           <div className="flex items-center gap-2 font-bold text-ink dark:text-white">
             <Footprints className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
             <span>2. Outdoor Activity</span>
@@ -125,10 +142,14 @@ export const ActionDecisionCard: React.FC<ActionDecisionCardProps> = ({
           <p className="text-ink-muted dark:text-zinc-300 leading-relaxed">
             {guidance.outdoorText}
           </p>
-        </div>
+        </motion.div>
 
         {/* Answer 3: When should I ventilate? */}
-        <div className="p-4 rounded-xl bg-stone-50 dark:bg-zinc-800/60 border border-stone-200 dark:border-zinc-800 space-y-1.5">
+        <motion.div
+          whileHover={shouldReduceMotion ? undefined : { y: -2 }}
+          transition={springs.snappy}
+          className="p-4 rounded-xl bg-stone-50 dark:bg-zinc-800/60 border border-stone-200 dark:border-zinc-800 space-y-1.5 shadow-2xs"
+        >
           <div className="flex items-center gap-2 font-bold text-ink dark:text-white">
             <Home className="w-4 h-4 text-sky-600 dark:text-sky-400" />
             <span>3. Ventilation &amp; Clean Home</span>
@@ -136,7 +157,7 @@ export const ActionDecisionCard: React.FC<ActionDecisionCardProps> = ({
           <p className="text-ink-muted dark:text-zinc-300 leading-relaxed">
             {guidance.indoorText}
           </p>
-        </div>
+        </motion.div>
       </div>
     </div>
   );
