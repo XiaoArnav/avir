@@ -33,7 +33,7 @@ export const TopNav: React.FC<TopNavProps> = ({
   const shouldReduceMotion = useReducedMotion();
 
   return (
-    <header className="border-b border-stone-300 dark:border-zinc-800/80 bg-stone-100/90 dark:bg-black/90 backdrop-blur-2xl sticky top-0 z-40 transition-colors">
+    <header className="border-b border-stone-200/80 dark:border-sky-500/15 bg-white/85 dark:bg-[#040711]/90 backdrop-blur-2xl sticky top-0 z-40 transition-colors">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
         {/* Brand identity */}
         <div className="flex items-center gap-3">

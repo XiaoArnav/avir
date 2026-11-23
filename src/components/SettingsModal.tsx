@@ -48,7 +48,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         aria-modal="true"
         aria-labelledby="settings-title"
         tabIndex={-1}
-        className="w-full max-w-md rounded-2xl bg-white dark:bg-zinc-950 border border-stone-300 dark:border-zinc-800 p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-150 transition-colors focus:outline-none"
+        className="w-full max-w-md rounded-3xl bg-white/95 dark:bg-[#060b18]/95 backdrop-blur-2xl border border-stone-200/90 dark:border-sky-500/30 p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-150 transition-colors focus:outline-none hud-corner-brackets"
       >
         <div className="flex items-center justify-between border-b border-stone-200 dark:border-zinc-800 pb-3">
           <div className="flex items-center gap-2">
