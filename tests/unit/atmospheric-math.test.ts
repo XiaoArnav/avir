@@ -15,14 +15,16 @@ import { UserVulnerabilityProfile } from '@/domain/types';
 
 describe('Atmospheric Math & Exposure Toxicology Engine', () => {
   describe('AQI & Breakpoint Calculus', () => {
-    it('accurately calculates AQI across standard EPA/CPCB breakpoints', () => {
+    it('accurately calculates AQI across standard EPA/CPCB breakpoints (2024 EPA Revised Standards)', () => {
       expect(calculateAQIFromPM25(0)).toBe(0);
-      expect(calculateAQIFromPM25(12.0)).toBe(50);
+      expect(calculateAQIFromPM25(9.0)).toBe(50); // 2024 EPA revised Good endpoint (formerly 12.0)
+      expect(calculateAQIFromPM25(12.0)).toBe(56); // 12.0 µg/m³ is now in Moderate range (AQI 56)
       expect(calculateAQIFromPM25(35.4)).toBe(100);
       expect(calculateAQIFromPM25(55.4)).toBe(150);
-      expect(calculateAQIFromPM25(150.4)).toBe(200);
-      expect(calculateAQIFromPM25(250.4)).toBe(300);
-      expect(calculateAQIFromPM25(500.0)).toBe(500);
+      expect(calculateAQIFromPM25(125.4)).toBe(200); // 2024 EPA revised Unhealthy endpoint (formerly 150.4)
+      expect(calculateAQIFromPM25(225.4)).toBe(300); // 2024 EPA revised Very Unhealthy endpoint (formerly 250.4)
+      expect(calculateAQIFromPM25(325.4)).toBe(400); // 2024 EPA Hazardous band 1
+      expect(calculateAQIFromPM25(500.4)).toBe(500); // 2024 EPA Hazardous band 2
     });
 
     it('calculates authentic CPCB NAQI via Indian National Air Quality Index breakpoints', () => {

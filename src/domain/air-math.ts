@@ -1,100 +1,359 @@
 import {
   AQICategory,
+  AqiEvidence,
   ActivityIntensity,
   UserVulnerabilityProfile,
   ExposureCalculation,
   CorsiRosenthalBoxSpec,
 } from './types';
+import {
+  calculateSubIndex,
+  getCpcbCategory,
+  CpcbCategory,
+} from './cpcb-naqi';
 
-// EPA / CPCB Standard Breakpoints for PM2.5
-interface BreakpointDef {
+export { type CpcbCategory };
+
+/**
+ * Authoritative 2024 Revised US EPA PM2.5 24-Hour Breakpoint Table
+ * Codified at 40 CFR Part 58, Appendix G (Federal Register 89 FR 16202, effective May 6, 2024).
+ * Replaces the historical 12.0 µg/m³ primary annual/24-hr standard with the tightened 9.0 µg/m³ Good threshold.
+ */
+export interface EpaBreakpointDef {
+  pollutant: 'pm25';
+  unit: 'µg/m³';
+  averagingPeriod: '24-hour';
   cLow: number;
   cHigh: number;
   iLow: number;
   iHigh: number;
+  category: AQICategory;
+  standardVersion: string;
+  regulatorySource: string;
 }
 
-const PM25_BREAKPOINTS: BreakpointDef[] = [
-  { cLow: 0.0, cHigh: 12.0, iLow: 0, iHigh: 50 },
-  { cLow: 12.1, cHigh: 35.4, iLow: 51, iHigh: 100 },
-  { cLow: 35.5, cHigh: 55.4, iLow: 101, iHigh: 150 },
-  { cLow: 55.5, cHigh: 150.4, iLow: 151, iHigh: 200 },
-  { cLow: 150.5, cHigh: 250.4, iLow: 201, iHigh: 300 },
-  { cLow: 250.5, cHigh: 350.4, iLow: 301, iHigh: 400 },
-  { cLow: 350.5, cHigh: 500.0, iLow: 401, iHigh: 500 },
-];
-
-// CPCB (Central Pollution Control Board, India) Breakpoints
-const CPCB_PM25_BREAKPOINTS: BreakpointDef[] = [
-  { cLow: 0.0, cHigh: 30.0, iLow: 0, iHigh: 50 },
-  { cLow: 30.1, cHigh: 60.0, iLow: 51, iHigh: 100 },
-  { cLow: 60.1, cHigh: 90.0, iLow: 101, iHigh: 200 },
-  { cLow: 90.1, cHigh: 120.0, iLow: 201, iHigh: 300 },
-  { cLow: 120.1, cHigh: 250.0, iLow: 301, iHigh: 400 },
-  { cLow: 250.1, cHigh: 500.0, iLow: 401, iHigh: 500 },
-];
-
-const CPCB_PM10_BREAKPOINTS: BreakpointDef[] = [
-  { cLow: 0.0, cHigh: 50.0, iLow: 0, iHigh: 50 },
-  { cLow: 50.1, cHigh: 100.0, iLow: 51, iHigh: 100 },
-  { cLow: 100.1, cHigh: 250.0, iLow: 101, iHigh: 200 },
-  { cLow: 250.1, cHigh: 350.0, iLow: 201, iHigh: 300 },
-  { cLow: 350.1, cHigh: 430.0, iLow: 301, iHigh: 400 },
-  { cLow: 430.1, cHigh: 500.0, iLow: 401, iHigh: 500 },
-];
-
-function interpolateBreakpoint(c: number, bps: BreakpointDef[]): number {
-  if (c <= 0) return 0;
-  if (c >= 500) return 500;
-  for (const bp of bps) {
-    if (c <= bp.cHigh) {
-      const idx = ((bp.iHigh - bp.iLow) / (bp.cHigh - bp.cLow)) * (c - bp.cLow) + bp.iLow;
-      return Math.round(idx);
-    }
-  }
-  return 500;
-}
-
-export type CpcbCategory = 'Good' | 'Satisfactory' | 'Moderate' | 'Poor' | 'Very Poor' | 'Severe';
+export const EPA_PM25_2024_BREAKPOINTS: readonly EpaBreakpointDef[] = [
+  {
+    pollutant: 'pm25',
+    unit: 'µg/m³',
+    averagingPeriod: '24-hour',
+    cLow: 0.0,
+    cHigh: 9.0,
+    iLow: 0,
+    iHigh: 50,
+    category: 'Good',
+    standardVersion: 'EPA 2024 PM NAAQS (40 CFR Part 58 App G, May 2024)',
+    regulatorySource: 'US EPA Revised Air Quality Index for Particulate Matter',
+  },
+  {
+    pollutant: 'pm25',
+    unit: 'µg/m³',
+    averagingPeriod: '24-hour',
+    cLow: 9.1,
+    cHigh: 35.4,
+    iLow: 51,
+    iHigh: 100,
+    category: 'Moderate',
+    standardVersion: 'EPA 2024 PM NAAQS (40 CFR Part 58 App G, May 2024)',
+    regulatorySource: 'US EPA Revised Air Quality Index for Particulate Matter',
+  },
+  {
+    pollutant: 'pm25',
+    unit: 'µg/m³',
+    averagingPeriod: '24-hour',
+    cLow: 35.5,
+    cHigh: 55.4,
+    iLow: 101,
+    iHigh: 150,
+    category: 'UnhealthySensitive',
+    standardVersion: 'EPA 2024 PM NAAQS (40 CFR Part 58 App G, May 2024)',
+    regulatorySource: 'US EPA Revised Air Quality Index for Particulate Matter',
+  },
+  {
+    pollutant: 'pm25',
+    unit: 'µg/m³',
+    averagingPeriod: '24-hour',
+    cLow: 55.5,
+    cHigh: 125.4,
+    iLow: 151,
+    iHigh: 200,
+    category: 'Unhealthy',
+    standardVersion: 'EPA 2024 PM NAAQS (40 CFR Part 58 App G, May 2024)',
+    regulatorySource: 'US EPA Revised Air Quality Index for Particulate Matter',
+  },
+  {
+    pollutant: 'pm25',
+    unit: 'µg/m³',
+    averagingPeriod: '24-hour',
+    cLow: 125.5,
+    cHigh: 225.4,
+    iLow: 201,
+    iHigh: 300,
+    category: 'VeryUnhealthy',
+    standardVersion: 'EPA 2024 PM NAAQS (40 CFR Part 58 App G, May 2024)',
+    regulatorySource: 'US EPA Revised Air Quality Index for Particulate Matter',
+  },
+  {
+    pollutant: 'pm25',
+    unit: 'µg/m³',
+    averagingPeriod: '24-hour',
+    cLow: 225.5,
+    cHigh: 325.4,
+    iLow: 301,
+    iHigh: 400,
+    category: 'Hazardous',
+    standardVersion: 'EPA 2024 PM NAAQS (40 CFR Part 58 App G, May 2024)',
+    regulatorySource: 'US EPA Revised Air Quality Index for Particulate Matter',
+  },
+  {
+    pollutant: 'pm25',
+    unit: 'µg/m³',
+    averagingPeriod: '24-hour',
+    cLow: 325.5,
+    cHigh: 500.4,
+    iLow: 401,
+    iHigh: 500,
+    category: 'Hazardous',
+    standardVersion: 'EPA 2024 PM NAAQS (40 CFR Part 58 App G, May 2024)',
+    regulatorySource: 'US EPA Revised Air Quality Index for Particulate Matter',
+  },
+] as const;
 
 /**
- * Calculates genuine Indian National Air Quality Index (NAQI) per CPCB standard.
- * Uses linear interpolation across CPCB sub-index breakpoints.
+ * Historical US EPA PM2.5 24-Hour Breakpoint Table (1999/2012 NAAQS Standards)
+ * In effect until May 6, 2024. Maintained for longitudinal data comparability.
  */
-export function calculateCpcbNaqi(pm25?: number | null, pm10?: number | null): { aqi: number | null; category: CpcbCategory } {
-  if ((pm25 === null || pm25 === undefined) && (pm10 === null || pm10 === undefined)) {
-    return { aqi: null, category: 'Good' };
-  }
-  const effectivePm25 = pm25 ?? 0;
-  const pm25Idx = interpolateBreakpoint(effectivePm25, CPCB_PM25_BREAKPOINTS);
-  const pm10Idx = pm10 ? interpolateBreakpoint(pm10, CPCB_PM10_BREAKPOINTS) : 0;
-  const aqi = Math.max(pm25Idx, pm10Idx);
+export const EPA_PM25_HISTORICAL_BREAKPOINTS: readonly EpaBreakpointDef[] = [
+  {
+    pollutant: 'pm25',
+    unit: 'µg/m³',
+    averagingPeriod: '24-hour',
+    cLow: 0.0,
+    cHigh: 12.0,
+    iLow: 0,
+    iHigh: 50,
+    category: 'Good',
+    standardVersion: 'EPA 2012 PM NAAQS (historical)',
+    regulatorySource: 'US EPA Historical Air Quality Index for Particulate Matter',
+  },
+  {
+    pollutant: 'pm25',
+    unit: 'µg/m³',
+    averagingPeriod: '24-hour',
+    cLow: 12.1,
+    cHigh: 35.4,
+    iLow: 51,
+    iHigh: 100,
+    category: 'Moderate',
+    standardVersion: 'EPA 2012 PM NAAQS (historical)',
+    regulatorySource: 'US EPA Historical Air Quality Index for Particulate Matter',
+  },
+  {
+    pollutant: 'pm25',
+    unit: 'µg/m³',
+    averagingPeriod: '24-hour',
+    cLow: 35.5,
+    cHigh: 55.4,
+    iLow: 101,
+    iHigh: 150,
+    category: 'UnhealthySensitive',
+    standardVersion: 'EPA 2012 PM NAAQS (historical)',
+    regulatorySource: 'US EPA Historical Air Quality Index for Particulate Matter',
+  },
+  {
+    pollutant: 'pm25',
+    unit: 'µg/m³',
+    averagingPeriod: '24-hour',
+    cLow: 55.5,
+    cHigh: 150.4,
+    iLow: 151,
+    iHigh: 200,
+    category: 'Unhealthy',
+    standardVersion: 'EPA 2012 PM NAAQS (historical)',
+    regulatorySource: 'US EPA Historical Air Quality Index for Particulate Matter',
+  },
+  {
+    pollutant: 'pm25',
+    unit: 'µg/m³',
+    averagingPeriod: '24-hour',
+    cLow: 150.5,
+    cHigh: 250.4,
+    iLow: 201,
+    iHigh: 300,
+    category: 'VeryUnhealthy',
+    standardVersion: 'EPA 2012 PM NAAQS (historical)',
+    regulatorySource: 'US EPA Historical Air Quality Index for Particulate Matter',
+  },
+  {
+    pollutant: 'pm25',
+    unit: 'µg/m³',
+    averagingPeriod: '24-hour',
+    cLow: 250.5,
+    cHigh: 350.4,
+    iLow: 301,
+    iHigh: 400,
+    category: 'Hazardous',
+    standardVersion: 'EPA 2012 PM NAAQS (historical)',
+    regulatorySource: 'US EPA Historical Air Quality Index for Particulate Matter',
+  },
+  {
+    pollutant: 'pm25',
+    unit: 'µg/m³',
+    averagingPeriod: '24-hour',
+    cLow: 350.5,
+    cHigh: 500.4,
+    iLow: 401,
+    iHigh: 500,
+    category: 'Hazardous',
+    standardVersion: 'EPA 2012 PM NAAQS (historical)',
+    regulatorySource: 'US EPA Historical Air Quality Index for Particulate Matter',
+  },
+] as const;
 
-  let category: CpcbCategory = 'Good';
-  if (aqi > 400) category = 'Severe';
-  else if (aqi > 300) category = 'Very Poor';
-  else if (aqi > 200) category = 'Poor';
-  else if (aqi > 100) category = 'Moderate';
-  else if (aqi > 50) category = 'Satisfactory';
-
-  return { aqi, category };
+/**
+ * Truncates PM2.5 concentrations to 1 decimal place (0.1 µg/m³) per 40 CFR Part 58 App G.
+ * Eliminates IEEE-754 representation anomalies prior to truncation.
+ */
+export function truncatePm25Concentration(pm25: number): number {
+  if (!Number.isFinite(pm25) || pm25 < 0) return NaN;
+  return Math.floor(Number(pm25.toFixed(6)) * 10) / 10;
 }
 
 /**
- * Calculates standardized AQI from PM2.5 concentration (ug/m3) using linear breakpoint interpolation.
+ * Calculates genuine Indian National Air Quality Index (NAQI) sub-index per CPCB standard.
+ * Uses linear interpolation across CPCB sub-index breakpoints via shared cpcb-naqi primitives.
+ * Rejects missing or invalid input without defaulting to 'Good'.
+ *
+ * Strict Provenance:
+ * Single or two-pollutant sub-indices are ALWAYS indicative sub-indices (isIndicativeSubIndex: true),
+ * NEVER complete indices (isCompleteIndex: false), and NEVER officially published (isOfficialPublished: false).
  */
-export function calculateAQIFromPM25(pm25: number): number {
-  if (pm25 <= 0) return 0;
-  if (pm25 >= 500) return 500;
+export function calculateCpcbNaqi(
+  pm25?: number | null,
+  pm10?: number | null
+): {
+  aqi: number | null;
+  category: CpcbCategory | 'Unavailable';
+  isIndicativeSubIndex: boolean;
+  isCompleteIndex: boolean;
+  isOfficialPublished: boolean;
+} {
+  const hasPm25 = pm25 !== null && pm25 !== undefined && Number.isFinite(pm25) && pm25 >= 0;
+  const hasPm10 = pm10 !== null && pm10 !== undefined && Number.isFinite(pm10) && pm10 >= 0;
 
-  for (const bp of PM25_BREAKPOINTS) {
-    if (pm25 <= bp.cHigh) {
-      const aqi = ((bp.iHigh - bp.iLow) / (bp.cHigh - bp.cLow)) * (pm25 - bp.cLow) + bp.iLow;
+  if (!hasPm25 && !hasPm10) {
+    return { aqi: null, category: 'Unavailable', isIndicativeSubIndex: false, isCompleteIndex: false, isOfficialPublished: false };
+  }
+
+  const pm25Idx = hasPm25 ? calculateSubIndex('pm25', pm25!) : null;
+  const pm10Idx = hasPm10 ? calculateSubIndex('pm10', pm10!) : null;
+
+  if (pm25Idx === null && pm10Idx === null) {
+    return { aqi: null, category: 'Unavailable', isIndicativeSubIndex: false, isCompleteIndex: false, isOfficialPublished: false };
+  }
+
+  const aqi = Math.max(pm25Idx ?? -1, pm10Idx ?? -1);
+  if (aqi < 0) {
+    return { aqi: null, category: 'Unavailable', isIndicativeSubIndex: false, isCompleteIndex: false, isOfficialPublished: false };
+  }
+
+  const category = getCpcbCategory(aqi);
+  return { aqi, category, isIndicativeSubIndex: true, isCompleteIndex: false, isOfficialPublished: false };
+}
+
+/**
+ * Calculates standardized US EPA AQI from PM2.5 concentration (µg/m³) using linear breakpoint interpolation.
+ * Supports both 2024 revised standard (default) and historical 1999/2012 NAAQS standard.
+ */
+export function calculateEpaPm25Aqi(
+  pm25?: number | null,
+  standardVersion: '2024' | 'historical' = '2024'
+): number | null {
+  if (pm25 === null || pm25 === undefined || !Number.isFinite(pm25) || pm25 < 0) {
+    return null;
+  }
+
+  const truncated = truncatePm25Concentration(pm25);
+  if (Number.isNaN(truncated) || truncated < 0) return null;
+  if (truncated === 0) return 0;
+
+  const breakpoints = standardVersion === 'historical'
+    ? EPA_PM25_HISTORICAL_BREAKPOINTS
+    : EPA_PM25_2024_BREAKPOINTS;
+
+  for (const bp of breakpoints) {
+    if (truncated <= bp.cHigh) {
+      const aqi = ((bp.iHigh - bp.iLow) / (bp.cHigh - bp.cLow)) * (truncated - bp.cLow) + bp.iLow;
       return Math.round(aqi);
     }
   }
 
+  // Concentrations above highest defined breakpoint (500.4 µg/m³) capped at 500
   return 500;
+}
+
+/**
+ * Calculates standardized US EPA AQI from PM2.5 concentration (µg/m³) using linear breakpoint interpolation.
+ * Strictly implements 2024 EPA PM NAAQS revised breakpoints (0-9.0 Good, 9.1-35.4 Moderate, etc.).
+ *
+ * Rules:
+ * 1. Concentrations are truncated to 1 decimal place (0.1 µg/m³) before interpolation.
+ * 2. Negative concentrations, NaN, Infinity, null, and undefined return null.
+ * 3. Exact 0 concentration returns 0.
+ * 4. Concentrations > 500.4 µg/m³ are capped at 500 (upper hazardous bound per EPA TAD).
+ */
+export function calculateAQIFromPM25(pm25?: number | null): number | null {
+  return calculateEpaPm25Aqi(pm25, '2024');
+}
+
+/**
+ * Calculates detailed EPA PM2.5 AQI with full scientific provenance and evidence metadata.
+ */
+export function calculateDetailedEpaPm25Aqi(
+  pm25?: number | null,
+  standardVersion: '2024' | 'historical' = '2024'
+): {
+  aqi: number | null;
+  category: AQICategory;
+  truncatedConcentration: number | null;
+  isBeyondAqi: boolean;
+  evidence: AqiEvidence;
+} {
+  const aqi = calculateEpaPm25Aqi(pm25, standardVersion);
+  const category = getAQICategory(aqi);
+  const truncated = pm25 !== null && pm25 !== undefined && Number.isFinite(pm25) && pm25 >= 0
+    ? truncatePm25Concentration(pm25)
+    : null;
+  const isBeyondAqi = truncated !== null && truncated > 500.4;
+
+  const stdName = standardVersion === 'historical'
+    ? 'EPA 2012 PM NAAQS (historical)'
+    : 'EPA 2024 PM NAAQS (40 CFR Part 58 App G, May 2024)';
+
+  let notes = aqi !== null ? `Calculated via ${stdName}.` : 'Invalid or missing PM2.5 concentration.';
+  if (isBeyondAqi) {
+    notes = `Concentration (${truncated} µg/m³) exceeds maximum defined breakpoint (500.4 µg/m³); index capped at 500 per EPA Technical Assistance Document.`;
+  }
+
+  return {
+    aqi,
+    category,
+    truncatedConcentration: truncated,
+    isBeyondAqi,
+    evidence: {
+      indexValue: aqi,
+      standard: 'US_EPA',
+      method: aqi !== null ? 'epa_pm25_24h_subindex' : 'unavailable',
+      classification: aqi !== null ? 'derived_subindex' : 'unavailable',
+      sourceProvider: null,
+      pollutantCount: aqi !== null ? 1 : 0,
+      averagingVerified: false,
+      isOfficialPublished: false,
+      missingRequirements: aqi === null ? ['Valid non-negative PM2.5 concentration required.'] : [],
+      standardVersion: stdName,
+      notes,
+    },
+  };
 }
 
 /**
