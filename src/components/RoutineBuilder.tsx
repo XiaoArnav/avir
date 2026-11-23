@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useAccessibleDialog } from '@/components/ui/AccessibleDialog';
 import {
   DailySchedule,
   RoutineActivity,
@@ -65,6 +66,9 @@ export const RoutineBuilder: React.FC<RoutineBuilderProps> = ({
 }) => {
   const [schedule, setSchedule] = useState<DailySchedule>(() => loadScheduleFromStorage());
   const [isEditingModalOpen, setIsEditingModalOpen] = useState(false);
+  const dialogRef = React.useRef<HTMLDivElement>(null);
+  const closeEditor = React.useCallback(() => setIsEditingModalOpen(false), []);
+  useAccessibleDialog({ isOpen: isEditingModalOpen, onClose: closeEditor, dialogRef });
   const [editingActivity, setEditingActivity] = useState<Partial<RoutineActivity> | null>(null);
   const [formErrors, setFormErrors] = useState<string[]>([]);
 
@@ -466,17 +470,20 @@ export const RoutineBuilder: React.FC<RoutineBuilderProps> = ({
       {isEditingModalOpen && editingActivity && (
         <div
           role="dialog"
+          ref={dialogRef}
+          aria-labelledby="routine-editor-title"
           aria-modal="true"
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs"
         >
-          <div className="w-full max-w-md p-6 rounded-2xl bg-white dark:bg-zinc-900 border border-stone-300 dark:border-zinc-800 shadow-xl space-y-4">
+          <div className="w-full max-w-md max-h-[90dvh] overflow-y-auto p-6 rounded-2xl bg-white dark:bg-zinc-900 border border-stone-300 dark:border-zinc-800 shadow-xl space-y-4">
             <div className="flex items-center justify-between">
-              <h3 className="text-base font-bold text-ink dark:text-white">
+              <h3 id="routine-editor-title" className="text-base font-bold text-ink dark:text-white">
                 {editingActivity.id ? 'Edit Routine Activity' : 'Add New Activity'}
               </h3>
               <button
                 onClick={() => setIsEditingModalOpen(false)}
-                className="p-1 rounded text-stone-400 hover:text-ink dark:hover:text-white"
+                aria-label="Close activity editor"
+                className="min-h-11 min-w-11 grid place-items-center rounded text-stone-400 hover:text-ink dark:hover:text-white"
               >
                 <X className="w-4 h-4" />
               </button>

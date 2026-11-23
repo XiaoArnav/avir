@@ -189,7 +189,17 @@ export function validateForecastEligibility(
 /**
  * Computes timezone offset in minutes relative to UTC for a specific date.
  */
-export function getTimezoneOffsetMinutes(timezone: string, dateStr: string = '2026-11-23'): number {
+function forecastPointsDate(points: EligibleForecastPoint[]): string | undefined {
+  const first = normalizeForecastPoint(points?.[0]);
+  if (!first) return undefined;
+  try {
+    return new Intl.DateTimeFormat('en-CA', {timeZone: first.timezone, year: 'numeric', month: '2-digit', day: '2-digit'}).format(new Date(first.validAtUtc));
+  } catch {
+    return undefined;
+  }
+}
+
+export function getTimezoneOffsetMinutes(timezone: string, dateStr: string = new Date().toISOString().slice(0, 10)): number {
   if (timezone === 'UTC' || timezone === 'GMT') return 0;
   if (timezone.includes('Kolkata') || timezone.includes('Calcutta') || timezone === 'IST') {
     return 330; // +05:30
@@ -225,7 +235,7 @@ export function calculateInhaledMassForIntervals(params: {
     endIso,
     startTime,
     endTime,
-    dateStr = '2026-11-23',
+    dateStr = (forecastPointsDate(params.forecastPoints) ?? new Date().toISOString().slice(0, 10)),
     intensity,
     environment,
     forecastPoints,
@@ -365,7 +375,7 @@ export function calculateInhaledMassForIntervals(params: {
 /**
  * Checks if a candidate time interval collides with any fixed activities.
  */
-function collidesWithFixedActivities(
+function collidesWithActivities(
   candidateStartMins: number,
   durationMinutes: number,
   fixedActivities: RoutineActivity[]
@@ -377,7 +387,8 @@ function collidesWithFixedActivities(
     const fEnd = fStart + calculateActivityDurationMinutes(fixed.startTime, fixed.endTime);
 
     // Check overlap in single-day 0..2880 space
-    const overlaps = Math.max(candidateStartMins, fStart) < Math.min(candidateEndMins, fEnd);
+    const overlaps = Math.max(candidateStartMins, fStart) < Math.min(candidateEndMins, fEnd)
+      || (fEnd > 1440 && candidateStartMins < fEnd - 1440);
     if (overlaps) {
       return true;
     }
@@ -399,7 +410,7 @@ export function optimizeScheduleWithForecast(
   }
 ): DeterministicPlanResult {
   const targetCity = options?.cityId;
-  const dateStr = options?.dateStr || '2026-11-23';
+  const dateStr = options?.dateStr || forecastPointsDate(forecast);
   const nowIso = new Date().toISOString();
   const planFingerprint = `plan-${schedule.id}-${Date.now().toString(36)}`;
 
@@ -440,6 +451,7 @@ export function optimizeScheduleWithForecast(
   const validForecast = eligibility.normalizedPoints;
   const fixedActivities = schedule.activities.filter(a => !a.isFlexible);
   const flexibleActivities = schedule.activities.filter(a => a.isFlexible);
+  const reserved = [...schedule.activities];
 
   let totalBaselineUg = 0;
   let totalOptimizedUg = 0;
@@ -500,13 +512,14 @@ export function optimizeScheduleWithForecast(
 
     let bestStartMins = originalStartMins;
     let bestMass = baselineMass;
+    const occupied = reserved.filter(other => other.id !== act.id);
 
     // Search candidate start times in 30-minute intervals
     for (let candidateStart = earliestMins; candidateStart <= latestMins; candidateStart += 30) {
       if (candidateStart === originalStartMins) continue;
 
       // C13: Fixed activities never move and candidate must not collide
-      if (collidesWithFixedActivities(candidateStart, originalDuration, fixedActivities)) {
+      if (collidesWithActivities(candidateStart, originalDuration, occupied)) {
         continue;
       }
 
@@ -537,6 +550,7 @@ export function optimizeScheduleWithForecast(
       const savingsPercent = Math.round((savingsUg / baselineMass) * 1000) / 10;
       const proposedStart = formatMinutesToTimeString(bestStartMins);
       const proposedEnd = formatMinutesToTimeString(bestStartMins + originalDuration);
+      reserved.push({ ...act, startTime: proposedStart, endTime: proposedEnd });
 
       activityShifts.push({
         activityId: act.id,

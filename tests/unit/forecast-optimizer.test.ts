@@ -104,6 +104,15 @@ describe('Step 12 — Forecast-Based Routine Optimizer', () => {
   });
 
   describe('Feasibility & Constraint Adherence', () => {
+    it('offers independently acceptable shifts when two walks compete for one slot', () => {
+      const walk = { ...baseSchedule.activities[0], endTime: '06:30', durationMinutes: 30,
+        allowableStartRange: { earliest: '13:00', latest: '13:00' } };
+      const schedule = { ...baseSchedule, activities: [walk,
+        { ...walk, id: 'second', startTime: '07:00', endTime: '07:30' }] };
+      const plan = optimizeScheduleWithForecast(schedule, mockHourlyForecast);
+      expect(plan.activityShifts.map(s => s.proposedStart)).toEqual(['13:00']);
+      expect(plan.unalteredActivities.map(a => a.id)).toEqual(['second']);
+    });
     it('shifts flexible activity to lower-exposure window while respecting allowable range', () => {
       const result = optimizeScheduleWithForecast(baseSchedule, mockHourlyForecast);
       expect(result.status).toBe('optimal');
