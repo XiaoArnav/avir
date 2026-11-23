@@ -12,6 +12,8 @@
  * 5. Rejects negative values, NaN, and unverified placeholders.
  */
 
+import { AqiEvidence, AqiMethod } from './types';
+
 export type CpcbCategory =
   | 'Good'
   | 'Satisfactory'
@@ -40,6 +42,8 @@ export interface PollutantInput {
   units?: Record<string, string | null>;
   averagingPeriods?: Record<string, number | null>;
   is24HourAveraged?: boolean;
+  sourceProvider?: string | null;
+  isOfficialPublished?: boolean;
 }
 
 export interface SubIndexResult {
@@ -67,7 +71,8 @@ export interface CpcbNaqiCalculationResult {
   missingRequirements: string[];
   notes: string;
   classification: CpcbClassification;
-  isOfficialPublished?: boolean;
+  isOfficialPublished: boolean;
+  evidence: AqiEvidence;
 }
 
 // ---------------------------------------------------------------------------
@@ -179,7 +184,9 @@ export function calculateSubIndex(
   concentration: number,
   unit?: string | null
 ): number | null {
-  if (concentration < 0 || !Number.isFinite(concentration)) return null;
+  if (concentration === null || concentration === undefined || !Number.isFinite(concentration) || concentration < 0) {
+    return null;
+  }
 
   const key = pollutantKey.toLowerCase().trim();
   const breakpoints = CPCB_BREAKPOINTS[key];
@@ -218,7 +225,8 @@ export function calculateSubIndex(
 
   for (const bp of breakpoints) {
     if (conc <= bp.cHigh) {
-      const idx = ((bp.iHigh - bp.iLow) / (bp.cHigh - bp.cLow)) * (conc - bp.cLow) + bp.iLow;
+      const effectiveC = Math.max(bp.cLow, conc);
+      const idx = ((bp.iHigh - bp.iLow) / (bp.cHigh - bp.cLow)) * (effectiveC - bp.cLow) + bp.iLow;
       return Math.round(Math.max(0, Math.min(500, idx)));
     }
   }
@@ -232,7 +240,8 @@ export function calculateSubIndex(
  * Enforces the official CPCB statutory criteria:
  * 1. At least 3 pollutants must be monitored.
  * 2. At least one of the monitored pollutants MUST be PM2.5 or PM10.
- * 3. Distinguishes statutory 24-hr compliance from indicative snapshots.
+ * 3. Enforces pollutant-specific averaging periods (24-hr for PM/NO2/SO2/NH3/Pb, 8-hr for CO/O3).
+ * 4. Distinguishes statutory compliance from indicative snapshots.
  */
 export function calculateComprehensiveCpcbNaqi(input: PollutantInput): CpcbNaqiCalculationResult {
   const subIndices: Record<string, SubIndexResult> = {};
@@ -298,6 +307,20 @@ export function calculateComprehensiveCpcbNaqi(input: PollutantInput): CpcbNaqiC
   const isDataSufficient = monitoredCount >= 3 && hasParticulate;
 
   if (monitoredCount === 0) {
+    const evidence: AqiEvidence = {
+      indexValue: null,
+      standard: 'IN_CPCB',
+      method: 'unavailable',
+      classification: 'unavailable',
+      sourceProvider: input.sourceProvider || null,
+      pollutantCount: 0,
+      averagingVerified: false,
+      isOfficialPublished: false,
+      missingRequirements: ['No valid pollutant concentrations available.'],
+      standardVersion: 'CPCB NAQI (MoEFCC Guidelines 2014-2015)',
+      notes: 'Insufficient telemetry to calculate National AQI.',
+    };
+
     return {
       aqi: null,
       category: null,
@@ -309,31 +332,49 @@ export function calculateComprehensiveCpcbNaqi(input: PollutantInput): CpcbNaqiC
       notes: 'Insufficient telemetry to calculate National AQI.',
       classification: 'unavailable',
       isOfficialPublished: false,
+      evidence,
     };
   }
 
   const aqi = maxSubIndex >= 0 ? maxSubIndex : null;
   const category = aqi !== null ? getCpcbCategory(aqi) : null;
 
-  // Check averaging period requirements (Defect 4):
+  // Check averaging period requirements (Section 10):
   // Statutory compliance requires affirmative evidence:
-  // - 24-hr (1440 min) for PM2.5, PM10, NO2, SO2, NH3, Pb.
-  // - 8-hr (480 min) for CO, O3.
-  // Never default missing boolean or unknown averaging periods to statutory compliant.
+  // - 24-hr (1440 min or 24 h) for PM2.5, PM10, NO2, SO2, NH3, Pb.
+  // - 8-hr (480 min or 8 h) for CO, O3.
   let isAveragingVerified = false;
-  if (input.is24HourAveraged === true) {
-    isAveragingVerified = true;
-  } else if (input.averagingPeriods) {
+  const countedKeys = Object.keys(subIndices);
+  const hasEightHourPollutant = countedKeys.includes('co') || countedKeys.includes('o3');
+
+  if (input.averagingPeriods) {
     let allCountedMatch = true;
-    for (const countedKey of Object.keys(subIndices)) {
+    for (const countedKey of countedKeys) {
       const period = input.averagingPeriods[countedKey];
+      if (period === undefined || period === null) {
+        allCountedMatch = false;
+        break;
+      }
       if (countedKey === 'co' || countedKey === 'o3') {
-        if (period !== 480) allCountedMatch = false;
+        if (period !== 480 && period !== 8) {
+          allCountedMatch = false;
+          break;
+        }
       } else {
-        if (period !== 1440) allCountedMatch = false;
+        if (period !== 1440 && period !== 24) {
+          allCountedMatch = false;
+          break;
+        }
       }
     }
-    isAveragingVerified = allCountedMatch && Object.keys(subIndices).length > 0;
+    isAveragingVerified = allCountedMatch && countedKeys.length > 0;
+  } else if (input.is24HourAveraged === true) {
+    // Legacy boolean cannot bypass CO/O3 rules (Section 10, Test 51)
+    if (!hasEightHourPollutant && countedKeys.length > 0) {
+      isAveragingVerified = true;
+    } else {
+      isAveragingVerified = false;
+    }
   }
 
   let classification: CpcbClassification = 'indicative_subindex';
@@ -342,6 +383,35 @@ export function calculateComprehensiveCpcbNaqi(input: PollutantInput): CpcbNaqiC
   } else if (isDataSufficient && !isAveragingVerified) {
     classification = 'indicative_snapshot';
   }
+
+  const isOfficialPublished = input.isOfficialPublished === true;
+  const method: AqiMethod = isOfficialPublished
+    ? 'cpcb_official_published'
+    : classification === 'statutory_compliant'
+    ? 'cpcb_statutory_eligible'
+    : aqi !== null
+    ? 'cpcb_derived_indicative'
+    : 'unavailable';
+
+  const notes = classification === 'statutory_compliant'
+    ? `Statutory CPCB NAQI compliant (${monitoredCount} pollutants; dominant: ${dominant}).`
+    : classification === 'indicative_snapshot'
+    ? `Indicative snapshot AQI (${monitoredCount} pollutants monitored, but instantaneous/hourly snapshot rather than verified statutory 24-hr/8-hr averages).`
+    : `Indicative sub-index based on ${monitoredCount} available pollutants (${missingRequirements.join('; ')}).`;
+
+  const evidence: AqiEvidence = {
+    indexValue: aqi,
+    standard: 'IN_CPCB',
+    method,
+    classification,
+    sourceProvider: input.sourceProvider || null,
+    pollutantCount: monitoredCount,
+    averagingVerified: isAveragingVerified,
+    isOfficialPublished,
+    missingRequirements,
+    standardVersion: 'CPCB NAQI (MoEFCC Guidelines 2014-2015)',
+    notes,
+  };
 
   return {
     aqi,
@@ -352,11 +422,8 @@ export function calculateComprehensiveCpcbNaqi(input: PollutantInput): CpcbNaqiC
     monitoredPollutantCount: monitoredCount,
     missingRequirements,
     classification,
-    isOfficialPublished: false,
-    notes: classification === 'statutory_compliant'
-      ? `Statutory CPCB NAQI compliant (${monitoredCount} pollutants; dominant: ${dominant}).`
-      : classification === 'indicative_snapshot'
-      ? `Indicative snapshot AQI (${monitoredCount} pollutants monitored, but instantaneous/hourly snapshot rather than verified statutory 24-hr/8-hr averages).`
-      : `Indicative sub-index based on ${monitoredCount} available pollutants (${missingRequirements.join('; ')}).`,
+    isOfficialPublished,
+    notes,
+    evidence,
   };
 }

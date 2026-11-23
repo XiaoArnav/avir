@@ -33,7 +33,7 @@ describe('AtmosphereHero Zero-Fabrication & Timeline Integrity', () => {
   });
 
   it('evaluates CPCB NAQI and CAQM GRAP stages with null safety', () => {
-    expect(calculateCpcbNaqi(null, null)).toEqual({ aqi: null, category: 'Good' });
+    expect(calculateCpcbNaqi(null, null)).toEqual({ aqi: null, category: 'Unavailable', isIndicativeSubIndex: false });
     expect(calculateCpcbNaqi(150, 200).aqi).toBeGreaterThan(0);
 
     const grapUnavail = getGrapStage(null);

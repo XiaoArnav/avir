@@ -654,25 +654,28 @@ export function buildMultiSourceFeeds(params: {
     groundStation &&
     groundStation.pm25 !== null &&
     Number.isFinite(groundStation.pm25) &&
+    groundStation.pm25 >= 0 &&
     groundStation.stationState !== 'registry_only'
   ) {
     const groundPm25 = groundStation.pm25;
     const groundAqi = calculateAQIFromPM25(groundPm25);
-    const stationLabel = `${groundStation.stationName}${groundStation.distanceKm !== null && groundStation.distanceKm !== undefined ? ` (${groundStation.distanceKm}km)` : ''}`;
+    if (groundAqi !== null) {
+      const stationLabel = `${groundStation.stationName}${groundStation.distanceKm !== null && groundStation.distanceKm !== undefined ? ` (${groundStation.distanceKm}km)` : ''}`;
 
-    feeds.push({
-      id: `ground-${groundStation.stationId}`,
-      sourceName: stationLabel,
-      provider: groundStation.provider,
-      aqi: groundAqi,
-      pm25: groundPm25,
-      confidence: groundStation.isCalibrated ? 'Calibrated' : 'High',
-      standard: groundStation.stationType === 'official_reference' ? 'CPCB-NAQI' : 'US-EPA',
-      description: groundStation.isCalibrated
-        ? `Citizen-science optical monitor with ${groundStation.calibrationFormula || 'US EPA Barkjohn'} de-humidification.`
-        : 'In-situ physical ground monitor at human breathing height.',
-      provenance: 'observed',
-    });
+      feeds.push({
+        id: `ground-${groundStation.stationId}`,
+        sourceName: stationLabel,
+        provider: groundStation.provider,
+        aqi: groundAqi,
+        pm25: groundPm25,
+        confidence: groundStation.isCalibrated ? 'Calibrated' : 'High',
+        standard: groundStation.stationType === 'official_reference' ? 'CPCB-NAQI' : 'US-EPA',
+        description: groundStation.isCalibrated
+          ? `Citizen-science optical monitor with ${groundStation.calibrationFormula || 'US EPA Barkjohn'} de-humidification.`
+          : 'In-situ physical ground monitor at human breathing height.',
+        provenance: 'observed',
+      });
+    }
   }
 
   // 3. Derived Regulatory Standards (Mathematical conversions from the same physical concentration)

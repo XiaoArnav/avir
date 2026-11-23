@@ -65,7 +65,7 @@ describe('Statutory CPCB NAQI 8-Pollutant Calculation Engine', () => {
         no2: 30,
         co: 800,
         coUnit: 'ug/m3',
-        is24HourAveraged: true,
+        averagingPeriods: { pm10: 1440, no2: 1440, co: 480 },
       });
 
       expect(result.isDataSufficient).toBe(true);
