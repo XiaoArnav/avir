@@ -73,6 +73,36 @@ export function calculateDailyScheduleExposure(
   ambientPM25: number,
   customRatios?: Partial<Record<ActivityEnvironment, number>>
 ): InhaledMassCalculation {
+  const isInvalidAmbient =
+    ambientPM25 === null ||
+    ambientPM25 === undefined ||
+    typeof ambientPM25 !== 'number' ||
+    isNaN(ambientPM25) ||
+    ambientPM25 < 0;
+
+  if (isInvalidAmbient) {
+    let totalDurationMinutes = 0;
+    for (const activity of schedule.activities) {
+      totalDurationMinutes += calculateActivityDurationMinutes(activity.startTime, activity.endTime);
+    }
+    return {
+      status: 'unavailable',
+      reason: 'A valid PM2.5 measurement or forecast is required to estimate exposure.',
+      totalInhaledMassUg: null,
+      totalDurationHours: Math.round((totalDurationMinutes / 60) * 10) / 10,
+      averageAmbientConcentrationUgM3: null,
+      averageEffectiveConcentrationUgM3: null,
+      activityBreakdowns: [],
+      calculatedAt: new Date().toISOString(),
+      calculationMethod: 'discrete_time_integral',
+      provenance: {
+        source: 'US EPA Exposure Factors Handbook (2011)',
+        assumptions: ['Exposure calculation unavailable due to missing or invalid PM2.5 data.'],
+        isEstimated: false,
+      },
+    };
+  }
+
   const activityBreakdowns: ActivityExposureBreakdown[] = [];
   let totalInhaledMassUg = 0;
   let totalDurationMinutes = 0;
@@ -120,6 +150,7 @@ export function calculateDailyScheduleExposure(
       : 0;
 
   return {
+    status: 'available',
     totalInhaledMassUg: Math.round(totalInhaledMassUg * 100) / 100,
     totalDurationHours: Math.round((totalDurationMinutes / 60) * 10) / 10,
     averageAmbientConcentrationUgM3: ambientPM25,

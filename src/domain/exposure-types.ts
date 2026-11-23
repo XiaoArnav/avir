@@ -57,20 +57,38 @@ export interface ActivityExposureBreakdown {
   inhaledMassUg: number;
 }
 
-export interface InhaledMassCalculation {
-  totalInhaledMassUg: number;
-  totalDurationHours: number;
-  averageAmbientConcentrationUgM3: number;
-  averageEffectiveConcentrationUgM3: number;
-  activityBreakdowns: ActivityExposureBreakdown[];
-  calculatedAt: string;
-  calculationMethod: 'discrete_time_integral';
-  provenance: {
-    source: string;
-    assumptions: string[];
-    isEstimated: true;
-  };
-}
+export type InhaledMassCalculation =
+  | {
+      status: 'available';
+      totalInhaledMassUg: number;
+      totalDurationHours: number;
+      averageAmbientConcentrationUgM3: number;
+      averageEffectiveConcentrationUgM3: number;
+      activityBreakdowns: ActivityExposureBreakdown[];
+      calculatedAt: string;
+      calculationMethod: 'discrete_time_integral';
+      provenance: {
+        source: string;
+        assumptions: string[];
+        isEstimated: true;
+      };
+    }
+  | {
+      status: 'unavailable';
+      reason: string;
+      totalInhaledMassUg: null;
+      totalDurationHours: number;
+      averageAmbientConcentrationUgM3: null;
+      averageEffectiveConcentrationUgM3: null;
+      activityBreakdowns: ActivityExposureBreakdown[];
+      calculatedAt: string;
+      calculationMethod: 'discrete_time_integral';
+      provenance: {
+        source: string;
+        assumptions: string[];
+        isEstimated: false;
+      };
+    };
 
 export type CommuteTransitMode =
   | 'walking'

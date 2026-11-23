@@ -67,11 +67,13 @@ export async function POST(req: NextRequest) {
     let legacyPlanFallback = isModernSchedule ? null : generateLocalHeuristicPlan(rawBody);
 
     if (isModernSchedule) {
-      const forecast: HourlyForecastPoint[] = Array.isArray(rawBody.hourlyForecast)
-        ? rawBody.hourlyForecast
-        : [];
+      const isClientForecast = Array.isArray(rawBody.hourlyForecast) && rawBody.hourlyForecast.length > 0;
+      const forecast: HourlyForecastPoint[] = isClientForecast ? rawBody.hourlyForecast : [];
 
-      deterministicPlan = optimizeScheduleWithForecast(rawBody.schedule, forecast);
+      deterministicPlan = optimizeScheduleWithForecast(rawBody.schedule, forecast, {
+        isUserSupplied: isClientForecast,
+        cityId: typeof rawBody.city === 'string' ? rawBody.city.toLowerCase() : undefined,
+      });
     } else {
       // Map legacy fallback to DeterministicPlanResult
       const fb = legacyPlanFallback!;
@@ -127,6 +129,8 @@ export async function POST(req: NextRequest) {
     // TIER 3: AI EXPLANATION LAYER (LLM AS EXPLANATION ONLY, NO CALCULATIONS)
     // =========================================================================
     let aiExplanation: AiPlanExplanation | undefined = undefined;
+    let isAiGenerated = false;
+    let explanationSource: 'llm_generated' | 'deterministic_fallback' = 'deterministic_fallback';
 
     if (apiKey) {
       try {
@@ -178,6 +182,8 @@ Return only valid JSON matching this schema:
               generatedAt: new Date().toISOString(),
               isDeterministicVerified: true,
             };
+            isAiGenerated = true;
+            explanationSource = 'llm_generated';
           }
         }
       } catch (geminiErr) {
@@ -187,6 +193,8 @@ Return only valid JSON matching this schema:
 
     // Fallback deterministic explanation if Gemini unconfigured or failed
     if (!aiExplanation) {
+      isAiGenerated = false;
+      explanationSource = 'deterministic_fallback';
       aiExplanation = {
         summary: deterministicPlan.statusMessage || `Personalized air quality plan for ${rawBody.city}.`,
         narrative: `Deterministic optimization evaluated schedule activities against ambient atmospheric levels in ${rawBody.city}.`,
@@ -205,6 +213,8 @@ Return only valid JSON matching this schema:
     if (isModernSchedule) {
       return NextResponse.json({
         success: true,
+        isAiGenerated,
+        explanationSource,
         deterministicPlan,
         aiExplanation,
       });
@@ -213,7 +223,8 @@ Return only valid JSON matching this schema:
     // Backwards-compatible response for legacy Phase A UI
     return NextResponse.json({
       ...legacyPlanFallback,
-      isAiGenerated: Boolean(apiKey),
+      isAiGenerated,
+      explanationSource,
       summaryAdvisory: aiExplanation.summary,
       deterministicPlan,
       aiExplanation,

@@ -467,7 +467,7 @@ export interface RecommendationPlan {
     totalInhaledBaselineUg: number | null;
     totalInhaledOptimizedUg: number | null;
     netAvoidedPM25Ug: number | null;
-    avoidedCigarettesMonthly: number | null;
+    avoidedCigarettesMonthly?: number | null;
     carbonSavedKgWeekly?: number | null;
     respiratorySafetyScore?: number | null;
     isImpactCalculated: boolean;
