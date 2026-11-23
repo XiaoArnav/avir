@@ -567,14 +567,18 @@ export const MultiSourceInspectorModal: React.FC<MultiSourceInspectorModalProps>
               <div className="flex items-center justify-between">
                 <span className="font-bold text-xs text-ink dark:text-white">US EPA AirNow Standard</span>
                 <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-blue-500/10 text-blue-500 font-bold">
-                  0-500 Scale
+                  {metrics?.aqiEvidence?.method === 'provider_reported'
+                    ? 'Provider Reported'
+                    : metrics?.aqiEvidence?.method === 'epa_pm25_24h_subindex'
+                    ? 'PM2.5 Sub-Index (2024)'
+                    : '0-500 Scale (2024 Breakpoints)'}
                 </span>
               </div>
               <div className="text-xl font-mono font-black text-ink dark:text-white">
                 {metrics?.usAqi !== null && metrics?.usAqi !== undefined ? `${metrics.usAqi} AQI` : '—'}
               </div>
               <p className="text-[10.5px] text-ink-muted dark:text-zinc-400 leading-relaxed">
-                Calculated via standard US EPA piecewise linear concentration breakpoints for fine particulate matter (PM2.5).
+                Calculated via standard US EPA 2024 revised piecewise linear concentration breakpoints (40 CFR Part 58 Appendix G) for fine particulate matter (PM2.5).
               </p>
             </div>
 

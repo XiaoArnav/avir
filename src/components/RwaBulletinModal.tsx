@@ -1,9 +1,10 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Megaphone, X, Copy, Check, Printer, ShieldAlert, Building2, AlertTriangle } from 'lucide-react';
+import { Megaphone, X, Copy, Check, Printer, ShieldAlert, Building2, AlertTriangle, ShieldCheck } from 'lucide-react';
 import { AtmosphericMetrics } from '@/domain/types';
-import { getGrapStage, calculateCigaretteEquivalence } from '@/domain/air-math';
+import { getIndicativeGrapThreshold, calculateCigaretteEquivalence } from '@/domain/air-math';
+import { resolveOfficialGrapStatus } from '@/services/advisories/grap-status-resolver';
 
 interface RwaBulletinModalProps {
   isOpen: boolean;
@@ -30,8 +31,10 @@ export const RwaBulletinModal: React.FC<RwaBulletinModalProps> = ({
 
   const aqi = hasAqi ? metrics!.usAqi! : null;
   const pm25 = hasPm25 ? metrics!.pm25! : null;
-  const grap = hasAqi ? getGrapStage(aqi) : null;
+  const grap = hasAqi ? getIndicativeGrapThreshold(aqi) : null;
   const cigarettes = hasPm25 ? calculateCigaretteEquivalence(pm25) : null;
+
+  const officialGrap = resolveOfficialGrapStatus(undefined, { cityName });
 
   const todayDate = new Date().toLocaleDateString('en-IN', {
     day: 'numeric',
@@ -48,22 +51,32 @@ export const RwaBulletinModal: React.FC<RwaBulletinModalProps> = ({
       ? 'Numerical Atmospheric Model'
       : 'Telemetry Model Feed';
 
+  const officialStatusText =
+    officialGrap.verification === 'verified' && officialGrap.highestActiveStage !== null
+      ? `CAQM Stage-${officialGrap.highestActiveStage} Active (Statutory Order)`
+      : officialGrap.verification === 'not_applicable'
+      ? 'Not Applicable (Outside NCR)'
+      : officialGrap.verification === 'unknown'
+      ? 'Official Status Unverified'
+      : 'No Emergency Stages Active';
+
   const whatsappText = isDataAvailable
-    ? `📢 *COMMUNITY AIR QUALITY ADVISORY: ${displaySociety.toUpperCase()}*
+    ? `📢 *COMMUNITY AIR-QUALITY ADVISORY: ${displaySociety.toUpperCase()}*
 📍 *Location:* ${cityName} | 📅 *Date:* ${todayDate}
-⚠️ *Ambient AQI:* ${aqi} (${grap?.label ?? 'General'})
-🚬 *Breathing Risk:* Equivalent to smoking ~${cigarettes} cigarettes today.
+⚠️ *Ambient AQI:* ${aqi} (${grap?.label ?? 'Indicative'})
+🏛️ *Official Regulatory Status:* ${officialStatusText}
+🚬 *Particulate Burden:* ~${cigarettes} cigs/day eq. (Berkeley Earth statistical mass rule; not an individual clinical diagnosis)
 🔬 *Source:* ${metrics?.sourceAttribution || 'Open-Meteo'} (${provenanceLabel})
 
-*RECOMMENDED COMMUNITY CLEAN-AIR ADVISORY:*
-1. 🚫 *Zero Open Burning:* Strictly no burning of garden dry leaves, trash, or biomass. Report violations immediately.
-2. ⚡ *Diesel Generator Restrictions:* Minimize non-essential DG set operations; prioritize battery backups.
-3. 🏃 *Outdoor Activity Shift:* Move high-exertion outdoor sports away from nocturnal inversion hours to midday solar ventilation windows.
-4. 💧 *Dust Suppression:* Facility team to execute mist water spraying along boundary walls and driveways.
-5. 🛡️ *Worker Respiratory Protection:* Provide high-filtration N95 respirators to outdoor security and maintenance staff.
+*RECOMMENDED COMMUNITY CLEAN-AIR GUIDANCE (VOLUNTARY PRECAUTIONS):*
+1. 🚫 *Zero Open Waste Burning:* Bag all dry leaves and horticulture waste; report burning violations immediately.
+2. ⚡ *Diesel Generator Measures:* Minimize non-essential DG set operations; comply with applicable emission control retrofits.
+3. 🏃 *Activity Timing Shift:* Move high-intensity outdoor physical activities away from early morning nocturnal inversion windows to midday solar dispersion hours.
+4. 💧 *Dust Suppression:* Conduct periodic mist water spraying along boundary walls, unpaved pathways, and driveways.
+5. 🛡️ *Worker Respiratory PPE:* Provide certified N95 respirators to outdoor security and estate maintenance staff.
 
-_Generated via Avir — Zero-Fabrication Urban Air Quality Assistant_
-https://avir-blue.vercel.app`
+_Classification: Avir-Generated Community Clean-Air Advisory — Not a Government Order_
+_Official CAQM Orders: https://caqm.nic.in/ | https://avir-blue.vercel.app_`
     : '';
 
   const handleCopy = () => {
@@ -96,10 +109,10 @@ https://avir-blue.vercel.app`
             </div>
             <div>
               <h2 id="rwa-modal-title" className="text-lg font-bold text-ink dark:text-white tracking-tight">
-                Community &amp; RWA Smog Circular
+                Community Air-Quality Advisory &amp; RWA Guidance
               </h2>
               <p className="text-xs text-ink-muted dark:text-zinc-400">
-                Generate a verified clean-air advisory for housing societies, schools &amp; RWAs
+                Generate an evidence-based clean-air advisory for housing societies, schools &amp; RWAs
               </p>
             </div>
           </div>
@@ -159,7 +172,7 @@ https://avir-blue.vercel.app`
                   {displaySociety}
                 </div>
                 <div className="text-[11px] font-mono text-ink-muted dark:text-zinc-400">
-                  Community Clean-Air Health Advisory • {grap?.label ?? 'Advisory'}
+                  Community Clean-Air Health Advisory • {grap?.label ?? 'Indicative'}
                 </div>
               </div>
               <div className="text-right text-[11px] font-mono text-ink-muted dark:text-zinc-400">
@@ -168,23 +181,35 @@ https://avir-blue.vercel.app`
               </div>
             </div>
 
+            {/* Official Regulatory Banner */}
+            <div className="flex items-center gap-2 p-2.5 rounded-lg bg-stone-50 dark:bg-zinc-950 border border-stone-200 dark:border-zinc-800 text-xs">
+              <ShieldCheck className="w-4 h-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+              <span>
+                <strong>Official CAQM Status:</strong> {officialStatusText}
+              </span>
+            </div>
+
+            {/* Ambient Reading */}
             <div className="flex items-center gap-2 p-2.5 rounded-lg bg-amber-50 dark:bg-zinc-950 border border-amber-200 dark:border-zinc-800 text-amber-900 dark:text-zinc-300 text-xs">
               <ShieldAlert className="w-4 h-4 shrink-0 text-terracotta-600 dark:text-white" />
               <span>
-                <strong>Atmospheric Reading:</strong> Ambient AQI is {aqi} (PM2.5: {pm25} µg/m³). Breathing risk is equivalent to smoking ~{cigarettes} cigarettes/day.
+                <strong>Atmospheric Reading:</strong> Ambient AQI is {aqi} (PM2.5: {pm25} µg/m³). Particulate burden equivalent to ~{cigarettes} cigs/day (statistical mass analogy).
               </span>
             </div>
 
             <div className="space-y-2 text-xs">
               <div className="font-semibold text-ink dark:text-white tracking-wide">
-                RECOMMENDED COMMUNITY CLEAN-AIR ADVISORY:
+                RECOMMENDED COMMUNITY CLEAN-AIR ADVISORY (VOLUNTARY PRECAUTIONS):
+              </div>
+              <div className="text-[11px] text-ink-muted dark:text-zinc-400">
+                RECOMMENDED COMMUNITY CLEAN-AIR GUIDANCE FOR RESIDENTS:
               </div>
               <ol className="list-decimal pl-4 space-y-1.5 text-ink-muted dark:text-zinc-300">
                 <li>
                   <strong className="text-ink dark:text-white">Strict Ban on Dry Leaf &amp; Waste Burning:</strong> All horticulture waste must be bagged and transferred to municipal composters. Estate guards are authorized to report violators.
                 </li>
                 <li>
-                  <strong className="text-ink dark:text-white">Diesel Generator Restrictions:</strong> Minimize non-essential DG set operations during elevated pollution periods.
+                  <strong className="text-ink dark:text-white">Diesel Generator Measures:</strong> Minimize non-essential DG set operations during elevated pollution periods; verify compliance with retrofitted emission control devices.
                 </li>
                 <li>
                   <strong className="text-ink dark:text-white">Children Outdoor Hours Shifted:</strong> Early morning physical outdoor sports are discouraged during nocturnal thermal inversion. Shift activities to afternoon solar dispersion windows.
@@ -198,8 +223,9 @@ https://avir-blue.vercel.app`
               </ol>
             </div>
 
-            <div className="text-[11px] text-stone-500 dark:text-zinc-500 border-t border-stone-200 dark:border-zinc-800 pt-2 text-right">
-              Issued for Resident Protection • {provenanceLabel} ({metrics?.sourceAttribution || 'Open-Meteo'})
+            <div className="text-[10px] text-stone-500 dark:text-zinc-500 border-t border-stone-200 dark:border-zinc-800 pt-2 flex items-center justify-between">
+              <span>Classification: Avir-Generated Advisory • Not a Government Order</span>
+              <span>{provenanceLabel} ({metrics?.sourceAttribution || 'Open-Meteo'})</span>
             </div>
           </div>
         )}

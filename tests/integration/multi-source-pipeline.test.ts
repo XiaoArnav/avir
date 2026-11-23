@@ -40,6 +40,7 @@ describe('AVIR STEP 3 — Group F & G: Multi-Source Pipeline & Location Isolatio
         wind_direction_10m: 290,
       },
       hourly: {
+        time: ['2026-11-22T08:00', '2026-11-22T09:00', '2026-11-22T10:00'],
         boundary_layer_height: [450, 500, 600],
       },
     };
@@ -117,7 +118,7 @@ describe('AVIR STEP 3 — Group F & G: Multi-Source Pipeline & Location Isolatio
           status: 200,
           json: async () => ({
             current: { temperature_2m: 25, relative_humidity_2m: 50, wind_speed_10m: 5, wind_direction_10m: 180 },
-            hourly: { boundary_layer_height: [500] },
+            hourly: { time: ['2026-11-22T08:00'], boundary_layer_height: [500] },
           }),
         } as Response;
       }
@@ -174,7 +175,7 @@ describe('AVIR STEP 3 — Group F & G: Multi-Source Pipeline & Location Isolatio
           status: 200,
           json: async () => ({
             current: { temperature_2m: 25, relative_humidity_2m: 50, wind_speed_10m: 5, wind_direction_10m: 180 },
-            hourly: { boundary_layer_height: [500] },
+            hourly: { time: ['2026-11-22T08:00'], boundary_layer_height: [500] },
           }),
         } as Response;
       }
@@ -218,7 +219,7 @@ describe('AVIR STEP 3 — Group F & G: Multi-Source Pipeline & Location Isolatio
           status: 200,
           json: async () => ({
             current: { temperature_2m: 20, relative_humidity_2m: 60, wind_speed_10m: 10, wind_direction_10m: 90 },
-            hourly: { boundary_layer_height: [600] },
+            hourly: { time: ['2026-11-22T08:00'], boundary_layer_height: [600] },
           }),
         } as Response;
       }

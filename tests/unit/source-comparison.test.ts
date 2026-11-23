@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   compareEnvironmentalSources,
   createOpenMeteoModelRecord,
@@ -8,6 +8,14 @@ import {
 import { EnvironmentalSourceRecord } from '@/domain/types';
 
 describe('AVIR STEP 3 CORRECTIVE — Group D: Comparison Integrity & Parity (30-42)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-22T09:00:00Z'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
   it('30. A single source does not generate consensus or artificial spread (Mode A)', () => {
     const singleModel = createOpenMeteoModelRecord({
       pm25: 145,
@@ -272,9 +280,10 @@ describe('AVIR STEP 3 CORRECTIVE — Group D: Comparison Integrity & Parity (30-
   });
 
   it('39. Duplicate upstream sources are not counted twice', () => {
+    const timestamp = new Date(Date.now() - 30 * 60 * 1000).toISOString();
     const model = createOpenMeteoModelRecord({
       pm25: 120,
-      timestamp: '2026-11-22T08:00:00Z',
+      timestamp,
       latitude: 28.61,
       longitude: 77.21,
     });
@@ -291,9 +300,9 @@ describe('AVIR STEP 3 CORRECTIVE — Group D: Comparison Integrity & Parity (30-
       latitude: 28.63,
       longitude: 77.24,
       distanceKm: 3.0,
-      observedAt: '2026-11-22T08:00:00Z',
+      observedAt: timestamp,
       retrievedAt: new Date().toISOString(),
-      measurements: [{ pollutant: 'pm25', value: 160, unit: 'ug/m3', averagingPeriodMinutes: 60, observedAt: '2026-11-22T08:00:00Z' }],
+      measurements: [{ pollutant: 'pm25', value: 160, unit: 'ug/m3', averagingPeriodMinutes: 60, observedAt: timestamp }],
       attribution: 'CPCB',
       provenance: { licenseOrAttribution: 'CPCB', isModel: false, limitations: [] },
     };
@@ -310,9 +319,9 @@ describe('AVIR STEP 3 CORRECTIVE — Group D: Comparison Integrity & Parity (30-
       latitude: 28.63,
       longitude: 77.24,
       distanceKm: 3.0,
-      observedAt: '2026-11-22T08:00:00Z',
+      observedAt: timestamp,
       retrievedAt: new Date().toISOString(),
-      measurements: [{ pollutant: 'pm25', value: 160, unit: 'ug/m3', averagingPeriodMinutes: 60, observedAt: '2026-11-22T08:00:00Z' }],
+      measurements: [{ pollutant: 'pm25', value: 160, unit: 'ug/m3', averagingPeriodMinutes: 60, observedAt: timestamp }],
       attribution: 'OpenAQ',
       provenance: { licenseOrAttribution: 'OpenAQ', isModel: false, limitations: [] },
     };
@@ -325,7 +334,7 @@ describe('AVIR STEP 3 CORRECTIVE — Group D: Comparison Integrity & Parity (30-
   });
 
   it('40. Two valid independent comparable PM2.5 records produce the correct difference (Mode C)', () => {
-    const timestamp = '2026-11-22T08:00:00Z';
+    const timestamp = new Date(Date.now() - 30 * 60 * 1000).toISOString();
 
     const model = createOpenMeteoModelRecord({
       pm25: 152.0,
@@ -363,7 +372,7 @@ describe('AVIR STEP 3 CORRECTIVE — Group D: Comparison Integrity & Parity (30-
   });
 
   it('41. Three-source comparison preserves accurate eligible and excluded lists', () => {
-    const timestamp = '2026-11-22T08:00:00Z';
+    const timestamp = new Date(Date.now() - 30 * 60 * 1000).toISOString();
 
     const model = createOpenMeteoModelRecord({
       pm25: 100,
@@ -416,7 +425,7 @@ describe('AVIR STEP 3 CORRECTIVE — Group D: Comparison Integrity & Parity (30-
   });
 
   it('42. No arbitrary numerical confidence percentage is generated', () => {
-    const timestamp = '2026-11-22T08:00:00Z';
+    const timestamp = new Date(Date.now() - 30 * 60 * 1000).toISOString();
     const model = createOpenMeteoModelRecord({ pm25: 100, timestamp, latitude: 28.61, longitude: 77.21 });
     const ground: EnvironmentalSourceRecord = {
       id: 'g1',

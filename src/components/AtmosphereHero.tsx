@@ -7,6 +7,7 @@ import {
   calculateCpcbNaqi,
   getGrapStage,
 } from '@/domain/air-math';
+import { resolveOfficialGrapStatus } from '@/services/advisories/grap-status-resolver';
 import { CityPanoramicBackdrop } from './CityPanoramicBackdrop';
 import { GroundStationBadge } from './GroundStationBadge';
 import {
@@ -325,10 +326,11 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
   }
 
   const cigarettes = calculateCigaretteEquivalence(metrics.pm25);
-  const cpcb = metrics.cpcbAqi
-    ? { aqi: metrics.cpcbAqi, category: metrics.cpcbCategory || 'Poor' }
+  const cpcb = metrics.cpcbAqi !== null && metrics.cpcbAqi !== undefined
+    ? { aqi: metrics.cpcbAqi, category: metrics.cpcbCategory || 'Unavailable' }
     : calculateCpcbNaqi(metrics.pm25, metrics.pm10);
   const grap = getGrapStage(metrics.usAqi);
+  const officialGrap = resolveOfficialGrapStatus(undefined, { cityName: city });
 
   const formattedTime = new Date(metrics.timestamp).toLocaleTimeString([], {
     hour: '2-digit',
@@ -475,7 +477,13 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
             </div>
             <div className="flex flex-col">
               <span className="text-xs uppercase font-mono tracking-widest text-ink-muted dark:text-zinc-400 font-semibold">
-                US AQI
+                {metrics.usAqi === null
+                  ? 'AQI Unavailable'
+                  : metrics.aqiEvidence?.method === 'provider_reported'
+                  ? 'US AQI (Modeled)'
+                  : metrics.aqiEvidence?.method === 'epa_pm25_24h_subindex'
+                  ? 'PM2.5 AQI Sub-Index'
+                  : 'US AQI'}
               </span>
               <span className="text-xs font-mono text-ink-muted dark:text-zinc-400 mt-0.5">
                 {metrics.cpcbStatus === 'statutory_compliant' ? 'CPCB NAQI' : 'Indicative CPCB Sub-Index'}:{' '}
@@ -507,10 +515,18 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
           {/* CAQM GRAP Emergency Stage Pill */}
           <div className="mt-2.5 flex items-center gap-2">
             <span className="text-[11px] font-mono px-2 py-0.5 rounded border font-semibold bg-stone-100 dark:bg-zinc-900 text-ink dark:text-zinc-300 border-stone-300 dark:border-zinc-700">
-              {grap.label}
+              {officialGrap.verification === 'not_applicable'
+                ? 'GRAP: NCR Only'
+                : officialGrap.verification === 'verified' && officialGrap.highestActiveStage !== null
+                ? `CAQM Stage-${officialGrap.highestActiveStage} Active`
+                : grap.label}
             </span>
             <span className="text-[11px] text-ink-muted dark:text-zinc-400 truncate">
-              {grap.advisory}
+              {officialGrap.verification === 'not_applicable'
+                ? `Statutory GRAP applies exclusively within NCR (not applicable to ${city})`
+                : officialGrap.verification === 'verified' && officialGrap.highestActiveStage !== null
+                ? officialGrap.explanation
+                : grap.advisory}
             </span>
           </div>
         </div>

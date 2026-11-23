@@ -152,6 +152,29 @@ export type AQICategory =
   | 'Severe'
   | 'Unavailable';
 
+export type AqiMethod =
+  | 'provider_reported'
+  | 'epa_pm25_24h_subindex'
+  | 'epa_pm25_nowcast'
+  | 'cpcb_official_published'
+  | 'cpcb_derived_indicative'
+  | 'cpcb_statutory_eligible'
+  | 'unavailable';
+
+export interface AqiEvidence {
+  indexValue: number | null;
+  standard: 'US_EPA' | 'IN_CPCB';
+  method: AqiMethod;
+  classification: string;
+  sourceProvider: string | null;
+  pollutantCount: number;
+  averagingVerified: boolean;
+  isOfficialPublished: boolean;
+  missingRequirements: string[];
+  standardVersion: string;
+  notes?: string;
+}
+
 export interface AQIBreakpoint {
   category: AQICategory;
   aqiMin: number;
@@ -172,10 +195,18 @@ export interface HourlyAtmosphericPoint {
   boundaryLayerHeight: number | null;
   temperature?: number | null;
   humidity?: number | null;
+  relativeHumidity?: number | null;
   windSpeed?: number | null;
   isForecast: boolean;    // true if future hour, false if past/current observation
-  isSafeVentingWindow: boolean;
-  isStagnantDispersion: boolean; // low boundary layer height (<200m)
+  isSafeVentingWindow?: boolean;
+  isStagnantDispersion?: boolean; // low boundary layer height (<200m)
+  validAtUtc?: string;
+  timezone?: string;
+  localDisplayTime?: string;
+  localDisplayDate?: string;
+  completeness?: 'complete' | 'partial' | 'unavailable';
+  sourceAttribution?: string;
+  isModel?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -401,6 +432,8 @@ export interface AtmosphericMetrics {
   cpcbAqi?: number | null;
   cpcbCategory?: string | null;
   cpcbStatus?: 'statutory_compliant' | 'indicative_subindex' | 'indicative_snapshot' | 'unavailable';
+  aqiEvidence?: AqiEvidence;
+  cpcbEvidence?: AqiEvidence;
   sourceAttribution?: string;
   hourlyForecast?: HourlyAtmosphericPoint[];
   ensemble?: EnsembleConsensusAnalysis;
