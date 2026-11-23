@@ -299,17 +299,14 @@ export function lookupBoundaryLayerHeight(
     return { blh: fallbackBlh, matchedValidAt: null, deltaMinutes: 0 };
   }
 
-  const targetDate = typeof targetInstant === 'string'
-    ? new Date(targetInstant)
-    : typeof targetInstant === 'number'
-    ? new Date(targetInstant)
-    : targetInstant;
-
-  if (isNaN(targetDate.getTime())) {
+  let targetEpoch: number;
+  try {
+    const targetNorm = normalizeTimeInTimezone(targetInstant, timezone);
+    targetEpoch = targetNorm.epochMs;
+  } catch {
     return { blh: null, matchedValidAt: null, deltaMinutes: null };
   }
 
-  const targetEpoch = targetDate.getTime();
   let closestBlh: number | null = null;
   let closestValidAt: string | null = null;
   let minDiffMs = Infinity;
