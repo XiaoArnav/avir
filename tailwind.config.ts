@@ -20,6 +20,20 @@ const config: Config = {
         warning: '#f59e0b',
         danger: '#ef4444',
         hazardous: '#7c3aed',
+        // Futuristic Aerospace HUD & Cosmic Tokens
+        hud: {
+          border: 'var(--hud-border)',
+          accent: 'var(--hud-accent)',
+          bg: 'var(--hud-bg)',
+          glow: 'var(--hud-glow)',
+          corner: 'var(--hud-corner)',
+        },
+        space: {
+          950: '#040711',
+          900: '#060b18',
+          850: '#0a1024',
+          800: '#0e1630',
+        },
         // Step 17: Semantic surface, text and border tokens
         surface: {
           primary: 'var(--surface-primary)',
