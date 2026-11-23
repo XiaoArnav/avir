@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { PlanGenerationRequest, generateLocalHeuristicPlan } from '@/services/ai-assistant-service';
+import { daytimeForecastForPlan, generateLocalHeuristicPlan } from '@/services/ai-assistant-service';
 import { inspectPromptInjection } from '@/lib/security/sanitizer';
 import { getAQICategory } from '@/domain/air-math';
 import {
@@ -12,7 +12,7 @@ import {
   HourlyForecastPoint,
 } from '@/services/optimization/forecast-optimizer';
 import { calculateDailyScheduleExposure } from '@/services/exposure/exposure-engine';
-import { AiPlanExplanation, DeterministicPlanResult } from '@/domain/planning-types';
+import { AiPlanExplanation } from '@/domain/planning-types';
 import { aiPlanRateLimiter, extractClientIp } from '@/lib/security/rate-limiter';
 import { readBoundedJson } from '@/lib/security/request-limiter';
 
@@ -117,8 +117,8 @@ export async function POST(req: NextRequest) {
     // =========================================================================
     // TIER 1: DETERMINISTIC ENGINE (ALL NUMBERS DERIVED HERE, NEVER BY LLM)
     // =========================================================================
-    let deterministicPlan: DeterministicPlanResult;
-    let legacyPlanFallback = isModernSchedule ? null : generateLocalHeuristicPlan(rawBody);
+    const legacyPlanFallback = isModernSchedule ? null : generateLocalHeuristicPlan(rawBody);
+    let deterministicPlan;
 
     if (isModernSchedule) {
       const isClientForecast = Array.isArray(rawBody.hourlyForecast) && rawBody.hourlyForecast.length > 0;
@@ -131,19 +131,18 @@ export async function POST(req: NextRequest) {
     } else {
       // Map legacy fallback to DeterministicPlanResult
       const fb = legacyPlanFallback!;
-      const baselineMass = fb.routineShifts.reduce((acc, s) => acc + (s.baselineExposureUg ?? 0), 0);
-      const optMass = fb.routineShifts.reduce((acc, s) => acc + (s.optimizedExposureUg ?? s.baselineExposureUg ?? 0), 0);
-      const diff = Math.max(0, baselineMass - optMass);
+      const {totalInhaledBaselineUg, totalInhaledOptimizedUg, netAvoidedPM25Ug} = fb.impactMetrics;
+      const points = daytimeForecastForPlan(rawBody.metrics);
 
       deterministicPlan = {
         status: fb.routineShifts.some(s => s.isOptimizationAvailable) ? 'optimal' : 'unavailable',
         statusMessage: fb.summaryAdvisory,
         planFingerprint: `plan-legacy-${Date.now().toString(36)}`,
-        baselineExposureUg: Math.round(baselineMass * 10) / 10,
-        optimizedExposureUg: Math.round(optMass * 10) / 10,
-        absoluteSavingsUg: Math.round(diff * 10) / 10,
-        percentageSavings: baselineMass > 0 ? Math.round((diff / baselineMass) * 1000) / 10 : 0,
-        activityShifts: fb.routineShifts.map((s) => ({
+        baselineExposureUg: totalInhaledBaselineUg,
+        optimizedExposureUg: totalInhaledOptimizedUg,
+        absoluteSavingsUg: netAvoidedPM25Ug,
+        percentageSavings: totalInhaledBaselineUg && netAvoidedPM25Ug != null ? Math.round(netAvoidedPM25Ug / totalInhaledBaselineUg * 1000) / 10 : null,
+        activityShifts: fb.routineShifts.filter(s => s.isOptimizationAvailable && s.optimizedTimeWindow).map((s) => ({
           activityId: s.id,
           activityName: s.activityName,
           originalStart: s.timeWindow.split('-')[0]?.trim() || '08:00',
@@ -160,9 +159,9 @@ export async function POST(req: NextRequest) {
         unalteredActivities: [],
         calculationTimestamp: new Date().toISOString(),
         forecastProvenance: {
-          provider: 'Open-Meteo',
-          forecastStart: new Date().toISOString(),
-          forecastHoursEvaluated: 24,
+          provider: points[0]?.sourceAttribution ?? null,
+          forecastStart: points.map(p => p.validAtUtc || p.time).filter(Boolean).sort()[0] ?? null,
+          forecastHoursEvaluated: new Set(points.map(p => p.validAtUtc || p.time).filter(Boolean)).size,
           isSynthetic: false,
         },
         limitations: ['Legacy heuristic calculation mode.'],

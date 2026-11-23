@@ -26,6 +26,12 @@ export interface PlanGenerationRequest {
  * Generates mathematically rigorous, scientifically valid recommendations offline.
  * Ensures zero failures during judge evaluations or CI testing.
  */
+export function daytimeForecastForPlan(metrics: PlanGenerationRequest['metrics']) {
+  return (metrics.hourlyForecast ?? []).filter(p =>
+    p.isForecast && p.hour >= 11 && p.hour <= 16 && typeof p.pm25 === 'number' && Number.isFinite(p.pm25) && p.pm25 >= 0
+  );
+}
+
 export function generateLocalHeuristicPlan(req: PlanGenerationRequest): RecommendationPlan {
   const { city, metrics, profile, roomSizeSqFt = 180, customRoutine } = req;
   const aqiCategory = getAQICategory(metrics.usAqi);
@@ -35,8 +41,7 @@ export function generateLocalHeuristicPlan(req: PlanGenerationRequest): Recommen
   const peakPM25 = hasPm25 ? (metrics.pm25 as number) : null;
 
   // Determine actual daytime solar venting PM2.5 from forecast if present
-  const forecast = metrics.hourlyForecast || [];
-  const daytimeForecast = forecast.filter((p) => p.hour >= 11 && p.hour <= 16 && typeof p.pm25 === 'number');
+  const daytimeForecast = daytimeForecastForPlan(metrics);
 
   let bestDaytimeSlot = daytimeForecast.length > 0
     ? daytimeForecast.reduce((prev, curr) => ((curr.pm25 ?? 999) < (prev.pm25 ?? 999) ? curr : prev))

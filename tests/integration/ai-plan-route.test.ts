@@ -58,6 +58,11 @@ describe('Server-Side AI Plan API Route (/api/ai/plan)', () => {
 
     expect(plan.city).toBe('Delhi-NCR');
     expect(plan.isAiGenerated).toBe(false);
+    expect(plan.deterministicPlan.forecastProvenance).toEqual({
+      provider: null, forecastStart: null, forecastHoursEvaluated: 0, isSynthetic: false,
+    });
+    expect(plan.deterministicPlan.optimizedExposureUg).toBeNull();
+    expect(plan.deterministicPlan.absoluteSavingsUg).toBeNull();
     expect(plan.routineShifts.length).toBeGreaterThanOrEqual(3);
     expect(plan.corsiRosenthalBox).toBeDefined();
     expect(plan.impactMetrics.totalInhaledBaselineUg).toBeGreaterThan(0);
