@@ -13,6 +13,33 @@
   --ink-primary: #18201D;
   --ink-muted: #52605A;
   --primary: #236B56;
+
+  /* Step 17: Reusable Semantic Design Tokens (Light) */
+  --surface-primary: #FFFFFF;
+  --surface-secondary: #F6F5F0;
+  --surface-elevated: #FFFFFF;
+  --surface-muted: #EBE8DF;
+
+  --text-primary: #18201D;
+  --text-secondary: #3D4843;
+  --text-muted: #52605A;
+  --text-faint: #7A8882;
+
+  --border-default: #DCD9D0;
+  --border-subtle: #E8E5DC;
+  --border-strong: #B8B3A7;
+
+  --focus-ring: #236B56;
+
+  /* Semantic Data State Tokens */
+  --status-success: #059669;
+  --status-warning: #D97706;
+  --status-danger: #DC2626;
+  --status-severe: #9333EA;
+  --status-unavailable: #78716C;
+  --status-observed: #0D9488;
+  --status-modeled: #2563EB;
+  --status-estimated: #7C3AED;
 }
 
 .dark {
@@ -26,6 +53,33 @@
   --ink-primary: #EDEDE8;
   --ink-muted: #94a3b8;
   --primary: #10b981;
+
+  /* Step 17: Reusable Semantic Design Tokens (Dark) */
+  --surface-primary: #0c101c;
+  --surface-secondary: #080c14;
+  --surface-elevated: #111827;
+  --surface-muted: #182234;
+
+  --text-primary: #EDEDE8;
+  --text-secondary: #CBD5E1;
+  --text-muted: #94A3B8;
+  --text-faint: #64748B;
+
+  --border-default: rgba(255, 255, 255, 0.12);
+  --border-subtle: rgba(255, 255, 255, 0.06);
+  --border-strong: rgba(255, 255, 255, 0.22);
+
+  --focus-ring: #10B981;
+
+  /* Semantic Data State Tokens */
+  --status-success: #10B981;
+  --status-warning: #F59E0B;
+  --status-danger: #EF4444;
+  --status-severe: #A855F7;
+  --status-unavailable: #94A3B8;
+  --status-observed: #14B8A6;
+  --status-modeled: #3B82F6;
+  --status-estimated: #A855F7;
 }
 
 html {
@@ -83,10 +137,33 @@ body {
   transform: scale(0.985);
 }
 
-/* Touch & Mobile Optimization */
+/* Touch & Mobile Optimization (WCAG 2.2 AA target size 44x44) */
 .touch-target {
   min-height: 44px;
   min-width: 44px;
+}
+
+/* Tabular Numerals for Numerical Telemetry Stability */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Focus styles for keyboard accessibility */
+.focus-visible-ring:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* Respect reduced motion preference across all animations */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* Suppress scrollbar clutter while retaining touch fling */
@@ -98,23 +175,7 @@ body {
   scrollbar-width: none;
 }
 
-/* Safe area insets for mobile gestures */
+/* Safe area insets for mobile devices */
 .pb-safe {
   padding-bottom: env(safe-area-inset-bottom, 1rem);
-}
-
-/* Accessible visible focus ring for keyboard navigation */
-:focus-visible {
-  outline: 2px solid #10b981;
-  outline-offset: 2px;
-}
-
-/* Reduced motion preference */
-@media (prefers-reduced-motion: reduce) {
-  * {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
-  }
 }
