@@ -43,7 +43,12 @@ import { sanitizeUserHealthContext } from '@/services/ai/plan-validator';
 import { loadScheduleFromStorage } from '@/services/routines/routine-storage';
 import { DeterministicPlanResult, AiPlanExplanation } from '@/domain/planning-types';
 import { DailySchedule } from '@/domain/routine-types';
+import { FloatingDock } from '@/components/ui/futuristic';
 
+const EarthCommandCenter = dynamic(
+  () => import('@/components/home/EarthCommandCenter').then((module) => module.EarthCommandCenter),
+  { ssr: false }
+);
 const IAQStudio = dynamic(() => import('@/components/IAQStudio').then(module => module.IAQStudio));
 const WorldDataExplorer = dynamic(() => import('@/components/WorldDataExplorer').then(module => module.WorldDataExplorer));
 
@@ -370,6 +375,19 @@ export default function Home() {
             : `Selected city: ${selectedCity.name}.`}
         </div>
 
+        {/* Flagship Futuristic 3D Earth Environmental Intelligence Command Center */}
+        <EarthCommandCenter
+          currentCity={selectedCity}
+          metrics={metrics}
+          isLoading={isTelemetryLoading}
+          onSelectCity={handleCitySelect}
+          onRefreshTelemetry={refreshTelemetry}
+          onOpenExplainer={() => setIsExplainerOpen(true)}
+          onOpenShare={() => setIsShareModalOpen(true)}
+          onOpenMultiSource={() => setIsMultiSourceModalOpen(true)}
+          onOpenDailyPlan={() => setActiveTab('routine')}
+        />
+
         {/* Fast Metro Switcher Rail (One-tap swipe on mobile) */}
         <MetroRail
           currentCityName={selectedCity.name}
@@ -398,12 +416,23 @@ export default function Home() {
           onOpenDailyPlan={() => setActiveTab('routine')}
         />
 
-        {/* High-Contrast Segmented Navigation View Controller */}
-        <SegmentedTabs 
-          activeTab={activeTab} 
-          onChangeTab={setActiveTab} 
-          reductionPercentage={reductionPercentage}
-        />
+        {/* Futuristic Floating Navigation Dock */}
+        <div className="flex justify-center my-2">
+          <FloatingDock
+            activeTab={activeTab}
+            onChangeTab={setActiveTab}
+            reductionPercentage={reductionPercentage}
+          />
+        </div>
+
+        {/* High-Contrast Segmented Navigation View Controller (Accessible Fallback) */}
+        <div className="sm:hidden">
+          <SegmentedTabs 
+            activeTab={activeTab} 
+            onChangeTab={setActiveTab} 
+            reductionPercentage={reductionPercentage}
+          />
+        </div>
 
         {/* Tab 1: Overview, Location Search, Profile & Scorecard */}
         {activeTab === 'overview' && (

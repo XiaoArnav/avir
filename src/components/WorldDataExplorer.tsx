@@ -13,6 +13,8 @@ import {
 import { GeocodedLocation } from '@/services/telemetry-service';
 import { calculateCigaretteEquivalence } from '@/domain/air-math';
 import { savedComparisonsService, SavedCityComparisonRecord } from '@/services/saved-comparisons-service';
+import { AvirGlobe } from '@/components/globe';
+import { buildGeographicObservations } from '@/services/geo/geographic-observation-adapter';
 import { 
   Globe, 
   Search, 
@@ -44,7 +46,7 @@ export const WorldDataExplorer: React.FC<WorldDataExplorerProps> = ({
   const [selectedRegion, setSelectedRegion] = useState<WorldRegion>('All');
   const [selectedSeverity, setSelectedSeverity] = useState<SeverityFilter>('All');
   const [sortOrder, setSortOrder] = useState<SortOrder>('most_polluted');
-  const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
+  const [viewMode, setViewMode] = useState<'grid' | 'table' | 'globe'>('grid');
   const [isSearchingOnline, setIsSearchingOnline] = useState(false);
   const [onlineResults, setOnlineResults] = useState<WorldCityItem[]>([]);
   const [savedComparisons, setSavedComparisons] = useState<SavedCityComparisonRecord[]>(() =>
@@ -348,6 +350,19 @@ export const WorldDataExplorer: React.FC<WorldDataExplorerProps> = ({
               >
                 <List className="w-3.5 h-3.5" />
               </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('globe')}
+                className={`p-1.5 rounded-md transition-colors focus:outline-none ${
+                  viewMode === 'globe'
+                    ? 'bg-white dark:bg-zinc-800 text-ink dark:text-white shadow-xs'
+                    : 'text-stone-400 hover:text-ink dark:hover:text-white'
+                }`}
+                title="3D Earth Globe View"
+                aria-label="Switch to 3D earth globe view"
+              >
+                <Globe className="w-3.5 h-3.5 text-sky-500" />
+              </button>
             </div>
           </div>
         </div>
@@ -492,7 +507,7 @@ export const WorldDataExplorer: React.FC<WorldDataExplorerProps> = ({
             );
           })}
         </div>
-      ) : (
+      ) : viewMode === 'table' ? (
         /* TABLE RANKINGS VIEW */
         <div className="rounded-2xl glass-panel border border-stone-300 dark:border-zinc-800 bg-white/95 dark:bg-[#0c0c0e]/95 overflow-hidden shadow-sm">
           <div className="overflow-x-auto">
@@ -567,6 +582,25 @@ export const WorldDataExplorer: React.FC<WorldDataExplorerProps> = ({
               </tbody>
             </table>
           </div>
+        </div>
+      ) : (
+        /* 3D EARTH GLOBE VIEW */
+        <div className="w-full">
+          <AvirGlobe
+            points={buildGeographicObservations({ standard: 'epa', worldCities: cities })}
+            activeCityName={activeCityName}
+            onSelectPoint={(pt) => {}}
+            onSetActiveCity={(pt) => {
+              onSelectCity({
+                id: Math.floor(Math.random() * 100000),
+                name: pt.name,
+                country: pt.country,
+                countryCode: pt.countryCode,
+                latitude: pt.latitude,
+                longitude: pt.longitude,
+              });
+            }}
+          />
         </div>
       )}
     </section>
