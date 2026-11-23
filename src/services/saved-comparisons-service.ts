@@ -8,11 +8,15 @@ export interface SavedCityRecord {
   name: string;
   country: string;
   countryCode?: string | null;
+  admin1?: string | null;
+  cityId?: string | null;
   latitude?: number;
   longitude?: number;
   aqi: number | null;
   pm25: number | null;
   timestamp?: string | null;
+  modelDomain?: string | null;
+  sourceKind?: string | null;
 }
 
 export interface SavedCityComparisonRecord {
@@ -27,6 +31,22 @@ export interface SavedCityComparisonRecord {
 
 const STORAGE_KEY = 'avir:saved_comparisons:v1';
 const MAX_SAVED_COMPARISONS = 10;
+
+/**
+ * Computes a stable geographic identity key for saved cities to prevent cross-country
+ * and cross-province same-name collisions (e.g. London UK vs London Ontario Canada).
+ */
+export function getSavedCityIdentityKey(city: SavedCityRecord): string {
+  if (city.cityId && typeof city.cityId === 'string' && city.cityId.length > 0) {
+    return city.cityId.toLowerCase();
+  }
+  const country = (city.countryCode || city.country || 'xx').toLowerCase().trim();
+  const admin = (city.admin1 || '').toLowerCase().trim();
+  const name = city.name.toLowerCase().trim();
+  const lat = typeof city.latitude === 'number' && Number.isFinite(city.latitude) ? city.latitude.toFixed(2) : '';
+  const lon = typeof city.longitude === 'number' && Number.isFinite(city.longitude) ? city.longitude.toFixed(2) : '';
+  return `${country}:${admin}:${name}:${lat}:${lon}`;
+}
 
 class SavedComparisonsService {
   /**
@@ -67,12 +87,17 @@ class SavedComparisonsService {
           typeof item.id === 'string' &&
           item.version === 1 &&
           typeof item.savedAt === 'string' &&
+          !isNaN(new Date(item.savedAt).getTime()) &&
           item.cityA &&
           typeof item.cityA.name === 'string' &&
           typeof item.cityA.country === 'string' &&
+          (item.cityA.aqi === null || (typeof item.cityA.aqi === 'number' && Number.isFinite(item.cityA.aqi) && item.cityA.aqi >= 0)) &&
+          (item.cityA.pm25 === null || (typeof item.cityA.pm25 === 'number' && Number.isFinite(item.cityA.pm25) && item.cityA.pm25 >= 0)) &&
           item.cityB &&
           typeof item.cityB.name === 'string' &&
-          typeof item.cityB.country === 'string'
+          typeof item.cityB.country === 'string' &&
+          (item.cityB.aqi === null || (typeof item.cityB.aqi === 'number' && Number.isFinite(item.cityB.aqi) && item.cityB.aqi >= 0)) &&
+          (item.cityB.pm25 === null || (typeof item.cityB.pm25 === 'number' && Number.isFinite(item.cityB.pm25) && item.cityB.pm25 >= 0))
         ) {
           valid.push(item as SavedCityComparisonRecord);
         }
@@ -104,16 +129,18 @@ class SavedComparisonsService {
         savedAt: new Date().toISOString(),
       };
 
-      // Deduplicate: If identical city pair already exists, update it to the top
-      const filtered = current.filter(
-        (c) =>
-          !(
-            (c.cityA.name.toLowerCase() === record.cityA.name.toLowerCase() &&
-              c.cityB.name.toLowerCase() === record.cityB.name.toLowerCase()) ||
-            (c.cityA.name.toLowerCase() === record.cityB.name.toLowerCase() &&
-              c.cityB.name.toLowerCase() === record.cityA.name.toLowerCase())
-          )
-      );
+      // Deduplicate using robust multi-field geographic identity
+      const keyA = getSavedCityIdentityKey(record.cityA);
+      const keyB = getSavedCityIdentityKey(record.cityB);
+
+      const filtered = current.filter((c) => {
+        const cKeyA = getSavedCityIdentityKey(c.cityA);
+        const cKeyB = getSavedCityIdentityKey(c.cityB);
+        const isSamePair =
+          (cKeyA === keyA && cKeyB === keyB) ||
+          (cKeyA === keyB && cKeyB === keyA);
+        return !isSamePair;
+      });
 
       // Prepend newest and enforce bound limit
       const updated = [record, ...filtered].slice(0, MAX_SAVED_COMPARISONS);

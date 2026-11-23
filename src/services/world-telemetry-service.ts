@@ -145,45 +145,43 @@ export function buildBatchCoordinatesUrl(
 /**
  * Checks whether a response coordinate is mismatched or swapped with another city.
  */
-function checkCoordinateMismatch(
-  city: WorldMetroDef,
+export function checkCoordinateMismatch(
+  city: WorldMetroDef | { name: string; latitude: number; longitude: number },
   raw: any,
-  allCities: WorldMetroDef[]
+  allCities?: (WorldMetroDef | { name: string; latitude: number; longitude: number })[]
 ): { isMismatch: boolean; reason?: string } {
-  if (typeof raw.latitude !== 'number' || typeof raw.longitude !== 'number') {
-    return { isMismatch: false };
+  // Coordinate metadata validation
+  if (!raw || typeof raw.latitude !== 'number' || typeof raw.longitude !== 'number') {
+    return { isMismatch: true, reason: 'Missing coordinate metadata in provider response' };
   }
 
   const distToCity = Math.sqrt(
     Math.pow(raw.latitude - city.latitude, 2) + Math.pow(raw.longitude - city.longitude, 2)
   );
 
-  // Normal grid tolerance: within 2.0 degrees (~200km) is accepted as model grid point
-  if (distToCity <= 2.0) {
-    return { isMismatch: false };
-  }
-
-  // Check if this response item is close to another city in the requested batch (order swap)
-  for (const other of allCities) {
-    if (other !== city) {
-      const distToOther = Math.sqrt(
-        Math.pow(raw.latitude - other.latitude, 2) + Math.pow(raw.longitude - other.longitude, 2)
-      );
-      if (distToOther < 2.0) {
-        return {
-          isMismatch: true,
-          reason: `Coordinate association mismatch: received coordinates (${raw.latitude}, ${raw.longitude}) match ${other.name} instead of ${city.name}`,
-        };
+  // In multi-city batches, check for order swaps and model grid snapping
+  const batchList = allCities || [];
+  if (batchList.length > 1) {
+    if (distToCity > 0.8) {
+      // Check if received coordinate matches another city in the requested batch
+      for (const other of batchList) {
+        if (other !== city) {
+          const distToOther = Math.sqrt(
+            Math.pow(raw.latitude - other.latitude, 2) + Math.pow(raw.longitude - other.longitude, 2)
+          );
+          if (distToOther <= 0.8) {
+            return {
+              isMismatch: true,
+              reason: `Coordinate association mismatch: received coordinates (${raw.latitude}, ${raw.longitude}) match ${other.name} instead of ${city.name} (swapped or misaligned batch items)`,
+            };
+          }
+        }
       }
+      return {
+        isMismatch: true,
+        reason: `Coordinate distance (${distToCity.toFixed(2)}°) exceeds CAMS Global grid-cell limit (0.8°)`,
+      };
     }
-  }
-
-  // If distance is extremely large (> 15 degrees) in a full multi-city batch
-  if (distToCity > 15.0 && allCities.length > 5) {
-    return {
-      isMismatch: true,
-      reason: `Coordinate distance (${distToCity.toFixed(1)}°) exceeds model grid tolerance`,
-    };
   }
 
   return { isMismatch: false };
@@ -288,10 +286,31 @@ export function parseBatchTelemetryResponse(
     const current = raw.current || {};
     const incompatibilities: string[] = [];
 
+    // Unit metadata verification
+    let isUnsupportedPm25 = false;
+    let isUnsupportedPm10 = false;
+    const currentUnits = raw.current_units || raw.units || {};
+    if (currentUnits.pm2_5 && typeof currentUnits.pm2_5 === 'string') {
+      const u = currentUnits.pm2_5.trim().toLowerCase();
+      const validUnits = ['µg/m³', 'μg/m³', 'ug/m3', 'ug/m^3', 'mg/m³'];
+      if (!validUnits.includes(u)) {
+        isUnsupportedPm25 = true;
+        incompatibilities.push(`Unsupported PM2.5 unit (${currentUnits.pm2_5}). Expected µg/m³.`);
+      }
+    }
+    if (currentUnits.pm10 && typeof currentUnits.pm10 === 'string') {
+      const u = currentUnits.pm10.trim().toLowerCase();
+      const validUnits = ['µg/m³', 'μg/m³', 'ug/m3', 'ug/m^3', 'mg/m³'];
+      if (!validUnits.includes(u)) {
+        isUnsupportedPm10 = true;
+        incompatibilities.push(`Unsupported PM10 unit (${currentUnits.pm10}). Expected µg/m³.`);
+      }
+    }
+
     // Numerical validation for pollutants: reject negative, non-finite, or absurd values
     const hasRawUsAqi = typeof current.us_aqi === 'number' && Number.isFinite(current.us_aqi) && current.us_aqi >= 0 && current.us_aqi <= 1000;
-    const hasRawPm25 = typeof current.pm2_5 === 'number' && Number.isFinite(current.pm2_5) && current.pm2_5 >= 0 && current.pm2_5 <= 2000;
-    const hasRawPm10 = typeof current.pm10 === 'number' && Number.isFinite(current.pm10) && current.pm10 >= 0 && current.pm10 <= 3000;
+    const hasRawPm25 = !isUnsupportedPm25 && typeof current.pm2_5 === 'number' && Number.isFinite(current.pm2_5) && current.pm2_5 >= 0 && current.pm2_5 <= 2000;
+    const hasRawPm10 = !isUnsupportedPm10 && typeof current.pm10 === 'number' && Number.isFinite(current.pm10) && current.pm10 >= 0 && current.pm10 <= 3000;
 
     const pm25 = hasRawPm25 ? Math.round(current.pm2_5 * 10) / 10 : null;
     const pm10 = hasRawPm10 ? Math.round(current.pm10 * 10) / 10 : null;
@@ -350,18 +369,122 @@ export function parseBatchTelemetryResponse(
   });
 }
 
+export interface ModelFreshnessPolicy {
+  /** Maximum allowable age of model simulation valid time relative to current time (default: 12 hours) */
+  maxAgeHours?: number;
+  /** Maximum allowable future forecast time relative to current time (default: 2 hours) */
+  maxFutureHours?: number;
+}
+
+export interface ModelFreshnessResult {
+  isFresh: boolean;
+  modelValidDate: Date | null;
+  ageHours: number | null;
+  futureHours: number | null;
+  reasons: string[];
+}
+
+export const DEFAULT_MODEL_FRESHNESS_POLICY: Required<ModelFreshnessPolicy> = {
+  maxAgeHours: 12,
+  maxFutureHours: 2,
+};
+
+/**
+ * Authoritatively evaluates the scientific freshness of an atmospheric model valid timestamp.
+ * Rejects malformed dates, extreme future times, and outdated model runs.
+ * Uses an injectable clock (`now`) for deterministic verification.
+ */
+export function evaluateWorldModelFreshness(
+  modelValidAt: string | null | undefined,
+  now: Date = new Date(),
+  policy: ModelFreshnessPolicy = DEFAULT_MODEL_FRESHNESS_POLICY
+): ModelFreshnessResult {
+  const maxAgeHours = policy.maxAgeHours ?? DEFAULT_MODEL_FRESHNESS_POLICY.maxAgeHours;
+  const maxFutureHours = policy.maxFutureHours ?? DEFAULT_MODEL_FRESHNESS_POLICY.maxFutureHours;
+  const reasons: string[] = [];
+
+  if (!modelValidAt || typeof modelValidAt !== 'string' || modelValidAt.trim().length === 0) {
+    return {
+      isFresh: false,
+      modelValidDate: null,
+      ageHours: null,
+      futureHours: null,
+      reasons: ['Missing model valid timestamp'],
+    };
+  }
+
+  const modelDate = new Date(modelValidAt);
+  const timeMs = modelDate.getTime();
+  if (isNaN(timeMs)) {
+    return {
+      isFresh: false,
+      modelValidDate: null,
+      ageHours: null,
+      futureHours: null,
+      reasons: [`Malformed calendar date or unparseable timestamp: ${modelValidAt}`],
+    };
+  }
+
+  const nowMs = now.getTime();
+  const diffHours = (nowMs - timeMs) / (1000 * 60 * 60);
+
+  // If timestamp is in the future beyond maxFutureHours
+  if (diffHours < -maxFutureHours) {
+    reasons.push(
+      `Model timestamp is ${Math.abs(diffHours).toFixed(1)}h in the future, exceeding allowable tolerance of ${maxFutureHours}h`
+    );
+    return {
+      isFresh: false,
+      modelValidDate: modelDate,
+      ageHours: null,
+      futureHours: Math.abs(diffHours),
+      reasons,
+    };
+  }
+
+  // If timestamp is older than maxAgeHours
+  if (diffHours > maxAgeHours) {
+    reasons.push(
+      `Model timestamp (${modelValidAt}) is ${diffHours.toFixed(1)}h old, exceeding maximum freshness threshold of ${maxAgeHours}h`
+    );
+    return {
+      isFresh: false,
+      modelValidDate: modelDate,
+      ageHours: diffHours,
+      futureHours: null,
+      reasons,
+    };
+  }
+
+  return {
+    isFresh: true,
+    modelValidDate: modelDate,
+    ageHours: Math.max(0, diffHours),
+    futureHours: diffHours < 0 ? Math.abs(diffHours) : 0,
+    reasons: [],
+  };
+}
+
 /**
  * Computes scientific competition ranks among eligible comparable cities in the cohort.
- * Ineligible cities (missing data, derived AQI, missing timestamp) remain unranked.
+ * Ineligible cities (missing data, derived AQI, missing or stale timestamp) remain unranked.
+ * Uses an injectable clock (`now`) and configurable freshness policy.
  */
-export function computeComparableCohortRanks(cities: WorldCityItem[]): WorldCityItem[] {
-  // Determine dominant model-valid timestamp among cities with valid timestamps
+export function computeComparableCohortRanks(
+  cities: WorldCityItem[],
+  now: Date = new Date(),
+  policy: ModelFreshnessPolicy = DEFAULT_MODEL_FRESHNESS_POLICY
+): WorldCityItem[] {
+  // First, evaluate model freshness for each city
+  const freshnessResults = cities.map((c) => evaluateWorldModelFreshness(c.modelValidAt, now, policy));
+
+  // Determine dominant model-valid timestamp among cities that are physically fresh
   const timestampCounts = new Map<string, number>();
-  for (const c of cities) {
-    if (c.modelValidAt) {
+  cities.forEach((c, idx) => {
+    if (c.modelValidAt && freshnessResults[idx].isFresh) {
       timestampCounts.set(c.modelValidAt, (timestampCounts.get(c.modelValidAt) || 0) + 1);
     }
-  }
+  });
 
   let dominantTimestamp: string | null = null;
   let maxCount = 0;
@@ -376,17 +499,39 @@ export function computeComparableCohortRanks(cities: WorldCityItem[]): WorldCity
   const eligibleIndices: number[] = [];
   const updatedCities = cities.map((city, idx) => {
     const reasons = [...(city.incompatibilityReasons || [])];
+    const freshness = freshnessResults[idx];
 
-    // Must have numeric US AQI
-    if (city.usAqi === null) {
-      if (!reasons.includes('Missing authentic US AQI')) reasons.push('Missing authentic US AQI');
+    // Must have authentic, non-negative, finite US AQI
+    if (city.usAqi === null || !Number.isFinite(city.usAqi) || city.usAqi < 0 || city.usAqi > 1000) {
+      if (!reasons.includes('Missing or invalid authentic US AQI')) reasons.push('Missing or invalid authentic US AQI');
     }
 
-    // Must have valid model timestamp matching dominant cohort window
+    // Must be fresh according to scientific model policy
+    let cityStatus = city.status;
+    if (!freshness.isFresh) {
+      for (const r of freshness.reasons) {
+        if (!reasons.includes(r)) reasons.push(r);
+      }
+      if (freshness.reasons.some((r) => r.includes('Missing'))) {
+        cityStatus = 'unavailable';
+      } else if (freshness.reasons.some((r) => r.includes('Malformed') || r.includes('in the future') || r.includes('unparseable'))) {
+        cityStatus = 'invalid';
+      } else {
+        cityStatus = 'stale';
+      }
+    }
+
+    // Single-species derived AQI is excluded from multi-pollutant cohort
+    if (reasons.some((r) => r.includes('derived'))) {
+      if (!reasons.includes('Derived single-species AQI is excluded from multi-pollutant cohort')) {
+        reasons.push('Derived single-species AQI is excluded from multi-pollutant cohort');
+      }
+    }
+
+    // Must match dominant fresh cohort window within 1 hour
     if (!city.modelValidAt) {
       if (!reasons.includes('Missing model valid timestamp')) reasons.push('Missing model valid timestamp');
     } else if (dominantTimestamp && city.modelValidAt !== dominantTimestamp) {
-      // Check if within 1 hour
       const diffMs = Math.abs(new Date(city.modelValidAt).getTime() - new Date(dominantTimestamp).getTime());
       if (isNaN(diffMs) || diffMs > 3600000) {
         reasons.push(`Model valid time (${city.modelValidAt}) diverges from dominant cohort time (${dominantTimestamp})`);
@@ -395,18 +540,24 @@ export function computeComparableCohortRanks(cities: WorldCityItem[]): WorldCity
 
     // Stale status excludes from current live ranking
     if (city.status === 'stale') {
-      reasons.push('Measurement is cached from an expired forecast run');
+      if (!reasons.includes('Measurement is cached from an expired forecast run')) {
+        reasons.push('Measurement is cached from an expired forecast run');
+      }
     }
 
-    const isComparable = reasons.length === 0 && city.usAqi !== null && city.status !== 'stale';
+    const isComparable = reasons.length === 0 && city.usAqi !== null && cityStatus !== 'stale';
     if (isComparable) {
       eligibleIndices.push(idx);
     }
 
     return {
       ...city,
+      status: cityStatus,
       comparable: isComparable,
       incompatibilityReasons: reasons,
+      cohortRank: isComparable ? city.cohortRank : null,
+      cohortSize: isComparable ? city.cohortSize : null,
+      rank: isComparable ? city.rank : null,
     };
   });
 
@@ -426,21 +577,25 @@ export function computeComparableCohortRanks(cities: WorldCityItem[]): WorldCity
   eligibleItems.sort((a, b) => {
     const diff = (b.city.usAqi as number) - (a.city.usAqi as number);
     if (diff !== 0) return diff;
-    // Stable tie-breaker: sort alphabetically by city name or ID
-    return a.city.name.localeCompare(b.city.name);
+    // Secondary tie-breaker: PM2.5 descending
+    const pmDiff = (b.city.pm25 ?? 0) - (a.city.pm25 ?? 0);
+    if (pmDiff !== 0) return pmDiff;
+    // Tertiary tie-breaker: alphabetical city name
+    const nameDiff = a.city.name.localeCompare(b.city.name);
+    if (nameDiff !== 0) return nameDiff;
+    // Quaternary tie-breaker: stable composite cityId
+    return (a.city.cityId || '').localeCompare(b.city.cityId || '');
   });
 
-  // Assign standard competition rank: 1, 2, 2, 4...
-  let currentRank = 1;
+  // Assign standard competition rank: 1, 2, 2, 4... (1224 ranking)
   for (let i = 0; i < eligibleItems.length; i++) {
     if (i > 0 && eligibleItems[i].city.usAqi === eligibleItems[i - 1].city.usAqi) {
       eligibleItems[i].city.cohortRank = eligibleItems[i - 1].city.cohortRank;
     } else {
-      eligibleItems[i].city.cohortRank = currentRank;
+      eligibleItems[i].city.cohortRank = i + 1;
     }
     eligibleItems[i].city.cohortSize = cohortSize;
     eligibleItems[i].city.rank = eligibleItems[i].city.cohortRank;
-    currentRank++;
   }
 
   // Merge back into original city order
@@ -619,8 +774,9 @@ export async function searchAndFetchGlobalCity(
     cityId: `geo-${loc.id}`,
     name: loc.name,
     country: loc.country,
+    countryCode: loc.countryCode,
     admin1: loc.admin1,
-    region: classifyWorldRegion(loc.country),
+    region: classifyWorldRegion(loc.country, loc.countryCode),
     latitude: loc.latitude,
     longitude: loc.longitude,
   }));

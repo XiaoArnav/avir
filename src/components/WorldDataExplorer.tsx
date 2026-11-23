@@ -233,7 +233,7 @@ export const WorldDataExplorer: React.FC<WorldDataExplorerProps> = ({
             </span>
             <span className="hidden sm:flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-stone-100 dark:bg-zinc-900 border border-stone-300 dark:border-zinc-800 text-[11px] font-mono text-ink-muted dark:text-zinc-400">
               <Clock className="w-3 h-3" />
-              <span>{dominantTimestamp ? new Date(dominantTimestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Live'}</span>
+              <span>{dominantTimestamp ? new Date(dominantTimestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Model valid time unavailable'}</span>
             </span>
           </div>
         </div>

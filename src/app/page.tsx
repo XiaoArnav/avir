@@ -277,6 +277,15 @@ export default function Home() {
               currentAqi={metrics?.usAqi ?? null}
               currentPm25={metrics?.pm25 ?? null}
               currentCountry={selectedCity.country}
+              currentCountryCode={selectedCity.countryCode}
+              currentAdmin1={selectedCity.admin1}
+              currentCityId={`geo-${selectedCity.id}`}
+              currentLatitude={selectedCity.latitude}
+              currentLongitude={selectedCity.longitude}
+              currentTimestamp={metrics?.timestamp ?? null}
+              currentModelDomain="cams_global"
+              currentSourceKind={metrics?.groundStation ? 'ground_station' : 'atmospheric_model'}
+              currentStatus={metrics?.status ?? null}
             />
 
             {/* 4 & 5. Commute Exposure & Mask/Filter Lifespan Calculators */}

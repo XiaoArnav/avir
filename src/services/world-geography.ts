@@ -169,16 +169,17 @@ export function classifyWorldRegion(country: string, countryCode?: string | null
  */
 export function getStableCityId(city: {
   id?: number | string;
+  cityId?: string;
   name: string;
   country: string;
   countryCode?: string | null;
   latitude: number;
   longitude: number;
 }): string {
-  if (city.id !== undefined && city.id !== null) {
-    return String(city.id);
+  if (city.cityId && typeof city.cityId === 'string' && city.cityId.length > 0) {
+    return city.cityId;
   }
-  const code = (city.countryCode || city.country).toLowerCase().replace(/[^a-z0-9]/g, '');
+  const code = (city.countryCode || city.country || 'xx').toLowerCase().replace(/[^a-z0-9]/g, '');
   const name = city.name.toLowerCase().replace(/[^a-z0-9]/g, '');
   const lat = Math.round(city.latitude * 100);
   const lon = Math.round(city.longitude * 100);

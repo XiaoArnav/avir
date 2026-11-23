@@ -23,21 +23,22 @@ export interface GeocodedLocation {
   name: string;
   admin1?: string;
   country: string;
+  countryCode?: string;
   latitude: number;
   longitude: number;
 }
 
 export const PREDEFINED_INDIAN_CITIES: GeocodedLocation[] = [
-  { id: 1, name: 'Delhi-NCR', admin1: 'Delhi', country: 'India', latitude: 28.6139, longitude: 77.2090 },
-  { id: 2, name: 'Patna', admin1: 'Bihar', country: 'India', latitude: 25.5941, longitude: 85.1376 },
-  { id: 3, name: 'Kolkata', admin1: 'West Bengal', country: 'India', latitude: 22.5726, longitude: 88.3639 },
-  { id: 4, name: 'Lucknow', admin1: 'Uttar Pradesh', country: 'India', latitude: 26.8467, longitude: 80.9462 },
-  { id: 5, name: 'Kanpur', admin1: 'Uttar Pradesh', country: 'India', latitude: 26.4499, longitude: 80.3319 },
-  { id: 6, name: 'Varanasi', admin1: 'Uttar Pradesh', country: 'India', latitude: 25.3176, longitude: 82.9739 },
-  { id: 7, name: 'Mumbai', admin1: 'Maharashtra', country: 'India', latitude: 19.0760, longitude: 72.8777 },
-  { id: 8, name: 'Bengaluru', admin1: 'Karnataka', country: 'India', latitude: 12.9716, longitude: 77.5946 },
-  { id: 9, name: 'Lahore', admin1: 'Punjab', country: 'Pakistan', latitude: 31.5204, longitude: 74.3587 },
-  { id: 10, name: 'Beijing', admin1: 'Beijing', country: 'China', latitude: 39.9042, longitude: 116.4074 },
+  { id: 1, name: 'Delhi-NCR', admin1: 'Delhi', country: 'India', countryCode: 'IN', latitude: 28.6139, longitude: 77.2090 },
+  { id: 2, name: 'Patna', admin1: 'Bihar', country: 'India', countryCode: 'IN', latitude: 25.5941, longitude: 85.1376 },
+  { id: 3, name: 'Kolkata', admin1: 'West Bengal', country: 'India', countryCode: 'IN', latitude: 22.5726, longitude: 88.3639 },
+  { id: 4, name: 'Lucknow', admin1: 'Uttar Pradesh', country: 'India', countryCode: 'IN', latitude: 26.8467, longitude: 80.9462 },
+  { id: 5, name: 'Kanpur', admin1: 'Uttar Pradesh', country: 'India', countryCode: 'IN', latitude: 26.4499, longitude: 80.3319 },
+  { id: 6, name: 'Varanasi', admin1: 'Uttar Pradesh', country: 'India', countryCode: 'IN', latitude: 25.3176, longitude: 82.9739 },
+  { id: 7, name: 'Mumbai', admin1: 'Maharashtra', country: 'India', countryCode: 'IN', latitude: 19.0760, longitude: 72.8777 },
+  { id: 8, name: 'Bengaluru', admin1: 'Karnataka', country: 'India', countryCode: 'IN', latitude: 12.9716, longitude: 77.5946 },
+  { id: 9, name: 'Lahore', admin1: 'Punjab', country: 'Pakistan', countryCode: 'PK', latitude: 31.5204, longitude: 74.3587 },
+  { id: 10, name: 'Beijing', admin1: 'Beijing', country: 'China', countryCode: 'CN', latitude: 39.9042, longitude: 116.4074 },
 ];
 
 /**
@@ -68,6 +69,7 @@ export async function searchCities(query: string, signal?: AbortSignal): Promise
       name: item.name,
       admin1: item.admin1 || '',
       country: item.country || '',
+      countryCode: item.country_code ? String(item.country_code).toUpperCase() : undefined,
       latitude: item.latitude,
       longitude: item.longitude,
     }));

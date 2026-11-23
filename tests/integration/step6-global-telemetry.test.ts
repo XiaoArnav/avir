@@ -626,8 +626,8 @@ describe('AVIR — Step 6 Global Telemetry & World Comparisons (85 Scenarios)', 
     });
 
     it('56. Zero versus zero handles ratio cleanly (1.0x with clean air verdict)', () => {
-      const cityA = { name: 'Reykjavik', country: 'Iceland', aqi: 0, pm25: 0 };
-      const cityB = { name: 'Honolulu', country: 'USA', aqi: 0, pm25: 0 };
+      const cityA = { name: 'Reykjavik', country: 'Iceland', aqi: 0, pm25: 0, timestamp: '2026-11-23T06:00' };
+      const cityB = { name: 'Honolulu', country: 'USA', aqi: 0, pm25: 0, timestamp: '2026-11-23T06:00' };
 
       const comparison = calculateCityComparison(cityA, cityB);
       expect(comparison.aqiRatio).toBe(1.0);
@@ -636,8 +636,8 @@ describe('AVIR — Step 6 Global Telemetry & World Comparisons (85 Scenarios)', 
     });
 
     it('57. Zero versus nonzero handles ratio without division by zero or Infinity', () => {
-      const cleanCity = { name: 'CleanCity', country: 'IS', aqi: 0, pm25: 0 };
-      const smogCity = { name: 'SmogCity', country: 'IN', aqi: 180, pm25: 120 };
+      const cleanCity = { name: 'CleanCity', country: 'IS', aqi: 0, pm25: 0, timestamp: '2026-11-23T06:00' };
+      const smogCity = { name: 'SmogCity', country: 'IN', aqi: 180, pm25: 120, timestamp: '2026-11-23T06:00' };
 
       const comparison = calculateCityComparison(cleanCity, smogCity);
       expect(Number.isFinite(comparison.aqiRatio!)).toBe(true);
@@ -646,16 +646,16 @@ describe('AVIR — Step 6 Global Telemetry & World Comparisons (85 Scenarios)', 
     });
 
     it('58. Concentration ratio is valid and finite', () => {
-      const cityA = { name: 'CityA', country: 'X', aqi: 100, pm25: 44 };
-      const cityB = { name: 'CityB', country: 'Y', aqi: 50, pm25: 22 };
+      const cityA = { name: 'CityA', country: 'X', aqi: 100, pm25: 44, timestamp: '2026-11-23T06:00' };
+      const cityB = { name: 'CityB', country: 'Y', aqi: 50, pm25: 22, timestamp: '2026-11-23T06:00' };
 
       const comparison = calculateCityComparison(cityA, cityB);
       expect(comparison.pm25ConcentrationRatio).toBe(2.0); // 44 / 22 = 2.0x
     });
 
     it('59. Misleading universal toxicity claim is replaced with scientific concentration ratio', () => {
-      const cityA = { name: 'CityA', country: 'X', aqi: 100, pm25: 44 };
-      const cityB = { name: 'CityB', country: 'Y', aqi: 50, pm25: 22 };
+      const cityA = { name: 'CityA', country: 'X', aqi: 100, pm25: 44, timestamp: '2026-11-23T06:00' };
+      const cityB = { name: 'CityB', country: 'Y', aqi: 50, pm25: 22, timestamp: '2026-11-23T06:00' };
 
       const comparison = calculateCityComparison(cityA, cityB);
       expect(comparison.pm25ConcentrationRatio).toBe(2.0);
