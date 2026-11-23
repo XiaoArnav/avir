@@ -55,7 +55,7 @@ describe('Telemetry & Geocoding Service', () => {
       expect(metrics.pm25).toBeGreaterThan(0);
       expect(metrics.boundaryLayerHeight).toBeGreaterThan(0);
       expect(typeof metrics.isThermalInversionActive).toBe('boolean');
-    });
+    }, 60000);
 
     it('caches telemetry by coordinate key for 10 minutes', async () => {
       const fetchSpy = vi.spyOn(global, 'fetch');
@@ -66,7 +66,7 @@ describe('Telemetry & Geocoding Service', () => {
       await fetchLiveAtmosphericMetrics(19.07, 72.87);
       expect(fetchSpy.mock.calls.length).toBe(count);
       fetchSpy.mockRestore();
-    });
+    }, 60000);
 
     it('returns typed error state without fabricated numbers when network fails and no cache exists', async () => {
       const fetchSpy = vi.spyOn(global, 'fetch').mockRejectedValue(new Error('Network Connection Refused'));
