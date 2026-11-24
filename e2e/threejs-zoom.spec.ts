@@ -269,4 +269,307 @@ test.describe('Three.js Advanced Cesium-Style Zoom & Camera System E2E', () => {
     });
     expect(canvasIdentity).toBe('VIR_CANVAS_INSTANCE_1');
   });
+
+  test('Wheel Scroll A: Mouse wheel zoom over Three.js zooms globe without scrolling page or passive warnings', async ({ page }) => {
+    const passiveWarnings: string[] = [];
+    page.on('console', (msg) => {
+      const text = msg.text();
+      if (text.toLowerCase().includes('passive') || text.toLowerCase().includes('preventdefault')) {
+        passiveWarnings.push(text);
+      }
+    });
+
+    await page.waitForFunction(() => (window as any).__avirThreeCamera !== undefined);
+
+    // Ensure page is scrollable
+    const canScrollPage = await page.evaluate(
+      () => document.documentElement.scrollHeight > window.innerHeight
+    );
+    expect(canScrollPage).toBe(true);
+    await page.evaluate(() => window.scrollTo(0, 0));
+
+    const canvas = page.locator('canvas').first();
+    const box = await canvas.boundingBox();
+    expect(box).not.toBeNull();
+
+    // Hover in open center-top canvas region away from CompactCityCard (left) and GlobeControls (bottom-right)
+    const targetX = box!.x + box!.width * 0.62;
+    const targetY = box!.y + box!.height * 0.42;
+    const hitTag = await page.evaluate(
+      ({ x, y }) => document.elementFromPoint(x, y)?.tagName,
+      { x: targetX, y: targetY }
+    );
+    expect(hitTag).toBe('CANVAS');
+
+    const initialScrollY = await page.evaluate(() => window.scrollY);
+    const initialDistance = await page.evaluate(() => (window as any).__avirThreeCamera.getTargetDistance());
+    expect(initialScrollY).toBe(0);
+
+    await page.mouse.move(targetX, targetY);
+    await page.mouse.wheel(0, -120);
+    await page.waitForTimeout(150);
+
+    const distanceAfterWheel = await page.evaluate(() => (window as any).__avirThreeCamera.getTargetDistance());
+    const scrollYAfterWheel = await page.evaluate(() => window.scrollY);
+
+    // Expected proportional zoom in from 260: 90 + 170 * exp(-120 * 0.0015) ≈ 231.997
+    expect(distanceAfterWheel).toBeLessThan(initialDistance);
+    expect(distanceAfterWheel).toBeCloseTo(90 + (initialDistance - 90) * Math.exp(-120 * 0.0015), 1);
+    expect(scrollYAfterWheel).toBe(0);
+    expect(passiveWarnings).toEqual([]);
+  });
+
+  test('Wheel Scroll B: Reverse wheel scroll over Three.js zooms out without scrolling page', async ({ page }) => {
+    await page.waitForFunction(() => (window as any).__avirThreeCamera !== undefined);
+    await page.evaluate(() => window.scrollTo(0, 0));
+
+    const canvas = page.locator('canvas').first();
+    const box = await canvas.boundingBox();
+    expect(box).not.toBeNull();
+
+    const targetX = box!.x + box!.width * 0.62;
+    const targetY = box!.y + box!.height * 0.42;
+
+    await page.mouse.move(targetX, targetY);
+    await page.mouse.wheel(0, -120);
+    const afterIn = await page.evaluate(() => (window as any).__avirThreeCamera.getTargetDistance());
+
+    await page.mouse.wheel(0, 120);
+    await page.waitForTimeout(150);
+    const afterOut = await page.evaluate(() => (window as any).__avirThreeCamera.getTargetDistance());
+    const scrollY = await page.evaluate(() => window.scrollY);
+
+    expect(afterOut).toBeGreaterThan(afterIn);
+    expect(scrollY).toBe(0);
+  });
+
+  test('Wheel Scroll C: Scrolling outside Three.js scrolls page normally without changing globe zoom', async ({ page }) => {
+    await page.waitForFunction(() => (window as any).__avirThreeCamera !== undefined);
+    await page.evaluate(() => window.scrollTo(0, 0));
+
+    const canvas = page.locator('canvas').first();
+    const box = await canvas.boundingBox();
+    expect(box).not.toBeNull();
+
+    const targetBeforeOutside = await page.evaluate(() => (window as any).__avirThreeCamera.getTargetDistance());
+
+    // Move pointer clearly below the globe over normal page content
+    const outsideX = box!.x + box!.width * 0.5;
+    const outsideY = box!.y + box!.height + 80;
+    const hitTag = await page.evaluate(
+      ({ x, y }) => document.elementFromPoint(x, y)?.tagName,
+      { x: outsideX, y: outsideY }
+    );
+    expect(hitTag).not.toBe('CANVAS');
+
+    await page.mouse.move(outsideX, outsideY);
+    await page.mouse.wheel(0, 350);
+
+    await page.waitForFunction(() => window.scrollY > 50, undefined, { timeout: 5000 });
+    const scrollYAfterOutside = await page.evaluate(() => window.scrollY);
+    const targetAfterOutside = await page.evaluate(() => (window as any).__avirThreeCamera.getTargetDistance());
+
+    expect(scrollYAfterOutside).toBeGreaterThan(50);
+    expect(targetAfterOutside).toBe(targetBeforeOutside);
+  });
+
+  test('Wheel Scroll D: Repeated small trackpad-like deltas and ctrlKey zoom execute cleanly once per input', async ({ page }) => {
+    const passiveWarnings: string[] = [];
+    page.on('console', (msg) => {
+      if (msg.text().toLowerCase().includes('unable to preventdefault inside passive')) {
+        passiveWarnings.push(msg.text());
+      }
+    });
+
+    await page.waitForFunction(() => (window as any).__avirThreeCamera !== undefined);
+    await page.evaluate(() => window.scrollTo(0, 0));
+
+    const canvas = page.locator('canvas').first();
+    const box = await canvas.boundingBox();
+    expect(box).not.toBeNull();
+
+    const targetX = box!.x + box!.width * 0.62;
+    const targetY = box!.y + box!.height * 0.42;
+    await page.mouse.move(targetX, targetY);
+
+    const initialDistance = await page.evaluate(() => (window as any).__avirThreeCamera.getTargetDistance());
+
+    // 10 small trackpad-like scroll steps of -12px
+    for (let i = 0; i < 10; i++) {
+      await page.mouse.wheel(0, -12);
+    }
+
+    await page.waitForTimeout(150);
+    const afterTrackpad = await page.evaluate(() => (window as any).__avirThreeCamera.getTargetDistance());
+
+    // Single execution invariant: 10 steps of -12px from 260 equals exp(10 * -12 * 0.0015) ≈ exp(-0.18)
+    const expectedSingle = 90 + (initialDistance - 90) * Math.exp(-120 * 0.0015);
+    expect(afterTrackpad).toBeCloseTo(expectedSingle, 1);
+
+    // Trackpad pinch represented as ctrlKey wheel event
+    await canvas.dispatchEvent('wheel', { deltaY: -40, deltaMode: 0, ctrlKey: true });
+    const afterPinchWheel = await page.evaluate(() => (window as any).__avirThreeCamera.getTargetDistance());
+    expect(afterPinchWheel).toBeLessThan(afterTrackpad);
+    expect(await page.evaluate(() => window.scrollY)).toBe(0);
+    expect(passiveWarnings).toEqual([]);
+  });
+
+  test('Wheel Scroll E: Scrolling at min and max zoom boundaries stays bounded without page scroll or errors', async ({ page }) => {
+    const pageErrors: string[] = [];
+    page.on('pageerror', (err) => pageErrors.push(err.message));
+
+    await page.waitForFunction(() => (window as any).__avirThreeCamera !== undefined);
+    await page.evaluate(() => window.scrollTo(0, 0));
+
+    const zoomInBtn = page.getByRole('button', { name: 'Zoom In' });
+    const zoomOutBtn = page.getByRole('button', { name: 'Zoom Out' });
+    const canvas = page.locator('canvas').first();
+    const box = await canvas.boundingBox();
+    expect(box).not.toBeNull();
+    const targetX = box!.x + box!.width * 0.62;
+    const targetY = box!.y + box!.height * 0.42;
+
+    // Hit minimum bound (102) then scroll deeper in over globe
+    for (let i = 0; i < 12; i++) {
+      await zoomInBtn.click({ force: true });
+    }
+    expect(await page.evaluate(() => (window as any).__avirThreeCamera.getTargetDistance())).toBeCloseTo(102, 1);
+
+    await page.evaluate(() => window.scrollTo(0, 0));
+    const minBox = await canvas.boundingBox();
+    expect(minBox).not.toBeNull();
+    await page.mouse.move(minBox!.x + minBox!.width * 0.62, minBox!.y + minBox!.height * 0.42);
+    await page.mouse.wheel(0, -240);
+    await page.mouse.wheel(0, -240);
+    await page.waitForTimeout(150);
+
+    expect(await page.evaluate(() => (window as any).__avirThreeCamera.getTargetDistance())).toBeCloseTo(102, 1);
+    expect(await page.evaluate(() => window.scrollY)).toBe(0);
+
+    // Hit maximum bound (1000) then scroll farther out over globe
+    for (let i = 0; i < 14; i++) {
+      await zoomOutBtn.click({ force: true });
+    }
+    expect(await page.evaluate(() => (window as any).__avirThreeCamera.getTargetDistance())).toBeCloseTo(1000, 1);
+
+    await page.evaluate(() => window.scrollTo(0, 0));
+    const maxBox = await canvas.boundingBox();
+    expect(maxBox).not.toBeNull();
+    await page.mouse.move(maxBox!.x + maxBox!.width * 0.62, maxBox!.y + maxBox!.height * 0.42);
+    await page.mouse.wheel(0, 240);
+    await page.mouse.wheel(0, 240);
+    await page.waitForTimeout(150);
+
+    expect(await page.evaluate(() => (window as any).__avirThreeCamera.getTargetDistance())).toBeCloseTo(1000, 1);
+    expect(await page.evaluate(() => window.scrollY)).toBe(0);
+    expect(pageErrors).toEqual([]);
+  });
+
+  test('Wheel Scroll F: Switching Three.js -> Cesium -> Three.js maintains single listener without leaks or page scroll', async ({ page }) => {
+    await page.waitForFunction(() => (window as any).__avirThreeCamera !== undefined);
+    await page.evaluate(() => window.scrollTo(0, 0));
+
+    // Switch Three.js -> Cesium and wait for Cesium to initialize cleanly
+    const toggleBtn = page.getByRole('button', { name: /Toggle 3D Engine/i });
+    await toggleBtn.click({ force: true });
+    await expect(page.getByRole('button', { name: /currently CesiumJS/i })).toBeVisible({ timeout: 10000 });
+    await page.waitForSelector('.cesium-viewer', { timeout: 10000 });
+
+    // Switch Cesium -> Three.js
+    await page.getByRole('button', { name: /currently CesiumJS/i }).click({ force: true });
+    await expect(page.getByRole('button', { name: /currently Three\.js/i })).toBeVisible({ timeout: 10000 });
+
+    await page.waitForFunction(() => (window as any).__avirThreeCamera !== undefined);
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.waitForTimeout(100);
+
+    const canvas = page.locator('canvas').first();
+    const box = await canvas.boundingBox();
+    expect(box).not.toBeNull();
+    const targetX = box!.x + box!.width * 0.62;
+    const targetY = box!.y + box!.height * 0.42;
+
+    const debugInfo = await page.evaluate(
+      ({ x, y }) => ({
+        tag: document.elementFromPoint(x, y)?.tagName,
+        globeCanvasCount: document.querySelectorAll(
+          '[aria-label="Interactive 3D Earth Globe showing atmospheric air quality telemetry"] canvas'
+        ).length,
+        cesiumCount: document.querySelectorAll('.cesium-viewer').length,
+        scrollY: window.scrollY,
+      }),
+      { x: targetX, y: targetY }
+    );
+    expect(debugInfo.tag).toBe('CANVAS');
+    expect(debugInfo.globeCanvasCount).toBe(1);
+    expect(debugInfo.cesiumCount).toBe(0);
+
+    const initialDistance = await page.evaluate(() => (window as any).__avirThreeCamera.getTargetDistance());
+    await page.mouse.move(targetX, targetY);
+    await page.mouse.wheel(0, -120);
+    await page.waitForTimeout(150);
+
+    const afterDistance = await page.evaluate(() => (window as any).__avirThreeCamera.getTargetDistance());
+    const expectedSingle = 90 + (initialDistance - 90) * Math.exp(-120 * 0.0015);
+
+    // Must match single zoom update (if listener leaked/duplicated, delta would be twice as steep)
+    expect(afterDistance).toBeCloseTo(expectedSingle, 1);
+    expect(await page.evaluate(() => window.scrollY)).toBe(0);
+  });
+
+  test('Wheel Scroll G: Scrolling inside Environmental Details drawer scrolls drawer without affecting globe zoom', async ({ page }) => {
+    await page.waitForFunction(() => (window as any).__avirThreeCamera !== undefined);
+    const targetBeforeDrawer = await page.evaluate(() => (window as any).__avirThreeCamera.getTargetDistance());
+
+    const detailsBtn = page.getByRole('button', { name: /View Environmental Details/i });
+    await detailsBtn.click();
+
+    const drawerDialog = page.getByRole('dialog', { name: /Detailed Environmental Intelligence/i });
+    await expect(drawerDialog).toBeVisible();
+
+    const scrollablePanel = drawerDialog.locator('> div').first();
+    const drawerBox = await scrollablePanel.boundingBox();
+    expect(drawerBox).not.toBeNull();
+
+    const scrollTopBefore = await scrollablePanel.evaluate((el) => el.scrollTop);
+    await page.mouse.move(drawerBox!.x + drawerBox!.width / 2, drawerBox!.y + drawerBox!.height / 2);
+    await page.mouse.wheel(0, 300);
+    await page.waitForTimeout(150);
+
+    const scrollTopAfter = await scrollablePanel.evaluate((el) => el.scrollTop);
+    const targetAfterDrawerScroll = await page.evaluate(() => (window as any).__avirThreeCamera.getTargetDistance());
+
+    expect(scrollTopAfter).toBeGreaterThan(scrollTopBefore);
+    expect(targetAfterDrawerScroll).toBe(targetBeforeDrawer);
+  });
+
+  test('Wheel Scroll H: Touch pinch gesture over Three.js continues to scale camera distance', async ({ page }) => {
+    await page.waitForFunction(() => (window as any).__avirThreeCamera !== undefined);
+
+    const canvas = page.locator('canvas').first();
+    const box = await canvas.boundingBox();
+    expect(box).not.toBeNull();
+
+    const initialDistance = await page.evaluate(() => (window as any).__avirThreeCamera.getTargetDistance());
+    const cx = box!.x + box!.width * 0.62;
+    const cy = box!.y + box!.height * 0.42;
+
+    // Simulate two-finger pinch spread (60px -> 120px, scaleRatio = 2.0)
+    await page.evaluate(
+      ({ x, y }) => {
+        const el = document.querySelector('canvas');
+        if (!el) return;
+        el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 1, pointerType: 'touch', clientX: x - 30, clientY: y }));
+        el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 2, pointerType: 'touch', clientX: x + 30, clientY: y }));
+        el.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, pointerId: 2, pointerType: 'touch', clientX: x + 90, clientY: y }));
+        el.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 1, pointerType: 'touch', clientX: x - 30, clientY: y }));
+        el.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 2, pointerType: 'touch', clientX: x + 90, clientY: y }));
+      },
+      { x: cx, y: cy }
+    );
+
+    const afterPinch = await page.evaluate(() => (window as any).__avirThreeCamera.getTargetDistance());
+    expect(afterPinch).toBeLessThan(initialDistance);
+    expect(afterPinch).toBeCloseTo(90 + (initialDistance - 90) / 2, 1);
+  });
 });

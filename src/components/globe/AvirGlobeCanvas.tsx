@@ -368,6 +368,32 @@ export function AvirGlobeCanvas({
     };
     animate();
 
+    // Native non-passive wheel listener isolated to the Three.js canvas container
+    // Cancels native browser page/pinch scrolling cleanly over the globe without affecting outside scroll
+    const handleNativeWheel = (event: WheelEvent) => {
+      const target = event.target as Node | null;
+      if (target && target !== container && !container.contains(target)) {
+        return;
+      }
+
+      if (event.cancelable) {
+        event.preventDefault();
+      }
+      event.stopPropagation();
+
+      if (!Number.isFinite(event.deltaY)) return;
+
+      const inst = instancesRef.current;
+      if (!inst) return;
+
+      inst.targetCameraDistance = calculateWheelDistance(
+        inst.targetCameraDistance,
+        event.deltaY,
+        event.deltaMode
+      );
+    };
+    container.addEventListener('wheel', handleNativeWheel, { passive: false });
+
     // Responsive Resize Handler
     const handleResize = () => {
       if (!containerRef.current) return;
@@ -380,6 +406,7 @@ export function AvirGlobeCanvas({
     window.addEventListener('resize', handleResize);
 
     return () => {
+      container.removeEventListener('wheel', handleNativeWheel);
       window.removeEventListener('resize', handleResize);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       if (observer) observer.disconnect();
@@ -732,18 +759,6 @@ export function AvirGlobeCanvas({
     }
   };
 
-  const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    const inst = instancesRef.current;
-    if (!inst) return;
-
-    inst.targetCameraDistance = calculateWheelDistance(
-      inst.targetCameraDistance,
-      e.deltaY,
-      e.deltaMode
-    );
-  };
-
   if (!webGLAvailable) {
     return (
       <AccessibleEarthFallback
@@ -763,7 +778,6 @@ export function AvirGlobeCanvas({
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerUp}
       onClick={handleClick}
-      onWheel={handleWheel}
       aria-label="Interactive 3D Earth Globe showing atmospheric air quality telemetry"
     >
       <div ref={containerRef} className="w-full h-full cursor-grab active:cursor-grabbing" />
