@@ -11,15 +11,19 @@ import {
   buildGeographicObservations,
   GeographicObservationPoint,
   AqiStandard,
+  getCpcbCategory,
+  getEpaCategory,
 } from '@/services/geo/geographic-observation-adapter';
 import { AvirGlobe } from '@/components/globe/AvirGlobe';
 import { MissionHeader } from '@/components/ui/futuristic';
 import { CompactCityCard } from './CompactCityCard';
 import { EnvironmentalDetailsDrawer } from './EnvironmentalDetailsDrawer';
 import { assessJurisdiction, resolveOfficialGrapStatus } from '@/services/advisories/grap-status-resolver';
-import { isThermalInversion } from '@/domain/air-math';
+import { isThermalInversion, calculateAQIFromPM25 } from '@/domain/air-math';
 import { formatTimeAgo, resolveTruthfulSourceLabel } from '@/domain/presentation-contract';
 import { calculateComprehensiveCpcbNaqi } from '@/domain/cpcb-naqi';
+import { SourcePreference, ResolvedSourceData } from '@/services/source-control/source-control-types';
+import { resolveSource } from '@/services/source-control/source-resolution';
 
 export interface EarthCommandCenterProps {
   currentCity: GeocodedLocation;
@@ -36,6 +40,8 @@ export interface EarthCommandCenterProps {
   onSnapToNow?: () => void;
   className?: string;
   initialDetailsOpen?: boolean;
+  sourcePreference?: SourcePreference;
+  onUpdateSourcePreference?: (preference: SourcePreference) => void;
 }
 
 const VERIFIED_CITY_ELEVATIONS: Record<string, number> = {
@@ -68,10 +74,18 @@ export function EarthCommandCenter({
   onSnapToNow,
   className = '',
   initialDetailsOpen = false,
+  sourcePreference,
+  onUpdateSourcePreference,
 }: EarthCommandCenterProps) {
   const [standard, setStandard] = useState<AqiStandard>('cpcb');
   const [selectedGlobePointId, setSelectedGlobePointId] = useState<string | null>(null);
   const [isDetailsOpen, setIsDetailsOpen] = useState(initialDetailsOpen);
+
+  // Dynamic source resolution based on active preference
+  const resolvedSource: ResolvedSourceData | null = useMemo(() => {
+    if (!sourcePreference) return null;
+    return resolveSource(sourcePreference, metrics, standard);
+  }, [sourcePreference, metrics, standard]);
 
   // Current live hour observation point from forecast registry without client clock matching
   const hourlyPoint = useMemo(() => {
@@ -85,12 +99,62 @@ export function EarthCommandCenter({
 
   // Build reactive geographic observation points from current telemetry & world registries
   const points = useMemo(() => {
-    return buildGeographicObservations({
+    const rawPoints = buildGeographicObservations({
       standard,
       currentMetrics: metrics,
       currentLocation: currentCity,
     });
-  }, [standard, metrics, currentCity]);
+    // Synchronize active city marker with resolved source when not in forecast mode (Defect 6)
+    if (resolvedSource && !isForecastSelected) {
+      return rawPoints.map((p) => {
+        // Stable geographic matching using city ID and coordinates to prevent name collisions
+        const isMatch =
+          (currentCity.id && String(p.id) === String(currentCity.id)) ||
+          (p.cityId && currentCity.id && String(p.cityId) === String(currentCity.id)) ||
+          (Math.abs(p.latitude - currentCity.latitude) < 0.05 &&
+           Math.abs(p.longitude - currentCity.longitude) < 0.05);
+
+        if (isMatch) {
+          const isUnavailable = resolvedSource.resolutionStatus === 'unavailable';
+
+          let updatedCpcbAqi: number | null = null;
+          let updatedUsAqi: number | null = null;
+
+          if (!isUnavailable) {
+            if (standard === 'cpcb') {
+              updatedCpcbAqi = resolvedSource.displayAqi;
+              if (resolvedSource.concentration !== null) {
+                updatedUsAqi = calculateAQIFromPM25(resolvedSource.concentration);
+              }
+            } else {
+              updatedUsAqi = resolvedSource.displayAqi;
+              if (resolvedSource.concentration !== null) {
+                const cpcbRes = calculateComprehensiveCpcbNaqi({ pm25: resolvedSource.concentration });
+                updatedCpcbAqi = cpcbRes.aqi;
+              }
+            }
+          }
+
+          const activeAqi = standard === 'cpcb' ? updatedCpcbAqi : updatedUsAqi;
+          const cat = standard === 'cpcb' ? getCpcbCategory(activeAqi) : getEpaCategory(activeAqi);
+
+          return {
+            ...p,
+            aqi: activeAqi,
+            cpcbAqi: updatedCpcbAqi,
+            usAqi: updatedUsAqi,
+            pm25: isUnavailable ? null : resolvedSource.concentration,
+            category: isUnavailable ? 'unavailable' : cat.category,
+            categoryLabel: isUnavailable ? 'Unavailable' : cat.label,
+            categoryColor: isUnavailable ? '#64748B' : cat.color,
+            source: resolvedSource.providerName,
+          };
+        }
+        return p;
+      });
+    }
+    return rawPoints;
+  }, [standard, metrics, currentCity, resolvedSource, isForecastSelected]);
 
   // Synchronize active city as the selected globe marker point with strict ID priority
   const activeGlobePoint = useMemo(() => {
@@ -173,21 +237,34 @@ export function EarthCommandCenter({
       return null;
     }
 
+    if (resolvedSource) {
+      if (resolvedSource.resolutionStatus === 'unavailable') return null;
+      return resolvedSource.displayAqi;
+    }
+
     if (standard === 'cpcb') {
       return metrics?.cpcbAqi ?? null;
     }
     return metrics?.usAqi ?? null;
-  }, [isForecastSelected, activeTimePoint, standard, metrics]);
+  }, [isForecastSelected, activeTimePoint, standard, metrics, resolvedSource]);
 
   const hasOfficialGround = Boolean(
-    metrics?.groundStation &&
-    metrics.groundStation.pm25 !== null &&
-    metrics.groundStation.stationState !== 'registry_only' &&
-    metrics.groundStation.stationState !== 'measurement_unavailable'
+    resolvedSource
+      ? (resolvedSource.sourceKind === 'official_ground_station' && resolvedSource.resolutionStatus === 'resolved')
+      : (metrics?.groundStation &&
+         metrics.groundStation.pm25 !== null &&
+         metrics.groundStation.stationState !== 'registry_only' &&
+         metrics.groundStation.stationState !== 'measurement_unavailable')
   );
 
   // Truthful Provenance & Source Labeling (Part 1.3)
   const sourceInfo = useMemo(() => {
+    if (resolvedSource && !isForecastSelected) {
+      return {
+        label: resolvedSource.stationName,
+        shortLabel: resolvedSource.stationName,
+      };
+    }
     return resolveTruthfulSourceLabel({
       isForecast: isForecastSelected,
       hasOfficialGround,
@@ -196,7 +273,7 @@ export function EarthCommandCenter({
       isLive: metrics?.isLive,
       status: metrics?.status,
     });
-  }, [isForecastSelected, hasOfficialGround, metrics]);
+  }, [isForecastSelected, hasOfficialGround, metrics, resolvedSource]);
 
   // Honest freshness state: never display "Live" when timestamp is absent
   const relativeFreshness = useMemo(() => {
@@ -266,6 +343,18 @@ export function EarthCommandCenter({
 
   // Category label and color with strict standard awareness
   const categoryInfo = useMemo(() => {
+    if (resolvedSource && !isForecastSelected) {
+      if (resolvedSource.resolutionStatus === 'unavailable') {
+        return {
+          label: 'Data Unavailable',
+          color: '#64748B',
+        };
+      }
+      return {
+        label: resolvedSource.aqiCategory,
+        color: resolvedSource.aqiCategoryColor,
+      };
+    }
     if (standard === 'cpcb' && aqiValue === null) {
       return {
         label: 'CPCB Unavailable',
@@ -276,7 +365,7 @@ export function EarthCommandCenter({
       label: activeGlobePoint?.categoryLabel || 'Validated',
       color: activeGlobePoint?.categoryColor || '#10B981',
     };
-  }, [standard, aqiValue, activeGlobePoint]);
+  }, [standard, aqiValue, activeGlobePoint, resolvedSource, isForecastSelected]);
 
   return (
     <section
@@ -339,7 +428,7 @@ export function EarthCommandCenter({
               aqiValue={aqiValue}
               categoryLabel={categoryInfo.label}
               categoryColor={categoryInfo.color}
-              primaryPollutant={metrics?.primaryPollutant || 'PM2.5'}
+              primaryPollutant={resolvedSource ? resolvedSource.pollutant.toUpperCase() : (metrics?.primaryPollutant || 'PM2.5')}
               standard={standard}
               onToggleStandard={toggleStandard}
               provenanceLabel={sourceInfo.shortLabel}
@@ -348,6 +437,8 @@ export function EarthCommandCenter({
               onOpenDetails={() => setIsDetailsOpen(true)}
               onRefresh={onRefreshTelemetry}
               isLoading={isLoading}
+              resolvedSource={resolvedSource}
+              onOpenSourceControl={onOpenMultiSource}
             />
           </div>
         </div>
@@ -367,6 +458,7 @@ export function EarthCommandCenter({
           grapStage={grapStage}
           isOfficialGround={hasOfficialGround}
           isThermalInversion={isHourlyInversion}
+          resolvedSource={resolvedSource}
         />
 
         {/* Bottom Quick-Access Metro Selector Bar */}

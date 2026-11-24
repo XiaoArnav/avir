@@ -179,6 +179,64 @@ export function validateLegacyPlanRequestPayload(payload: any): ValidationResult
     }
   }
 
+  // 5. Optional selected current-source ambient planning parameters
+  if (payload.currentAmbientPm25 !== undefined && payload.currentAmbientPm25 !== null) {
+    if (
+      typeof payload.currentAmbientPm25 !== 'number' ||
+      !Number.isFinite(payload.currentAmbientPm25) ||
+      isNaN(payload.currentAmbientPm25)
+    ) {
+      errors.push('Selected ambient PM2.5 must be a valid finite number.');
+    } else if (payload.currentAmbientPm25 < 0 || payload.currentAmbientPm25 > 2000) {
+      errors.push('Selected ambient PM2.5 must be between 0 and 2000 µg/m³.');
+    }
+  }
+
+  if (payload.currentAmbientUsAqi !== undefined && payload.currentAmbientUsAqi !== null) {
+    if (
+      typeof payload.currentAmbientUsAqi !== 'number' ||
+      !Number.isFinite(payload.currentAmbientUsAqi) ||
+      isNaN(payload.currentAmbientUsAqi)
+    ) {
+      errors.push('Selected ambient US AQI must be a valid finite number.');
+    } else if (payload.currentAmbientUsAqi < 0 || payload.currentAmbientUsAqi > 1000) {
+      errors.push('Selected ambient US AQI must be between 0 and 1000.');
+    }
+  }
+
+  if (payload.currentAmbientCpcbAqi !== undefined && payload.currentAmbientCpcbAqi !== null) {
+    if (
+      typeof payload.currentAmbientCpcbAqi !== 'number' ||
+      !Number.isFinite(payload.currentAmbientCpcbAqi) ||
+      isNaN(payload.currentAmbientCpcbAqi)
+    ) {
+      errors.push('Selected ambient CPCB NAQI must be a valid finite number.');
+    } else if (payload.currentAmbientCpcbAqi < 0 || payload.currentAmbientCpcbAqi > 1000) {
+      errors.push('Selected ambient CPCB NAQI must be between 0 and 1000.');
+    }
+  }
+
+  if (payload.currentAmbientSource !== undefined && payload.currentAmbientSource !== null) {
+    if (typeof payload.currentAmbientSource !== 'string' || payload.currentAmbientSource.length > 200) {
+      errors.push('Selected ambient source label must be a string under 200 characters.');
+    }
+  }
+
+  if (payload.selectedSourceUnavailable !== undefined && payload.selectedSourceUnavailable !== null) {
+    if (typeof payload.selectedSourceUnavailable !== 'boolean') {
+      errors.push('selectedSourceUnavailable flag must be a boolean.');
+    }
+  }
+
+  const validProvenances = ['observed', 'modeled_forecast', 'derived_calculation', 'estimated_outcome', 'unavailable'];
+  if (
+    payload.currentAmbientProvenance !== undefined &&
+    payload.currentAmbientProvenance !== null &&
+    !validProvenances.includes(payload.currentAmbientProvenance)
+  ) {
+    errors.push('Invalid currentAmbientProvenance classification.');
+  }
+
   return {
     isValid: errors.length === 0,
     errors,

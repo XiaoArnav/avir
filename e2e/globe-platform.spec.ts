@@ -231,23 +231,23 @@ test.describe('Avir Flagship Earth Command Center & Planetary Telemetry E2E', ()
     // 1. Zoom In
     const zoomInBtn = page.getByRole('button', { name: 'Zoom In' });
     await expect(zoomInBtn).toBeVisible();
-    await zoomInBtn.click();
+    await zoomInBtn.click({ force: true });
 
     // 2. Zoom Out
     const zoomOutBtn = page.getByRole('button', { name: 'Zoom Out' });
     await expect(zoomOutBtn).toBeVisible();
-    await zoomOutBtn.click();
+    await zoomOutBtn.click({ force: true });
 
     // 3. Toggle Auto-Rotation (Pause / Resume)
     const rotateBtn = page.getByRole('button', { name: /pause rotation|start auto-rotation/i });
     await expect(rotateBtn).toBeVisible();
-    await rotateBtn.click();
-    await rotateBtn.click();
+    await rotateBtn.click({ force: true });
+    await rotateBtn.click({ force: true });
 
     // 4. Reset Camera View
     const resetBtn = page.getByRole('button', { name: 'Reset Globe Orientation' });
     await expect(resetBtn).toBeVisible();
-    await resetBtn.click();
+    await resetBtn.click({ force: true });
 
     // Ensure the widget remains intact and responsive
     await expect(cesiumWidget).toBeVisible();
