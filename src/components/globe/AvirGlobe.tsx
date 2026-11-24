@@ -9,6 +9,7 @@ import {
 import { GlobeControls } from './GlobeControls';
 import { GlobeCityCard } from './GlobeCityCard';
 import { AccessibleEarthFallback } from './AccessibleEarthFallback';
+import type { CameraAction } from './cesium/AvirCesiumGlobe';
 
 // Client-only dynamic import of the Three.js Canvas
 const DynamicGlobeCanvas = dynamic(
@@ -23,14 +24,14 @@ const DynamicGlobeCanvas = dynamic(
   }
 );
 
-// Client-only dynamic import of the CesiumJS Photorealistic Engine (God's Eye View Architecture)
+// Client-only dynamic import of the CesiumJS Engine (Satellite Earth Architecture)
 const DynamicCesiumGlobe = dynamic(
   () => import('./cesium/AvirCesiumGlobe').then((mod) => mod.AvirCesiumGlobe),
   {
     ssr: false,
     loading: () => (
       <div className="w-full h-full flex items-center justify-center bg-[#030712] text-xs text-sky-300 telemetry-mono">
-        <span className="animate-pulse">INITIALIZING CESIUMJS PHOTOREALISTIC TERRAIN...</span>
+        <span className="animate-pulse">INITIALIZING SATELLITE EARTH ENGINE...</span>
       </div>
     ),
   }
@@ -69,20 +70,32 @@ export function AvirGlobe({
   const [engineMode, setEngineMode] = useState<'three' | 'cesium'>('three');
   const [isAutoRotating, setIsAutoRotating] = useState<boolean>(true);
   const [zoomLevel, setZoomLevel] = useState<number>(260);
+  const [cameraAction, setCameraAction] = useState<CameraAction | null>(null);
+  const [fallbackNotice, setFallbackNotice] = useState<string | null>(null);
 
   const selectedPoint = points.find((p) => p.id === selectedPointId) || null;
 
   const handleZoomIn = () => {
     setZoomLevel((prev) => Math.max(150, prev - 30));
+    setCameraAction({ type: 'zoomIn', timestamp: Date.now() });
   };
 
   const handleZoomOut = () => {
     setZoomLevel((prev) => Math.min(360, prev + 30));
+    setCameraAction({ type: 'zoomOut', timestamp: Date.now() });
   };
 
   const handleResetView = () => {
     setZoomLevel(260);
     setIsAutoRotating(true);
+    setCameraAction({ type: 'reset', timestamp: Date.now() });
+  };
+
+  const handleCesiumFallback = (reason: string) => {
+    setEngineMode('three');
+    setFallbackNotice(`Cesium unavailable (${reason}). Reverted to Three.js.`);
+    // Auto-dismiss notice after 8 seconds
+    setTimeout(() => setFallbackNotice(null), 8000);
   };
 
   const hasCustomHeight = className.includes('h-');
@@ -94,6 +107,21 @@ export function AvirGlobe({
       {/* Background Radial Atmosphere Glow */}
       <div className="absolute inset-0 bg-radial-atmosphere pointer-events-none" />
       <div className="absolute inset-0 hud-grid-background opacity-40 pointer-events-none" />
+
+      {/* Non-blocking Fallback Notification Banner */}
+      {fallbackNotice && (
+        <div className="absolute top-4 left-4 z-30 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-amber-950/80 border border-amber-500/40 text-amber-200 text-xs telemetry-mono shadow-lg animate-in fade-in">
+          <span>{fallbackNotice}</span>
+          <button
+            type="button"
+            onClick={() => setFallbackNotice(null)}
+            className="text-amber-400 hover:text-white font-bold ml-1"
+            aria-label="Dismiss fallback notification"
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       {/* Main 3D Canvas, CesiumJS Engine, or Accessible 2D Fallback */}
       {is3D ? (
@@ -107,6 +135,9 @@ export function AvirGlobe({
             standard={standard}
             validAtUtc={validAtUtc}
             themeMode={themeMode}
+            isAutoRotating={isAutoRotating}
+            cameraAction={cameraAction}
+            onFallbackToThree={handleCesiumFallback}
             className="w-full h-full"
           />
         ) : (

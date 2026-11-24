@@ -118,8 +118,8 @@ export function GlobeControls({
             type="button"
             onClick={onToggleEngine}
             className="px-2 py-1 rounded-lg text-[11px] font-semibold border border-stone-200 dark:border-sky-500/30 bg-stone-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300 hover:border-sky-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 transition-colors telemetry-mono uppercase"
-            title={`Active Engine: ${engineMode === 'cesium' ? 'CesiumJS (Gods Eye View Photorealistic)' : 'Three.js (Lightweight Platform)'}. Click to switch.`}
-            aria-label={`Toggle 3D Engine, currently ${engineMode === 'cesium' ? 'Cesium' : 'Three'}`}
+            title={`Active Engine: ${engineMode === 'cesium' ? 'CesiumJS (Satellite Earth)' : 'Three.js (Atmospheric Globe)'}. Click to switch.`}
+            aria-label={`Toggle 3D Engine, currently ${engineMode === 'cesium' ? 'CesiumJS (Satellite Earth)' : 'Three.js (Atmospheric Globe)'}`}
           >
             {engineMode === 'cesium' ? 'CESIUM' : 'THREE'}
           </button>

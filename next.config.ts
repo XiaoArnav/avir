@@ -41,7 +41,7 @@ const securityHeaders = [
       "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://va.vercel-scripts.com",
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob: https://*.openstreetmap.org https://*.tile.openstreetmap.org https://images.unsplash.com https://*.arcgisonline.com https://services.arcgisonline.com",
-      "connect-src 'self' https://*.open-meteo.com https://api.openaq.org https://airquality.cpcb.gov.in https://generativelanguage.googleapis.com https://va.vercel-scripts.com https://*.arcgisonline.com https://services.arcgisonline.com",
+      "connect-src 'self' https://*.open-meteo.com https://api.openaq.org https://airquality.cpcb.gov.in https://data.sensor.community https://generativelanguage.googleapis.com https://va.vercel-scripts.com https://*.arcgisonline.com https://services.arcgisonline.com https://*.openstreetmap.org https://*.tile.openstreetmap.org",
       "worker-src 'self' blob:",
       "font-src 'self' data:",
       "object-src 'none'",
@@ -57,6 +57,13 @@ const securityHeaders = [
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false, // Security: Do not advertise X-Powered-By: Next.js
+  webpack: (config) => {
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      '@spz-loader/core': false,
+    };
+    return config;
+  },
   async headers() {
     return [
       {

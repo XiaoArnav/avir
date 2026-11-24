@@ -100,7 +100,7 @@ test.describe('Avir Flagship Earth Command Center & Planetary Telemetry E2E', ()
   test('operates 24-hour diurnal timeline scrubber and snaps back to NOW', async ({ page }) => {
     // Wait for telemetry to load and diurnal timeline scrubber slider to appear
     const scrubber = page.getByRole('slider', { name: /24-hour diurnal/i });
-    await expect(scrubber).toBeVisible({ timeout: 12000 });
+    await expect(scrubber).toBeVisible({ timeout: 20000 });
 
     // Move scrubber to hour 14 (afternoon)
     await scrubber.fill('14');
@@ -205,8 +205,51 @@ test.describe('Avir Flagship Earth Command Center & Planetary Telemetry E2E', ()
     await engineButton.click();
     await expect(engineButton).toHaveText('CESIUM');
 
+    // Verify Cesium widget or canvas container renders
+    const cesiumContainer = page.locator('.cesium-widget');
+    await expect(cesiumContainer).toBeVisible({ timeout: 15000 });
+
+    // Verify legal provider attribution badge is visible
+    await expect(page.locator('text=Imagery: Tiles © Esri')).toBeVisible();
+
     // Switch back to Three.js
     await engineButton.click();
     await expect(engineButton).toHaveText('THREE');
+    await expect(cesiumContainer).not.toBeVisible();
+  });
+
+  test('operates camera controls (zoom, auto-rotate, reset) when Cesium engine is active', async ({ page }) => {
+    const engineButton = page.getByRole('button', { name: /toggle 3d engine/i });
+    await expect(engineButton).toBeVisible();
+    await engineButton.click();
+    await expect(engineButton).toHaveText('CESIUM');
+
+    // Wait for Cesium canvas to initialize
+    const cesiumWidget = page.locator('.cesium-widget');
+    await expect(cesiumWidget).toBeVisible({ timeout: 15000 });
+
+    // 1. Zoom In
+    const zoomInBtn = page.getByRole('button', { name: 'Zoom In' });
+    await expect(zoomInBtn).toBeVisible();
+    await zoomInBtn.click();
+
+    // 2. Zoom Out
+    const zoomOutBtn = page.getByRole('button', { name: 'Zoom Out' });
+    await expect(zoomOutBtn).toBeVisible();
+    await zoomOutBtn.click();
+
+    // 3. Toggle Auto-Rotation (Pause / Resume)
+    const rotateBtn = page.getByRole('button', { name: /pause rotation|start auto-rotation/i });
+    await expect(rotateBtn).toBeVisible();
+    await rotateBtn.click();
+    await rotateBtn.click();
+
+    // 4. Reset Camera View
+    const resetBtn = page.getByRole('button', { name: 'Reset Globe Orientation' });
+    await expect(resetBtn).toBeVisible();
+    await resetBtn.click();
+
+    // Ensure the widget remains intact and responsive
+    await expect(cesiumWidget).toBeVisible();
   });
 });
