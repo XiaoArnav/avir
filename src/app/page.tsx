@@ -47,6 +47,12 @@ import { DeterministicPlanResult, AiPlanExplanation } from '@/domain/planning-ty
 import { DailySchedule } from '@/domain/routine-types';
 import { FloatingDock } from '@/components/ui/futuristic';
 import { FirstVisitLocationModal } from '@/components/location/FirstVisitLocationModal';
+import { SourcePreference } from '@/services/source-control/source-control-types';
+import {
+  DEFAULT_SOURCE_PREFERENCE,
+  loadSourcePreference,
+  saveSourcePreference,
+} from '@/services/source-control/source-preferences';
 
 const EarthCommandCenter = dynamic(
   () => import('@/components/home/EarthCommandCenter').then((module) => module.EarthCommandCenter),
@@ -91,11 +97,13 @@ export default function Home() {
   const [isFirstVisitModalOpen, setIsFirstVisitModalOpen] = useState(false);
   const [geminiApiKey, setGeminiApiKey] = useState('');
   const [isDarkMode, setIsDarkMode] = useState(true);
+  const [sourcePreference, setSourcePreference] = useState<SourcePreference>(DEFAULT_SOURCE_PREFERENCE);
 
   // Restore persisted preferences on client mount (UX29)
   useEffect(() => {
     if (typeof window !== 'undefined') {
       try {
+        setSourcePreference(loadSourcePreference());
         const savedTheme = localStorage.getItem('avir_theme_mode_v1');
         if (savedTheme === 'light') {
           setIsDarkMode(false);
@@ -239,6 +247,11 @@ export default function Home() {
     setDeterministicPlan(null);
     setAiExplanation(null);
     setSelectedCity(loc);
+  };
+
+  const handleUpdateSourcePreference = (pref: SourcePreference) => {
+    setSourcePreference(pref);
+    saveSourcePreference(pref);
   };
 
   // Handle manual live telemetry refresh & dependent plan recalculation with generation protection
@@ -407,6 +420,8 @@ export default function Home() {
           onOpenMultiSource={() => setIsMultiSourceModalOpen(true)}
           onOpenDailyPlan={() => setActiveTab('routine')}
           onSnapToNow={() => setSelectedTemporalPoint(null)}
+          sourcePreference={sourcePreference}
+          onUpdateSourcePreference={handleUpdateSourcePreference}
         />
 
         {/* Action-First Quick Health & Activity Decision Guide */}
@@ -791,6 +806,8 @@ export default function Home() {
         environmentalSources={metrics?.environmentalSources}
         sourceComparison={metrics?.sourceComparison}
         metrics={metrics}
+        sourcePreference={sourcePreference}
+        onUpdateSourcePreference={handleUpdateSourcePreference}
       />
     </div>
   );

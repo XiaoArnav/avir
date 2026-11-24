@@ -19,6 +19,7 @@ import { AtmosphericMetrics, HourlyAtmosphericPoint } from '@/domain/types';
 import { GeocodedLocation } from '@/services/telemetry-service';
 import { AqiStandard } from '@/services/geo/geographic-observation-adapter';
 import { TelemetryReadout } from '@/components/ui/futuristic';
+import { ResolvedSourceData } from '@/services/source-control/source-control-types';
 
 export interface EnvironmentalDetailsDrawerProps {
   isOpen: boolean;
@@ -38,6 +39,7 @@ export interface EnvironmentalDetailsDrawerProps {
   };
   isOfficialGround: boolean;
   isThermalInversion: boolean;
+  resolvedSource?: ResolvedSourceData | null;
 }
 
 export function EnvironmentalDetailsDrawer({
@@ -54,6 +56,7 @@ export function EnvironmentalDetailsDrawer({
   grapStage,
   isOfficialGround,
   isThermalInversion,
+  resolvedSource,
 }: EnvironmentalDetailsDrawerProps) {
   const drawerRef = useRef<HTMLDivElement>(null);
 
@@ -143,6 +146,16 @@ export function EnvironmentalDetailsDrawer({
                 </span>
               )}
             </div>
+
+            {resolvedSource && (
+              <div className="w-full flex items-center justify-between text-[11px] pt-1 text-slate-300">
+                <span className="text-slate-400">Selected Source:</span>
+                <span className="font-bold text-sky-200 telemetry-mono truncate max-w-[220px]" title={resolvedSource.stationName}>
+                  {resolvedSource.stationName}
+                  {resolvedSource.isFallback && ' (Fallback Model)'}
+                </span>
+              </div>
+            )}
           </div>
 
           {/* 1. Complete Criteria Chemical Pollutants Matrix */}
