@@ -119,11 +119,25 @@ export async function POST(req: NextRequest) {
         rawBody.customRoutine = 'Standard Daily Routine (Sanitized)';
       }
     }
+    if (typeof rawBody.currentAmbientSource === 'string') {
+      const sourceInspection = inspectPromptInjection(rawBody.currentAmbientSource);
+      if (sourceInspection.isThreatDetected) {
+        console.warn('Adversarial prompt injection pattern stripped in source label:', sourceInspection.detectedPatterns);
+        rawBody.currentAmbientSource = 'Client-Supplied Ambient Source';
+      }
+    }
 
     // =========================================================================
     // TIER 1: DETERMINISTIC ENGINE (ALL NUMBERS DERIVED HERE, NEVER BY LLM)
+    // Client-supplied ambient measurements are validated quantitatively without
+    // elevating them to server-verified official regulatory status.
     // =========================================================================
-    const legacyPlanFallback = isModernSchedule ? null : generateLocalHeuristicPlan(rawBody);
+    const legacyPlanFallback = isModernSchedule
+      ? null
+      : generateLocalHeuristicPlan({
+          ...rawBody,
+          isServerUnverifiedPayload: true,
+        });
     let deterministicPlan;
 
     if (isModernSchedule) {
