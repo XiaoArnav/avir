@@ -15,6 +15,9 @@ import {
   getUnconfiguredProviders,
   evaluateMeasurementEligibility,
   MeasurementEligibility,
+  MAX_COMPARISON_DISTANCE_KM,
+  MAX_COMPARISON_TIME_DIFF_MINUTES,
+  getPhysicalStationDeduplicationKey,
 } from '@/config/environmental-sources';
 import { hardwareDeviceService } from '@/services/device-telemetry-service';
 import {
@@ -194,7 +197,7 @@ export const MultiSourceInspectorModal: React.FC<MultiSourceInspectorModalProps>
     return list;
   }, [effectiveSources, metrics?.groundStation]);
 
-  // Build structured comparison list across all available environmental feeds
+  // Build structured comparison list across all available environmental feeds with strict scientific compatibility checks (Defect 5)
   const comparisonItems = useMemo(() => {
     const items: Array<{
       id: string;
@@ -203,6 +206,8 @@ export const MultiSourceInspectorModal: React.FC<MultiSourceInspectorModalProps>
       kind: string;
       pm25: number | null;
       deltaUgM3: number | null;
+      isCompatible: boolean;
+      incompatibilityReason: string | null;
       distanceKm: number | null;
       timeLabel: string;
       status: string;
@@ -212,16 +217,97 @@ export const MultiSourceInspectorModal: React.FC<MultiSourceInspectorModalProps>
     }> = [];
 
     const activeConcentration = activeResolvedSource?.concentration ?? null;
+    const activeUnit = (activeResolvedSource?.unit || '').toLowerCase().trim();
+    const activeIsModel = activeResolvedSource?.isModel ?? false;
+    const activeObservedAt = activeResolvedSource?.observedAt || activeResolvedSource?.validAt || null;
+    const activeAveragingPeriod = activeResolvedSource?.averagingPeriodMinutes ?? null;
+    const activeStationKey = activeResolvedSource?.resolvedSource
+      ? getPhysicalStationDeduplicationKey(activeResolvedSource.resolvedSource)
+      : (activeResolvedSource?.stationId ?? '');
 
     effectiveSources.forEach((src) => {
-      const pm25 = src.measurements?.find((m) => m.pollutant === 'pm25')?.value ?? null;
+      const pm25Meas = src.measurements?.find((m) => m && m.pollutant === 'pm25');
+      const pm25 = pm25Meas?.value ?? null;
+      const candidateUnit = (pm25Meas?.unit || '').toLowerCase().trim();
+      const candidateIsModel = src.sourceKind === 'atmospheric_model';
+      const candidateObservedAt = pm25Meas?.observedAt || pm25Meas?.validAt || src.validAt || src.observedAt || null;
+      const candidateAveragingPeriod = pm25Meas?.averagingPeriodMinutes ?? null;
+      const candidateStationKey = candidateIsModel
+        ? src.id
+        : getPhysicalStationDeduplicationKey(src);
+
       let delta: number | null = null;
-      if (activeConcentration !== null && pm25 !== null) {
+      let isCompatible = true;
+      let incompatibilityReason: string | null = null;
+
+      // 1. Availability check
+      if (activeConcentration === null || pm25 === null) {
+        isCompatible = false;
+        incompatibilityReason = 'Measurement unavailable';
+      }
+      // 2. Freshness check
+      else if (src.status === 'stale' || activeResolvedSource?.resolutionStatus === 'unavailable') {
+        isCompatible = false;
+        incompatibilityReason = 'Source is stale';
+      }
+      // 3. Duplicate reporting network check (e.g. OpenAQ mirror of CPCB)
+      else if (
+        !activeIsModel &&
+        !candidateIsModel &&
+        activeStationKey &&
+        candidateStationKey &&
+        activeStationKey === candidateStationKey &&
+        src.id !== activeResolvedSource?.stationId
+      ) {
+        isCompatible = false;
+        incompatibilityReason = 'Duplicate reporting network';
+      }
+      // 4. Units check
+      else if (
+        (activeUnit !== 'ug/m3' && activeUnit !== 'µg/m³') ||
+        (candidateUnit !== 'ug/m3' && candidateUnit !== 'µg/m³')
+      ) {
+        isCompatible = false;
+        incompatibilityReason = 'Units are incompatible';
+      }
+      // 5. Quality check
+      else if (pm25Meas?.qualityFlag === 'rejected' || pm25 < 0 || !Number.isFinite(pm25)) {
+        isCompatible = false;
+        incompatibilityReason = 'Measurement quality unavailable';
+      }
+      // 6. Averaging period alignment check
+      else if (
+        activeAveragingPeriod !== null &&
+        candidateAveragingPeriod !== null &&
+        Math.abs(activeAveragingPeriod - candidateAveragingPeriod) > 120
+      ) {
+        isCompatible = false;
+        incompatibilityReason = 'Different averaging periods';
+      }
+      // 7. Temporal alignment check (within 120 minutes)
+      else if (activeObservedAt && candidateObservedAt) {
+        const tActive = Date.parse(activeObservedAt);
+        const tCandidate = Date.parse(candidateObservedAt);
+        if (!isNaN(tActive) && !isNaN(tCandidate)) {
+          const diffMinutes = Math.abs(tActive - tCandidate) / (60 * 1000);
+          if (diffMinutes > MAX_COMPARISON_TIME_DIFF_MINUTES) {
+            isCompatible = false;
+            incompatibilityReason = 'Observation times do not align';
+          }
+        }
+      }
+      // 8. Distance check (<= 25km limit)
+      else if (src.distanceKm !== null && src.distanceKm !== undefined && src.distanceKm > MAX_COMPARISON_DISTANCE_KM) {
+        isCompatible = false;
+        incompatibilityReason = 'Distance exceeds 25 km limit';
+      }
+
+      // Compute delta only when scientifically compatible
+      if (isCompatible && activeConcentration !== null && pm25 !== null) {
         delta = Math.round((pm25 - activeConcentration) * 10) / 10;
       }
 
       let timeLabel = 'Time unavailable';
-      const pm25Meas = src.measurements?.find((m) => m.pollutant === 'pm25');
       if (pm25Meas?.observedAt) {
         timeLabel = `Observed ${new Date(pm25Meas.observedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
       } else if (pm25Meas?.validAt || src.validAt) {
@@ -246,6 +332,8 @@ export const MultiSourceInspectorModal: React.FC<MultiSourceInspectorModalProps>
         kind: src.sourceKind,
         pm25,
         deltaUgM3: delta,
+        isCompatible,
+        incompatibilityReason,
         distanceKm: src.distanceKm,
         timeLabel,
         status: src.status,
@@ -685,12 +773,18 @@ export const MultiSourceInspectorModal: React.FC<MultiSourceInspectorModalProps>
                         <td className="p-2.5 font-mono text-[11px]">
                           {item.isCurrentlyActive ? (
                             <span className="text-sky-600 dark:text-sky-400 font-bold">Active</span>
-                          ) : item.deltaUgM3 !== null ? (
-                            <span className={item.deltaUgM3 > 0 ? 'text-rose-500' : 'text-emerald-500'}>
+                          ) : item.isCompatible && item.deltaUgM3 !== null ? (
+                            <span className={item.deltaUgM3 > 0 ? 'text-rose-500 font-semibold' : 'text-emerald-500 font-semibold'}>
                               {item.deltaUgM3 > 0 ? `+${item.deltaUgM3}` : item.deltaUgM3} µg/m³
                             </span>
                           ) : (
-                            <span className="text-stone-400">—</span>
+                            <span
+                              className="text-stone-400 dark:text-zinc-500 text-[10px] italic flex items-center gap-1"
+                              title={item.incompatibilityReason || 'Comparison unavailable'}
+                            >
+                              <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400/80 shrink-0" />
+                              <span className="truncate max-w-[130px]">{item.incompatibilityReason || 'Unavailable'}</span>
+                            </span>
                           )}
                         </td>
                         <td className="p-2.5 text-ink-muted dark:text-zinc-400 font-mono text-[11px]">

@@ -114,6 +114,52 @@ Avir strictly enforces that user geolocation coordinates are never bundled into 
 
 ### Full Pipeline Run Results
 - **TypeScript**: 0 errors (`npx tsc --noEmit`)
-- **Vitest**: 83 test files, 1,314 passed (100%)
+- **Vitest**: 84 test files, 1,321 passed (100%)
 - **Production Build**: Next.js 15.5 compiled cleanly with static page generation
-- **Playwright E2E**: 10 tests passed (100%)
+- **Playwright E2E**: 12 tests passed (100%)
+
+---
+
+## PR #32 — Critical Data-Integrity Corrections
+
+Following exhaustive scientific auditing and verification against regulatory standards, PR #32 underwent targeted data-integrity hardening to eliminate 6 critical defects:
+
+### 1. Defect 1: Invalid & Stale Source Selection (Resolved)
+- **Root Cause**: `hasValidPm25` evaluated only numerical positivity (`v >= 0`), allowing stale readings (>24 hours old), rejected sensor values, and unconfigured providers to be selected as active monitors.
+- **Correction**: Reused the canonical `evaluateMeasurementEligibility` engine from `@/config/environmental-sources`. Strict status checks (`stale`, `rejected`, `registry_only`, `not_configured`) and physical observation timestamp validations (`observedAt` age $\le 24\text{h}$) now guard every candidate station.
+- **Verification**: Verified via `tests/unit/source-control-integrity.test.ts` (Scenario B & C) and `tests/unit/source-control-resolution.test.ts`.
+
+### 2. Defect 2: Dependent Features Desynchronization (Resolved)
+- **Root Cause**: When a user selected an alternative or offline source, dependent features (`page.tsx` AI plan generation, screen reader live announcement, `SchoolSafetyAdvisoryModal`, `ShareBulletinModal`, and `RwaBulletinModal`) directly read default model metrics, presenting contradictory numbers.
+- **Correction**: Derived `selectedCurrentSource` at the page boundary. Modals, screen readers, and AI plan generation now consume `selectedCurrentSource.concentration` and `effectiveMetricsForModals`. Inactivating stale sources honestly sets dependent advisories to unavailable state without silent model substitution.
+- **Verification**: Verified end-to-end in `src/app/page.tsx` and via Playwright source control tests.
+
+### 3. Defect 3: Pollutant Provenance Misrepresentation in Details Drawer (Resolved)
+- **Root Cause**: `EnvironmentalDetailsDrawer.tsx` applied a blanket ternary (`isOfficialGround ? 'official' : 'modeled'`) across all secondary pollutants ($O_3, NO_2, SO_2, CO$), misleading users into believing secondary chemical gases originated from physical ground monitors when they were actually modeled.
+- **Correction**: Built a dedicated `pollutantData` resolver tracking provenance per pollutant. Physical PM2.5 and PM10 use verified station readings; unmeasured secondary pollutants and all forecast timeline steps are explicitly tagged `'modeled'`.
+- **Verification**: Verified in `tests/integration/earth-command-center.test.tsx` and Playwright `globe-platform.spec.ts`.
+
+### 4. Defect 4: Incorrect Official Published AQI Classification (Resolved)
+- **Root Cause**: Locally derived AQI calculations (`aqi_derived`) were incorrectly flagged as official bulletins whenever a source was an official ground station.
+- **Correction**: Strict publication criteria enforced in `buildResolvedSourceData`. `isOfficialPublishedAqi` is set to `true` ONLY when verified bulletin metadata (`isOfficialBulletin === true`) and an explicit regulatory bulletin measurement (`qualityFlag === 'official_bulletin'`) are present. All mathematical conversions from raw $\mu\text{g/m}^3$ are honestly disclosed as derived sub-indices.
+- **Verification**: Verified in `tests/unit/source-control-integrity.test.ts` (Scenario E).
+
+### 5. Defect 5: Incompatible Data Subtraction in Comparison Matrix (Resolved)
+- **Root Cause**: Arithmetic delta ($\Delta\ \mu\text{g/m}^3$) was computed indiscriminately between incompatible feeds (e.g., 24h rolling averages vs. 1h instantaneous model outputs, differing units, duplicate OpenAQ mirrors of CPCB stations).
+- **Correction**: Integrated 8 scientific compatibility gates in `MultiSourceInspectorModal.tsx`:
+  1. Availability check (`activeConcentration !== null && candidate !== null`).
+  2. Freshness check (source not stale, status $\neq$ unavailable).
+  3. Duplicate reporting network check using `getPhysicalStationDeduplicationKey`.
+  4. Unit compatibility check ($\mu\text{g/m}^3$ only).
+  5. Measurement quality check (`qualityFlag !== 'rejected'`).
+  6. Averaging period alignment ($|\Delta\text{period}| \le 120\text{ min}$).
+  7. Temporal observation alignment ($|\Delta t| \le 120\text{ min}$).
+  8. Spatial proximity limit ($\le 25\text{ km}$).
+  Incompatible feeds display factual diagnostic badges (e.g., `Different averaging periods`, `Duplicate reporting network`, `Observation times do not align`) rather than invalid deltas.
+- **Verification**: Verified in `tests/unit/source-control-integrity.test.ts` (Scenarios D & G).
+
+### 6. Defect 6: Inconsistent Marker AQI Fields & Globe Desynchronization (Resolved)
+- **Root Cause**: In `EarthCommandCenter.tsx`, updating only `p.aqi` left `p.cpcbAqi` and `p.usAqi` unchanged. Because CesiumJS reads `point.cpcbAqi`/`point.usAqi` depending on active standard while Three.js reads `point.aqi`, the two globes displayed contradictory values. City matching also relied solely on name matching.
+- **Correction**: Synchronized `p.aqi`, `p.cpcbAqi`, and `p.usAqi` with the active resolved source and active standard. Added stable geographic coordinate matching ($|\Delta\text{lat}| < 0.05, |\Delta\text{lon}| < 0.05$) to prevent city name collisions. Implemented unavailable marker state (`category = 'unavailable'`, `categoryColor = '#64748B'`).
+- **Verification**: Verified in `tests/integration/earth-command-center.test.tsx` and Playwright E2E.
+

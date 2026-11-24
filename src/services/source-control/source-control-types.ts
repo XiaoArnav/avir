@@ -50,7 +50,7 @@ export interface ResolvedSourceData {
   validAt: string | null;     // Model valid timestamp or simulation period
   retrievedAt: string;        // Timestamp when data was retrieved from provider API
   averagingPeriodMinutes: number | null;
-  qualityFlag: 'valid' | 'suspect' | 'calibrated' | 'raw' | 'rejected' | 'unavailable';
+  qualityFlag: 'valid' | 'suspect' | 'calibrated' | 'raw' | 'rejected' | 'unavailable' | 'official_bulletin';
   // Station & Provenance Details
   stationId: string | null;
   stationName: string;

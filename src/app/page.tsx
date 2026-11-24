@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { TopNav } from '@/components/TopNav';
 import { MetroRail } from '@/components/MetroRail';
 import { AtmosphereHero } from '@/components/AtmosphereHero';
@@ -34,7 +34,7 @@ import {
   HourlyAtmosphericPoint,
   LocationSelectionSource,
 } from '@/domain/types';
-import { getAQICategory } from '@/domain/air-math';
+import { getAQICategory, calculateAQIFromPM25 } from '@/domain/air-math';
 import {
   fetchLiveAtmosphericMetrics,
   GeocodedLocation,
@@ -53,6 +53,7 @@ import {
   loadSourcePreference,
   saveSourcePreference,
 } from '@/services/source-control/source-preferences';
+import { resolveSource } from '@/services/source-control/source-resolution';
 
 const EarthCommandCenter = dynamic(
   () => import('@/components/home/EarthCommandCenter').then((module) => module.EarthCommandCenter),
@@ -98,6 +99,27 @@ export default function Home() {
   const [geminiApiKey, setGeminiApiKey] = useState('');
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [sourcePreference, setSourcePreference] = useState<SourcePreference>(DEFAULT_SOURCE_PREFERENCE);
+
+  // Authoritative resolved current source derived at page boundary (Defect 2)
+  const selectedCurrentSource = useMemo(() => {
+    return resolveSource(sourcePreference, metrics, 'cpcb');
+  }, [sourcePreference, metrics]);
+
+  // Effective metrics for dependent modals respecting active source resolution (Defect 2)
+  const effectiveMetricsForModals = useMemo(() => {
+    if (!metrics) return null;
+    const isGroundUnavailable = selectedCurrentSource.resolutionStatus === 'unavailable';
+    const effectivePm25 = isGroundUnavailable ? null : (selectedCurrentSource.concentration ?? metrics.pm25);
+    const effectiveUsAqi = effectivePm25 !== null ? calculateAQIFromPM25(effectivePm25) : null;
+    return {
+      ...metrics,
+      pm25: effectivePm25,
+      usAqi: effectiveUsAqi,
+      sourceAttribution: selectedCurrentSource.stationName,
+      provenance: selectedCurrentSource.isModel ? ('modeled_forecast' as const) : ('observed' as const),
+      timestamp: selectedCurrentSource.observedAt || selectedCurrentSource.validAt || metrics.timestamp,
+    };
+  }, [metrics, selectedCurrentSource]);
 
   // Restore persisted preferences on client mount (UX29)
   useEffect(() => {
@@ -252,6 +274,10 @@ export default function Home() {
   const handleUpdateSourcePreference = (pref: SourcePreference) => {
     setSourcePreference(pref);
     saveSourcePreference(pref);
+    // Invalidate plan when source preference changes so stale source data does not persist (Defect 2)
+    setPlan(null);
+    setDeterministicPlan(null);
+    setAiExplanation(null);
   };
 
   // Handle manual live telemetry refresh & dependent plan recalculation with generation protection
@@ -317,13 +343,21 @@ export default function Home() {
 
   // Handle manual plan regeneration with generation protection
   const handleGeneratePlan = async () => {
-    if (!metrics || metrics.status === 'error' || metrics.usAqi === null || metrics.pm25 === null) return;
+    if (!metrics || metrics.status === 'error') return;
+
+    // Use resolved current source for ambient readings (Defect 2)
+    const isGroundUnavailable = selectedCurrentSource.resolutionStatus === 'unavailable';
+    const effectiveAmbientPm25 = isGroundUnavailable ? null : (selectedCurrentSource.concentration ?? metrics.pm25);
+    const effectiveAmbientAqi = isGroundUnavailable ? null : (selectedCurrentSource.displayAqi ?? metrics.usAqi);
+
+    if (effectiveAmbientPm25 === null || effectiveAmbientAqi === null) return;
+
     setIsPlanGenerating(true);
     const planCtx = coordinatorRef.current.beginPlanRequest({
       cityName: selectedCity.name,
       metricsTimestamp: metrics.timestamp,
-      usAqi: metrics.usAqi,
-      pm25: metrics.pm25,
+      usAqi: effectiveAmbientAqi,
+      pm25: effectiveAmbientPm25,
       profileId: `${profile.ageGroup}:${profile.hasAsthmaOrRespiratory ? 'resp' : 'norm'}:${profile.hasCardiovascularCondition ? 'cardio' : 'nocardio'}:${profile.isPregnant ? 'preg' : 'nopreg'}:${profile.isOutdoorWorker ? 'outdoor' : 'indoor'}`,
       ageGroup: profile.ageGroup,
       hasAsthmaOrRespiratory: profile.hasAsthmaOrRespiratory,
@@ -342,6 +376,8 @@ export default function Home() {
         roomSizeSqFt,
         customRoutine,
         geminiApiKey,
+        currentAmbientPm25: effectiveAmbientPm25,
+        currentAmbientSource: selectedCurrentSource.stationName,
       });
 
       if (coordinatorRef.current.isPlanResponseValid(planCtx)) {
@@ -402,7 +438,7 @@ export default function Home() {
             : metrics?.status === 'error'
             ? `Telemetry error: ${metrics.errorMessage || 'Live sensor data currently unavailable.'}`
             : metrics
-            ? `Air quality data updated for ${selectedCity.name}. US EPA AQI: ${metrics.usAqi ?? 'unavailable'}, PM2.5: ${metrics.pm25 ?? 'unavailable'} micrograms per cubic meter.`
+            ? `Air quality data updated for ${selectedCity.name}. Source: ${selectedCurrentSource.stationName}. Standard AQI: ${selectedCurrentSource.displayAqi ?? 'unavailable'}, PM2.5: ${selectedCurrentSource.concentration ?? 'unavailable'} micrograms per cubic meter.`
             : `Selected city: ${selectedCity.name}.`}
         </div>
 
@@ -763,7 +799,7 @@ export default function Home() {
         isOpen={isRwaModalOpen}
         onClose={() => setIsRwaModalOpen(false)}
         cityName={selectedCity.name}
-        metrics={metrics}
+        metrics={effectiveMetricsForModals}
       />
 
       <ScienceExplainerModal
@@ -776,8 +812,18 @@ export default function Home() {
         isOpen={isSchoolModalOpen}
         onClose={() => setIsSchoolModalOpen(false)}
         cityName={selectedCity.name}
-        usAqi={metrics?.usAqi ?? null}
-        pm25={metrics?.pm25 ?? null}
+        usAqi={
+          selectedCurrentSource.resolutionStatus === 'unavailable'
+            ? null
+            : selectedCurrentSource.concentration !== null
+            ? calculateAQIFromPM25(selectedCurrentSource.concentration)
+            : null
+        }
+        pm25={
+          selectedCurrentSource.resolutionStatus === 'unavailable'
+            ? null
+            : selectedCurrentSource.concentration
+        }
       />
 
       {/* 7. Instant WhatsApp & Telegram Smog Bulletin Modal */}
@@ -785,16 +831,33 @@ export default function Home() {
         isOpen={isShareModalOpen}
         onClose={() => setIsShareModalOpen(false)}
         cityName={selectedCity.name}
-        usAqi={metrics?.usAqi ?? null}
-        pm25={metrics?.pm25 ?? null}
-        cigarettes={
-          metrics?.pm25 !== null && metrics?.pm25 !== undefined && Number.isFinite(metrics.pm25) && metrics.pm25 >= 0
-            ? Math.round((metrics.pm25 / 22) * 10) / 10
+        usAqi={
+          selectedCurrentSource.resolutionStatus === 'unavailable'
+            ? null
+            : selectedCurrentSource.concentration !== null
+            ? calculateAQIFromPM25(selectedCurrentSource.concentration)
             : null
         }
-        sourceAttribution={metrics?.sourceAttribution}
-        provenance={metrics?.provenance}
-        timestamp={metrics?.timestamp}
+        pm25={
+          selectedCurrentSource.resolutionStatus === 'unavailable'
+            ? null
+            : selectedCurrentSource.concentration
+        }
+        cigarettes={
+          selectedCurrentSource.resolutionStatus !== 'unavailable' &&
+          selectedCurrentSource.concentration !== null &&
+          Number.isFinite(selectedCurrentSource.concentration) &&
+          selectedCurrentSource.concentration >= 0
+            ? Math.round((selectedCurrentSource.concentration / 22) * 10) / 10
+            : null
+        }
+        sourceAttribution={selectedCurrentSource.stationName}
+        provenance={
+          selectedCurrentSource.isModel
+            ? 'Atmospheric Chemistry Model'
+            : selectedCurrentSource.providerName || 'Physical Ground Station'
+        }
+        timestamp={selectedCurrentSource.observedAt || selectedCurrentSource.validAt || metrics?.timestamp}
       />
 
       {/* 8. Multi-Source Atmospheric Telemetry Consensus & Uncertainty Inspector */}

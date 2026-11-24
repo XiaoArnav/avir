@@ -22,6 +22,8 @@ export interface PlanGenerationRequest {
   roomSizeSqFt?: number;
   customRoutine?: string;
   geminiApiKey?: string;
+  currentAmbientPm25?: number | null;
+  currentAmbientSource?: string | null;
 }
 
 /**
@@ -40,8 +42,11 @@ export function generateLocalHeuristicPlan(req: PlanGenerationRequest): Recommen
   const aqiCategory = getAQICategory(metrics.usAqi);
   const roomVolumeM3 = Math.round((roomSizeSqFt * 0.0929 * 2.7) * 10) / 10; // 9ft (2.7m) ceiling
 
-  const hasPm25 = typeof metrics.pm25 === 'number' && Number.isFinite(metrics.pm25);
-  const peakPM25 = hasPm25 ? (metrics.pm25 as number) : null;
+  // Current ambient PM2.5 respects selected current source when specified (Defect 2)
+  const hasExplicitAmbient = req.currentAmbientPm25 !== undefined;
+  const peakPM25 = hasExplicitAmbient
+    ? (req.currentAmbientPm25 ?? null)
+    : (typeof metrics.pm25 === 'number' && Number.isFinite(metrics.pm25) ? metrics.pm25 : null);
 
   // Determine actual daytime solar venting PM2.5 from forecast if present
   const daytimeForecast = daytimeForecastForPlan(metrics);

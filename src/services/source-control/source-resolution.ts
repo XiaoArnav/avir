@@ -3,7 +3,7 @@
  * 
  * Evaluates user source preferences against active environmental telemetry,
  * enforcing zero-fabrication, deterministic selection, transparent provenance,
- * and no silent fallback.
+ * scientific eligibility, and no silent fallback.
  */
 
 import {
@@ -22,6 +22,96 @@ import {
 } from './source-control-types';
 import { calculateComprehensiveCpcbNaqi } from '@/domain/cpcb-naqi';
 import { calculateAQIFromPM25 } from '@/domain/air-math';
+import {
+  evaluateMeasurementEligibility,
+  MAX_OBSERVATION_AGE_HOURS,
+} from '@/config/environmental-sources';
+
+/**
+ * Evaluates whether an EnvironmentalSourceRecord has an eligible, scientifically valid PM2.5 measurement.
+ * Reuses Avir's canonical evaluateMeasurementEligibility for physical observations and validates
+ * atmospheric chemistry models against valid-time windows.
+ */
+export function isSourceEligibleForPm25(
+  src: EnvironmentalSourceRecord | null | undefined,
+  now: number | Date = Date.now()
+): { isEligible: boolean; reason?: string } {
+  if (!src || !src.id) {
+    return { isEligible: false, reason: 'Source record is null or missing an identifier' };
+  }
+
+  // Source status check
+  if (
+    src.status === 'unavailable' ||
+    src.status === 'stale' ||
+    src.status === 'rejected' ||
+    src.status === 'unreachable' ||
+    src.status === 'error' ||
+    src.status === 'not_configured' ||
+    src.status === 'registry_only'
+  ) {
+    return { isEligible: false, reason: `Source status is ${src.status}` };
+  }
+
+  const isModel = src.sourceKind === 'atmospheric_model' || src.providerKind === 'atmospheric_model';
+
+  if (!isModel) {
+    const res = evaluateMeasurementEligibility(src, 'pm25', now);
+    if (!res.eligible) {
+      return { isEligible: false, reason: res.message };
+    }
+    return { isEligible: true };
+  }
+
+  // Model-specific eligibility
+  const pm25 = src.measurements?.find((m) => m && m.pollutant === 'pm25');
+  if (!pm25) {
+    return { isEligible: false, reason: 'No PM2.5 measurement in atmospheric model record' };
+  }
+
+  if (
+    pm25.value === null ||
+    pm25.value === undefined ||
+    !Number.isFinite(pm25.value) ||
+    pm25.value < 0 ||
+    pm25.qualityFlag === 'rejected'
+  ) {
+    return { isEligible: false, reason: 'Invalid or negative PM2.5 value in model' };
+  }
+
+  const unit = (pm25.unit || '').toLowerCase().trim();
+  if (unit !== 'ug/m3' && unit !== 'µg/m³' && unit !== 'ug/m^3' && unit !== 'micrograms/m3') {
+    return { isEligible: false, reason: `Unsupported unit "${pm25.unit}". Only µg/m³ is valid.` };
+  }
+
+  const validTimeStr = pm25.validAt || src.validAt;
+  if (!validTimeStr) {
+    return { isEligible: false, reason: 'Missing model valid time' };
+  }
+
+  const parsedValidTime = Date.parse(validTimeStr);
+  if (isNaN(parsedValidTime)) {
+    return { isEligible: false, reason: 'Unparseable model valid time' };
+  }
+
+  const nowMs = typeof now === 'number' ? now : now.getTime();
+  const ageMs = nowMs - parsedValidTime;
+  if (ageMs > MAX_OBSERVATION_AGE_HOURS * 3600 * 1000) {
+    return { isEligible: false, reason: `Model forecast valid time is older than ${MAX_OBSERVATION_AGE_HOURS}h` };
+  }
+
+  return { isEligible: true };
+}
+
+/**
+ * Pure boolean helper checking if an EnvironmentalSourceRecord has a valid, fresh PM2.5 reading.
+ */
+export function hasValidPm25(
+  src: EnvironmentalSourceRecord | null | undefined,
+  now: number | Date = Date.now()
+): boolean {
+  return isSourceEligibleForPm25(src, now).isEligible;
+}
 
 /**
  * Resolves the active environmental source according to user preference and available telemetry.
@@ -29,9 +119,11 @@ import { calculateAQIFromPM25 } from '@/domain/air-math';
 export function resolveSource(
   preference: SourcePreference,
   metrics: AtmosphericMetrics | null,
-  aqiStandard: AqiStandard = 'cpcb'
+  aqiStandard: AqiStandard = 'cpcb',
+  evaluationTimeMs?: number
 ): ResolvedSourceData {
   const currentRetrievedAt = new Date().toISOString();
+  const nowMs = evaluationTimeMs ?? Date.now();
 
   // 1. Handle completely null or error telemetry
   if (!metrics) {
@@ -59,20 +151,20 @@ export function resolveSource(
   // 2. Mode Dispatch
   switch (preference.mode) {
     case 'official_ground':
-      return resolveOfficialGroundMode(preference, sources, modelSource, aqiStandard, currentRetrievedAt, alternatives, metrics);
+      return resolveOfficialGroundMode(preference, sources, modelSource, aqiStandard, currentRetrievedAt, alternatives, metrics, nowMs);
 
     case 'openaq':
-      return resolveOpenAqMode(preference, sources, modelSource, aqiStandard, currentRetrievedAt, alternatives, metrics);
+      return resolveOpenAqMode(preference, sources, modelSource, aqiStandard, currentRetrievedAt, alternatives, metrics, nowMs);
 
     case 'atmospheric_model':
-      return resolveAtmosphericModelMode(preference, modelSource, aqiStandard, currentRetrievedAt, alternatives, metrics);
+      return resolveAtmosphericModelMode(preference, modelSource, aqiStandard, currentRetrievedAt, alternatives, metrics, nowMs);
 
     case 'specific_station':
-      return resolveSpecificStationMode(preference, sources, modelSource, aqiStandard, currentRetrievedAt, alternatives, metrics);
+      return resolveSpecificStationMode(preference, sources, modelSource, aqiStandard, currentRetrievedAt, alternatives, metrics, nowMs);
 
     case 'automatic':
     default:
-      return resolveAutomaticMode(preference, sources, modelSource, aqiStandard, currentRetrievedAt, alternatives, metrics);
+      return resolveAutomaticMode(preference, sources, modelSource, aqiStandard, currentRetrievedAt, alternatives, metrics, nowMs);
   }
 }
 
@@ -90,19 +182,20 @@ function resolveAutomaticMode(
   aqiStandard: AqiStandard,
   retrievedAt: string,
   alternatives: Array<{ mode: SourceSelectionMode; label: string; sourceId: string }>,
-  metrics: AtmosphericMetrics
+  metrics: AtmosphericMetrics,
+  nowMs: number
 ): ResolvedSourceData {
   // 1. Look for fresh official reference station within 35km
-  const officialStations = sources.filter(
-    (s) =>
-      s.sourceKind === 'official_ground_station' &&
-      (s.distanceKm === null || s.distanceKm <= 35) &&
-      hasValidPm25(s)
-  );
+  const officialStations = sources
+    .filter(
+      (s) =>
+        s.sourceKind === 'official_ground_station' &&
+        (s.distanceKm === null || s.distanceKm <= 35) &&
+        hasValidPm25(s, nowMs)
+    )
+    .sort((a, b) => (a.distanceKm ?? 999) - (b.distanceKm ?? 999));
 
   if (officialStations.length > 0) {
-    // Sort by shortest distance
-    officialStations.sort((a, b) => (a.distanceKm ?? 999) - (b.distanceKm ?? 999));
     const selected = officialStations[0];
     const distStr = selected.distanceKm !== null ? ` (${selected.distanceKm} km away)` : '';
     return buildResolvedSourceData({
@@ -118,16 +211,17 @@ function resolveAutomaticMode(
   }
 
   // 2. Look for verified OpenAQ physical ground station within 35km
-  const openAqStations = sources.filter(
-    (s) =>
-      s.providerId === 'openaq' &&
-      s.sourceKind !== 'atmospheric_model' &&
-      (s.distanceKm === null || s.distanceKm <= 35) &&
-      hasValidPm25(s)
-  );
+  const openAqStations = sources
+    .filter(
+      (s) =>
+        s.providerId === 'openaq' &&
+        s.sourceKind !== 'atmospheric_model' &&
+        (s.distanceKm === null || s.distanceKm <= 35) &&
+        hasValidPm25(s, nowMs)
+    )
+    .sort((a, b) => (a.distanceKm ?? 999) - (b.distanceKm ?? 999));
 
   if (openAqStations.length > 0) {
-    openAqStations.sort((a, b) => (a.distanceKm ?? 999) - (b.distanceKm ?? 999));
     const selected = openAqStations[0];
     const distStr = selected.distanceKm !== null ? ` (${selected.distanceKm} km away)` : '';
     return buildResolvedSourceData({
@@ -143,7 +237,7 @@ function resolveAutomaticMode(
   }
 
   // 3. Fall back to verified atmospheric chemistry model (Open-Meteo CAMS)
-  if (modelSource && hasValidPm25(modelSource)) {
+  if (modelSource && hasValidPm25(modelSource, nowMs)) {
     return buildResolvedSourceData({
       preference,
       resolvedSource: modelSource,
@@ -157,8 +251,15 @@ function resolveAutomaticMode(
   }
 
   // 4. Default model values directly from metrics if available
-  if (metrics.pm25 !== null) {
-    return buildResolvedFromMetrics(preference, metrics, aqiStandard, retrievedAt, 'Atmospheric model selected from primary telemetry stream.', alternatives);
+  if (metrics.pm25 !== null && Number.isFinite(metrics.pm25) && metrics.pm25 >= 0 && metrics.status !== 'error') {
+    return buildResolvedFromMetrics(
+      preference,
+      metrics,
+      aqiStandard,
+      retrievedAt,
+      'Atmospheric model selected from primary telemetry stream.',
+      alternatives
+    );
   }
 
   return createUnavailableResolvedData(
@@ -179,13 +280,14 @@ function resolveOfficialGroundMode(
   aqiStandard: AqiStandard,
   retrievedAt: string,
   alternatives: Array<{ mode: SourceSelectionMode; label: string; sourceId: string }>,
-  metrics: AtmosphericMetrics
+  metrics: AtmosphericMetrics,
+  nowMs: number
 ): ResolvedSourceData {
-  const officialStations = sources.filter(
-    (s) => s.sourceKind === 'official_ground_station' || s.providerId === 'cpcb'
-  );
+  const officialStations = sources
+    .filter((s) => s.sourceKind === 'official_ground_station' || s.providerId === 'cpcb')
+    .sort((a, b) => (a.distanceKm ?? 999) - (b.distanceKm ?? 999));
 
-  const reportingStation = officialStations.find(hasValidPm25);
+  const reportingStation = officialStations.find((s) => hasValidPm25(s, nowMs));
 
   if (reportingStation) {
     return buildResolvedSourceData({
@@ -201,7 +303,7 @@ function resolveOfficialGroundMode(
   }
 
   // If user explicitly allowed fallback to model
-  if (preference.allowFallbackToModel && modelSource && hasValidPm25(modelSource)) {
+  if (preference.allowFallbackToModel && modelSource && hasValidPm25(modelSource, nowMs)) {
     return buildResolvedSourceData({
       preference,
       resolvedSource: modelSource,
@@ -216,14 +318,25 @@ function resolveOfficialGroundMode(
   }
 
   // Honest unavailable state: no silent fallback
+  const isStale = officialStations.some((s) => {
+    if (s.status === 'stale') return true;
+    const elig = evaluateMeasurementEligibility(s, 'pm25', nowMs);
+    return !elig.eligible && elig.reason === 'stale';
+  });
   const isRegistryOnly = officialStations.length > 0;
+
+  let selectionReason = 'No official regulatory stations are located within observation range of this city.';
+  if (isStale) {
+    selectionReason = 'Official CPCB station observations are stale (>24h old) and cannot be presented as current.';
+  } else if (isRegistryOnly) {
+    selectionReason = 'Official CPCB stations are registered in this city but are awaiting continuous live telemetry.';
+  }
+
   return {
     preference,
     resolvedSource: null,
     resolutionStatus: 'unavailable',
-    selectionReason: isRegistryOnly
-      ? 'Official CPCB stations are registered in this city but are awaiting continuous live telemetry.'
-      : 'No official regulatory stations are located within observation range of this city.',
+    selectionReason,
     isFallback: false,
     pollutant: 'pm25',
     concentration: null,
@@ -262,13 +375,14 @@ function resolveOpenAqMode(
   aqiStandard: AqiStandard,
   retrievedAt: string,
   alternatives: Array<{ mode: SourceSelectionMode; label: string; sourceId: string }>,
-  metrics: AtmosphericMetrics
+  metrics: AtmosphericMetrics,
+  nowMs: number
 ): ResolvedSourceData {
-  const openAqSources = sources.filter(
-    (s) => s.providerId === 'openaq' && s.sourceKind !== 'atmospheric_model'
-  );
+  const openAqSources = sources
+    .filter((s) => s.providerId === 'openaq' && s.sourceKind !== 'atmospheric_model')
+    .sort((a, b) => (a.distanceKm ?? 999) - (b.distanceKm ?? 999));
 
-  const reportingSource = openAqSources.find(hasValidPm25);
+  const reportingSource = openAqSources.find((s) => hasValidPm25(s, nowMs));
 
   if (reportingSource) {
     const network = reportingSource.provenance?.network || 'OpenAQ Ground Network';
@@ -284,7 +398,7 @@ function resolveOpenAqMode(
     });
   }
 
-  if (preference.allowFallbackToModel && modelSource && hasValidPm25(modelSource)) {
+  if (preference.allowFallbackToModel && modelSource && hasValidPm25(modelSource, nowMs)) {
     return buildResolvedSourceData({
       preference,
       resolvedSource: modelSource,
@@ -298,11 +412,20 @@ function resolveOpenAqMode(
     });
   }
 
+  const isStale = openAqSources.some((s) => {
+    if (s.status === 'stale') return true;
+    const elig = evaluateMeasurementEligibility(s, 'pm25', nowMs);
+    return !elig.eligible && elig.reason === 'stale';
+  });
+  const selectionReason = isStale
+    ? 'OpenAQ ground monitor observations are stale (>24h old) and cannot be presented as current.'
+    : 'No OpenAQ monitoring stations are currently reporting measurements within range.';
+
   return {
     preference,
     resolvedSource: null,
     resolutionStatus: 'unavailable',
-    selectionReason: 'No OpenAQ monitoring stations are currently reporting measurements within range.',
+    selectionReason,
     isFallback: false,
     pollutant: 'pm25',
     concentration: null,
@@ -340,9 +463,10 @@ function resolveAtmosphericModelMode(
   aqiStandard: AqiStandard,
   retrievedAt: string,
   alternatives: Array<{ mode: SourceSelectionMode; label: string; sourceId: string }>,
-  metrics: AtmosphericMetrics
+  metrics: AtmosphericMetrics,
+  nowMs: number
 ): ResolvedSourceData {
-  if (modelSource && hasValidPm25(modelSource)) {
+  if (modelSource && hasValidPm25(modelSource, nowMs)) {
     return buildResolvedSourceData({
       preference,
       resolvedSource: modelSource,
@@ -355,7 +479,7 @@ function resolveAtmosphericModelMode(
     });
   }
 
-  if (metrics.pm25 !== null) {
+  if (metrics.pm25 !== null && Number.isFinite(metrics.pm25) && metrics.pm25 >= 0 && metrics.status !== 'error') {
     return buildResolvedFromMetrics(
       preference,
       metrics,
@@ -384,11 +508,11 @@ function resolveSpecificStationMode(
   aqiStandard: AqiStandard,
   retrievedAt: string,
   alternatives: Array<{ mode: SourceSelectionMode; label: string; sourceId: string }>,
-  metrics: AtmosphericMetrics
+  metrics: AtmosphericMetrics,
+  nowMs: number
 ): ResolvedSourceData {
   if (!preference.stationId) {
-    // No station ID specified, fall back to automatic resolution
-    return resolveAutomaticMode(preference, sources, modelSource, aqiStandard, retrievedAt, alternatives, metrics);
+    return resolveAutomaticMode(preference, sources, modelSource, aqiStandard, retrievedAt, alternatives, metrics, nowMs);
   }
 
   const targetStation = sources.find(
@@ -399,6 +523,20 @@ function resolveSpecificStationMode(
   if (targetStation) {
     // Spatial relevance check: if station is > 100km away, user switched cities
     if (targetStation.distanceKm !== null && targetStation.distanceKm > 100) {
+      if (preference.allowFallbackToModel && modelSource && hasValidPm25(modelSource, nowMs)) {
+        return buildResolvedSourceData({
+          preference,
+          resolvedSource: modelSource,
+          resolutionStatus: 'fallback',
+          selectionReason: `Selected station "${preference.stationName || preference.stationId}" is ${targetStation.distanceKm} km away. Fell back to CAMS Atmospheric Model.`,
+          isFallback: true,
+          fallbackReason: `Station ${preference.stationName || preference.stationId} is out of observation range (>100 km).`,
+          aqiStandard,
+          retrievedAt,
+          alternatives,
+        });
+      }
+
       return {
         preference,
         resolvedSource: null,
@@ -432,7 +570,9 @@ function resolveSpecificStationMode(
       };
     }
 
-    if (hasValidPm25(targetStation)) {
+    // Check station eligibility
+    const eligibility = isSourceEligibleForPm25(targetStation, nowMs);
+    if (eligibility.isEligible) {
       return buildResolvedSourceData({
         preference,
         resolvedSource: targetStation,
@@ -445,12 +585,26 @@ function resolveSpecificStationMode(
       });
     }
 
-    // Station exists but has no live PM2.5 measurement
+    // Station exists but reading is not eligible (stale, offline, unparseable)
+    if (preference.allowFallbackToModel && modelSource && hasValidPm25(modelSource, nowMs)) {
+      return buildResolvedSourceData({
+        preference,
+        resolvedSource: modelSource,
+        resolutionStatus: 'fallback',
+        selectionReason: `Selected station "${targetStation.sourceName || targetStation.name}" has no fresh measurement (${eligibility.reason}); fell back to CAMS Atmospheric Model.`,
+        isFallback: true,
+        fallbackReason: eligibility.reason || 'Selected station reading is not eligible.',
+        aqiStandard,
+        retrievedAt,
+        alternatives,
+      });
+    }
+
     return {
       preference,
       resolvedSource: targetStation,
       resolutionStatus: 'unavailable',
-      selectionReason: `Selected station "${targetStation.sourceName || targetStation.name}" has no continuous live feed at this time.`,
+      selectionReason: `Selected station "${targetStation.sourceName || targetStation.name}" is currently unavailable: ${eligibility.reason || 'No valid PM2.5 observation'}.`,
       isFallback: false,
       pollutant: 'pm25',
       concentration: null,
@@ -474,13 +628,13 @@ function resolveSpecificStationMode(
       aqiCategory: 'Unavailable',
       aqiCategoryColor: '#64748B',
       isOfficialPublishedAqi: false,
-      aqiCalculationNotes: 'Selected station has no valid PM2.5 observation.',
+      aqiCalculationNotes: eligibility.reason || 'Selected station has no valid PM2.5 observation.',
       availableAlternatives: alternatives,
     };
   }
 
   // Station ID not found in current city sources (e.g. User switched cities)
-  if (preference.allowFallbackToModel && modelSource && hasValidPm25(modelSource)) {
+  if (preference.allowFallbackToModel && modelSource && hasValidPm25(modelSource, nowMs)) {
     return buildResolvedSourceData({
       preference,
       resolvedSource: modelSource,
@@ -528,17 +682,6 @@ function resolveSpecificStationMode(
 }
 
 /**
- * Helper to check if an EnvironmentalSourceRecord has a valid, non-negative PM2.5 measurement.
- */
-function hasValidPm25(src: EnvironmentalSourceRecord): boolean {
-  if (!src || !src.measurements) return false;
-  const pm25 = src.measurements.find((m) => m.pollutant === 'pm25');
-  return Boolean(
-    pm25 && pm25.value !== null && Number.isFinite(pm25.value) && pm25.value >= 0
-  );
-}
-
-/**
  * Builds ResolvedSourceData from an EnvironmentalSourceRecord with scientifically honest AQI derivation.
  */
 function buildResolvedSourceData(params: {
@@ -575,29 +718,45 @@ function buildResolvedSourceData(params: {
   let isOfficialPublishedAqi = false;
   let aqiCalculationNotes = '';
 
-  if (aqiStandard === 'cpcb') {
-    if (aqiM && aqiM.value !== null) {
-      displayAqi = aqiM.value;
-      isOfficialPublishedAqi = true;
-      aqiCalculationNotes = 'Official regulatory bulletin reported by provider.';
-    } else if (concentration !== null) {
+  // Defect 4: Strict Official Publication Logic
+  // An AQI is officially published ONLY when verified trusted source metadata proves
+  // it was explicitly published by the regulatory authority under the selected standard.
+  // Never infer official status from provider name alone, aqi_derived, fresh status, or local calculation.
+  const hasOfficialBulletinProof = Boolean(
+    resolvedSource.sourceKind === 'official_ground_station' &&
+    (resolvedSource.provenance?.isOfficialBulletin === true || resolvedSource.metadata?.isOfficialBulletin === true) &&
+    aqiM &&
+    aqiM.value !== null &&
+    Number.isFinite(aqiM.value) &&
+    aqiM.qualityFlag === 'official_bulletin'
+  );
+
+  if (hasOfficialBulletinProof && aqiM) {
+    displayAqi = aqiM.value;
+    isOfficialPublishedAqi = true;
+    aqiCalculationNotes = `Official regulatory bulletin published by ${resolvedSource.providerName || 'regulatory authority'}.`;
+  } else if (aqiStandard === 'cpcb') {
+    isOfficialPublishedAqi = false;
+    if (concentration !== null) {
+      const is24Hr = Boolean(pm25M?.averagingPeriodMinutes === 1440);
       const cpcbResult = calculateComprehensiveCpcbNaqi({
         pm25: concentration,
         pm10: pm10M?.value ?? null,
-        is24HourAveraged: Boolean(pm25M?.averagingPeriodMinutes === 1440),
+        is24HourAveraged: is24Hr,
       });
       displayAqi = cpcbResult.aqi;
-      isOfficialPublishedAqi = false;
-      aqiCalculationNotes =
-        cpcbResult.evidence.missingRequirements.length > 0
-          ? 'Indicative CPCB sub-index calculated from PM2.5. Not an official 24-hr statutory bulletin.'
-          : 'CPCB sub-index calculated from available in-situ observations.';
+      if (cpcbResult.classification === 'statutory_compliant' && is24Hr) {
+        aqiCalculationNotes = 'Statutory 24-hour CPCB NAQI calculation with compliant data sufficiency.';
+      } else {
+        aqiCalculationNotes = 'Indicative CPCB sub-index derived from in-situ measurements. Not an officially published bulletin.';
+      }
     }
   } else {
     // US EPA standard
+    isOfficialPublishedAqi = false;
     if (concentration !== null) {
       displayAqi = calculateAQIFromPM25(concentration);
-      aqiCalculationNotes = 'US EPA PM2.5 sub-index (40 CFR Part 58, 2024 standard).';
+      aqiCalculationNotes = 'Derived US EPA PM2.5 sub-index (40 CFR Part 58, 2024 standard). Not an officially published AQI.';
     }
   }
 
@@ -618,7 +777,7 @@ function buildResolvedSourceData(params: {
     pollutant: 'pm25',
     concentration,
     unit: pm25M?.unit || 'µg/m³',
-    observedAt: resolvedSource.observedAt ?? resolvedSource.measuredAt ?? null,
+    observedAt: pm25M?.observedAt ?? resolvedSource.observedAt ?? resolvedSource.measuredAt ?? null,
     validAt: resolvedSource.validAt ?? null,
     retrievedAt,
     averagingPeriodMinutes: pm25M?.averagingPeriodMinutes ?? null,

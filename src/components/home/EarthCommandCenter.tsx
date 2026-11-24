@@ -11,13 +11,15 @@ import {
   buildGeographicObservations,
   GeographicObservationPoint,
   AqiStandard,
+  getCpcbCategory,
+  getEpaCategory,
 } from '@/services/geo/geographic-observation-adapter';
 import { AvirGlobe } from '@/components/globe/AvirGlobe';
 import { MissionHeader } from '@/components/ui/futuristic';
 import { CompactCityCard } from './CompactCityCard';
 import { EnvironmentalDetailsDrawer } from './EnvironmentalDetailsDrawer';
 import { assessJurisdiction, resolveOfficialGrapStatus } from '@/services/advisories/grap-status-resolver';
-import { isThermalInversion } from '@/domain/air-math';
+import { isThermalInversion, calculateAQIFromPM25 } from '@/domain/air-math';
 import { formatTimeAgo, resolveTruthfulSourceLabel } from '@/domain/presentation-contract';
 import { calculateComprehensiveCpcbNaqi } from '@/domain/cpcb-naqi';
 import { SourcePreference, ResolvedSourceData } from '@/services/source-control/source-control-types';
@@ -102,15 +104,50 @@ export function EarthCommandCenter({
       currentMetrics: metrics,
       currentLocation: currentCity,
     });
-    // Synchronize active city marker with resolved source when not in forecast mode
+    // Synchronize active city marker with resolved source when not in forecast mode (Defect 6)
     if (resolvedSource && !isForecastSelected) {
       return rawPoints.map((p) => {
-        if (p.name.toLowerCase() === currentCity.name.toLowerCase()) {
+        // Stable geographic matching using city ID and coordinates to prevent name collisions
+        const isMatch =
+          (currentCity.id && String(p.id) === String(currentCity.id)) ||
+          (p.cityId && currentCity.id && String(p.cityId) === String(currentCity.id)) ||
+          (Math.abs(p.latitude - currentCity.latitude) < 0.05 &&
+           Math.abs(p.longitude - currentCity.longitude) < 0.05);
+
+        if (isMatch) {
+          const isUnavailable = resolvedSource.resolutionStatus === 'unavailable';
+
+          let updatedCpcbAqi: number | null = null;
+          let updatedUsAqi: number | null = null;
+
+          if (!isUnavailable) {
+            if (standard === 'cpcb') {
+              updatedCpcbAqi = resolvedSource.displayAqi;
+              if (resolvedSource.concentration !== null) {
+                updatedUsAqi = calculateAQIFromPM25(resolvedSource.concentration);
+              }
+            } else {
+              updatedUsAqi = resolvedSource.displayAqi;
+              if (resolvedSource.concentration !== null) {
+                const cpcbRes = calculateComprehensiveCpcbNaqi({ pm25: resolvedSource.concentration });
+                updatedCpcbAqi = cpcbRes.aqi;
+              }
+            }
+          }
+
+          const activeAqi = standard === 'cpcb' ? updatedCpcbAqi : updatedUsAqi;
+          const cat = standard === 'cpcb' ? getCpcbCategory(activeAqi) : getEpaCategory(activeAqi);
+
           return {
             ...p,
-            aqi: resolvedSource.displayAqi,
-            categoryLabel: resolvedSource.aqiCategory,
-            categoryColor: resolvedSource.aqiCategoryColor,
+            aqi: activeAqi,
+            cpcbAqi: updatedCpcbAqi,
+            usAqi: updatedUsAqi,
+            pm25: isUnavailable ? null : resolvedSource.concentration,
+            category: isUnavailable ? 'unavailable' : cat.category,
+            categoryLabel: isUnavailable ? 'Unavailable' : cat.label,
+            categoryColor: isUnavailable ? '#64748B' : cat.color,
+            source: resolvedSource.providerName,
           };
         }
         return p;
