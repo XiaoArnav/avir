@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { TopNav } from '@/components/TopNav';
 import { MetroRail } from '@/components/MetroRail';
 import { AtmosphereHero } from '@/components/AtmosphereHero';
@@ -40,13 +40,25 @@ import {
   GeocodedLocation,
   PREDEFINED_INDIAN_CITIES,
 } from '@/services/telemetry-service';
-import { generateAirQualityPlan } from '@/services/ai-assistant-service';
+import {
+  generateAirQualityPlan,
+  deriveSelectedCurrentMeasurement,
+  buildMetricsViewForCurrentSource,
+  prepareCurrentSourcePlanInput,
+} from '@/services/ai-assistant-service';
 import { sanitizeUserHealthContext } from '@/services/ai/plan-validator';
 import { loadScheduleFromStorage } from '@/services/routines/routine-storage';
 import { DeterministicPlanResult, AiPlanExplanation } from '@/domain/planning-types';
 import { DailySchedule } from '@/domain/routine-types';
 import { FloatingDock } from '@/components/ui/futuristic';
 import { FirstVisitLocationModal } from '@/components/location/FirstVisitLocationModal';
+import { SourcePreference } from '@/services/source-control/source-control-types';
+import {
+  DEFAULT_SOURCE_PREFERENCE,
+  loadSourcePreference,
+  saveSourcePreference,
+} from '@/services/source-control/source-preferences';
+import { resolveSource } from '@/services/source-control/source-resolution';
 
 const EarthCommandCenter = dynamic(
   () => import('@/components/home/EarthCommandCenter').then((module) => module.EarthCommandCenter),
@@ -91,11 +103,35 @@ export default function Home() {
   const [isFirstVisitModalOpen, setIsFirstVisitModalOpen] = useState(false);
   const [geminiApiKey, setGeminiApiKey] = useState('');
   const [isDarkMode, setIsDarkMode] = useState(true);
+  const [sourcePreference, setSourcePreference] = useState<SourcePreference>(DEFAULT_SOURCE_PREFERENCE);
+  const [isPreferencesHydrated, setIsPreferencesHydrated] = useState(false);
+  const sourcePreferenceRef = useRef<SourcePreference>(DEFAULT_SOURCE_PREFERENCE);
+  const latestMetricsRef = useRef<AtmosphericMetrics | null>(null);
+  const activeManualPlanGenRef = useRef(0);
 
-  // Restore persisted preferences on client mount (UX29)
+  // Authoritative resolved current source derived at page boundary (Fix A)
+  const selectedCurrentSource = useMemo(() => {
+    return resolveSource(sourcePreference, metrics, 'cpcb');
+  }, [sourcePreference, metrics]);
+
+  // Unified memoized current-measurement adapter preventing standard cross-copying or silent fallbacks (Fix A)
+  const currentSourceMeasurement = useMemo(() => {
+    return deriveSelectedCurrentMeasurement(selectedCurrentSource, metrics);
+  }, [selectedCurrentSource, metrics]);
+
+  // Shallow, non-mutating metrics view for current-source components & modals (Fix A, Fix F)
+  const currentSourceMetricsView = useMemo(() => {
+    return buildMetricsViewForCurrentSource(metrics, currentSourceMeasurement);
+  }, [metrics, currentSourceMeasurement]);
+
+  // Restore persisted preferences on client mount before telemetry planning executes (Fix B, UX29)
   useEffect(() => {
     if (typeof window !== 'undefined') {
       try {
+        const restoredPref = loadSourcePreference();
+        sourcePreferenceRef.current = restoredPref;
+        setSourcePreference(restoredPref);
+
         const savedTheme = localStorage.getItem('avir_theme_mode_v1');
         if (savedTheme === 'light') {
           setIsDarkMode(false);
@@ -117,7 +153,11 @@ export default function Home() {
         }
       } catch (e) {
         console.warn('Failed to load user preferences from localStorage:', e);
+      } finally {
+        setIsPreferencesHydrated(true);
       }
+    } else {
+      setIsPreferencesHydrated(true);
     }
   }, []);
 
@@ -138,8 +178,87 @@ export default function Home() {
   // Coordinated request manager preventing race conditions and stale response leaks
   const coordinatorRef = useRef<RequestCoordinator>(new RequestCoordinator());
 
-  // Load telemetry when city changes with RequestCoordinator generation protection
+  // Shared source-aware plan generation pipeline reused across initial load, refresh, manual submit, and source switches
+  const generateCoordinatedPlan = async (
+    telemetry: AtmosphericMetrics,
+    preference: SourcePreference,
+    options?: {
+      switchToRoutineTab?: boolean;
+      trackLoading?: boolean;
+      isMountedCheck?: () => boolean;
+    }
+  ) => {
+    const isStillMounted = options?.isMountedCheck ?? (() => true);
+
+    if (telemetry.status === 'error') {
+      if (isStillMounted()) setPlan(null);
+      return;
+    }
+
+    const { currentMeasurement, planRequest } = prepareCurrentSourcePlanInput({
+      city: selectedCity.name,
+      metrics: telemetry,
+      preference,
+      profile,
+      roomSizeSqFt,
+      customRoutine,
+      geminiApiKey,
+    });
+
+    if (
+      !currentMeasurement.isAvailable ||
+      currentMeasurement.pm25 === null ||
+      currentMeasurement.usAqi === null
+    ) {
+      coordinatorRef.current.invalidatePendingPlans();
+      if (isStillMounted()) {
+        setPlan(null);
+      }
+      return;
+    }
+
+    let manualGenId = activeManualPlanGenRef.current;
+    if (options?.trackLoading) {
+      manualGenId = ++activeManualPlanGenRef.current;
+      setIsPlanGenerating(true);
+    }
+
+    const planCtx = coordinatorRef.current.beginPlanRequest({
+      cityName: selectedCity.name,
+      metricsTimestamp: telemetry.timestamp,
+      usAqi: currentMeasurement.usAqi,
+      pm25: currentMeasurement.pm25,
+      profileId: `${profile.ageGroup}:${profile.hasAsthmaOrRespiratory ? 'resp' : 'norm'}:${profile.hasCardiovascularCondition ? 'cardio' : 'nocardio'}:${profile.isPregnant ? 'preg' : 'nopreg'}:${profile.isOutdoorWorker ? 'outdoor' : 'indoor'}|src:${preference.mode}:${currentMeasurement.sourceId ?? 'none'}:${Boolean(preference.allowFallbackToModel)}`,
+      ageGroup: profile.ageGroup,
+      hasAsthmaOrRespiratory: profile.hasAsthmaOrRespiratory,
+      hasCardiovascularCondition: profile.hasCardiovascularCondition,
+      isPregnant: profile.isPregnant,
+      isOutdoorWorker: profile.isOutdoorWorker,
+      roomSizeSqFt,
+      customRoutine,
+    });
+
+    try {
+      const updatedPlan = await generateAirQualityPlan(planRequest);
+      if (isStillMounted() && coordinatorRef.current.isPlanResponseValid(planCtx)) {
+        setPlan(updatedPlan);
+        if (options?.switchToRoutineTab) {
+          setActiveTab('routine');
+        }
+      }
+    } catch (err) {
+      console.error('Plan generation failed:', err);
+    } finally {
+      if (options?.trackLoading && isStillMounted() && activeManualPlanGenRef.current === manualGenId) {
+        setIsPlanGenerating(false);
+      }
+    }
+  };
+
+  // Load telemetry when city changes (after preference hydration) with RequestCoordinator protection (Fix B)
   useEffect(() => {
+    if (!isPreferencesHydrated) return;
+
     let isMounted = true;
     const ctx = coordinatorRef.current.beginTelemetryRequest(
       selectedCity.latitude,
@@ -160,40 +279,12 @@ export default function Home() {
           return;
         }
 
+        latestMetricsRef.current = data;
         setMetrics(data);
 
-        // Only generate plan if data is available and not in error, and required measurements exist
-        if (data.status !== 'error' && data.usAqi !== null && data.pm25 !== null) {
-          const planCtx = coordinatorRef.current.beginPlanRequest({
-            cityName: selectedCity.name,
-            metricsTimestamp: data.timestamp,
-            usAqi: data.usAqi,
-            pm25: data.pm25,
-            profileId: `${profile.ageGroup}:${profile.hasAsthmaOrRespiratory ? 'resp' : 'norm'}:${profile.hasCardiovascularCondition ? 'cardio' : 'nocardio'}:${profile.isPregnant ? 'preg' : 'nopreg'}:${profile.isOutdoorWorker ? 'outdoor' : 'indoor'}`,
-            ageGroup: profile.ageGroup,
-            hasAsthmaOrRespiratory: profile.hasAsthmaOrRespiratory,
-            hasCardiovascularCondition: profile.hasCardiovascularCondition,
-            isPregnant: profile.isPregnant,
-            isOutdoorWorker: profile.isOutdoorWorker,
-            roomSizeSqFt,
-            customRoutine,
-          });
-
-          const initialPlan = await generateAirQualityPlan({
-            city: selectedCity.name,
-            metrics: data,
-            profile,
-            roomSizeSqFt,
-            customRoutine,
-            geminiApiKey,
-          });
-
-          if (isMounted && coordinatorRef.current.isPlanResponseValid(planCtx)) {
-            setPlan(initialPlan);
-          }
-        } else {
-          setPlan(null);
-        }
+        await generateCoordinatedPlan(data, sourcePreferenceRef.current, {
+          isMountedCheck: () => isMounted,
+        });
       } catch (err: any) {
         if (err?.name !== 'AbortError') {
           console.error('Failed to load telemetry:', err);
@@ -210,9 +301,9 @@ export default function Home() {
       isMounted = false;
       coordinatorRef.current.abortAll();
     };
-  }, [selectedCity]);
+  }, [selectedCity, isPreferencesHydrated]);
 
-  // Handle city selection with clean transition and strict privacy-conscious persistence
+  // Handle city selection with clean transition and strict privacy-conscious persistence (Fix G)
   const handleCitySelect = (
     loc: GeocodedLocation,
     source: LocationSelectionSource = 'manual_predefined'
@@ -230,10 +321,13 @@ export default function Home() {
     }
 
     planGenIdRef.current += 1;
+    activeManualPlanGenRef.current += 1;
+    coordinatorRef.current.invalidatePendingPlans();
     setIsPlanGenerating(false);
     setPlannerMessage('');
     setIsTelemetryLoading(true);
     setSelectedTemporalPoint(null); // Reset temporal scrubber to live observation on city change
+    latestMetricsRef.current = null;
     setMetrics(null); // Clear stale city metrics immediately
     setPlan(null); // Clear stale previous city plan immediately
     setDeterministicPlan(null);
@@ -241,7 +335,21 @@ export default function Home() {
     setSelectedCity(loc);
   };
 
-  // Handle manual live telemetry refresh & dependent plan recalculation with generation protection
+  // Switch active environmental source while invalidating in-flight plans and preserving forecasts/telemetry (Fix G)
+  const handleUpdateSourcePreference = (pref: SourcePreference) => {
+    sourcePreferenceRef.current = pref;
+    setSourcePreference(pref);
+    saveSourcePreference(pref);
+    coordinatorRef.current.invalidatePendingPlans();
+    setPlan(null);
+
+    const activeMetrics = latestMetricsRef.current;
+    if (activeMetrics && activeMetrics.status !== 'error') {
+      void generateCoordinatedPlan(activeMetrics, pref);
+    }
+  };
+
+  // Handle manual live telemetry refresh & dependent plan recalculation with generation protection (Fix C)
   const refreshTelemetry = async () => {
     setIsTelemetryLoading(true);
     const ctx = coordinatorRef.current.beginTelemetryRequest(
@@ -259,38 +367,9 @@ export default function Home() {
 
       if (!coordinatorRef.current.isTelemetryResponseValid(ctx)) return;
 
+      latestMetricsRef.current = data;
       setMetrics(data);
-      if (data.status !== 'error' && data.usAqi !== null && data.pm25 !== null) {
-        const planCtx = coordinatorRef.current.beginPlanRequest({
-          cityName: selectedCity.name,
-          metricsTimestamp: data.timestamp,
-          usAqi: data.usAqi,
-          pm25: data.pm25,
-          profileId: `${profile.ageGroup}:${profile.hasAsthmaOrRespiratory ? 'resp' : 'norm'}:${profile.hasCardiovascularCondition ? 'cardio' : 'nocardio'}:${profile.isPregnant ? 'preg' : 'nopreg'}:${profile.isOutdoorWorker ? 'outdoor' : 'indoor'}`,
-          ageGroup: profile.ageGroup,
-          hasAsthmaOrRespiratory: profile.hasAsthmaOrRespiratory,
-          hasCardiovascularCondition: profile.hasCardiovascularCondition,
-          isPregnant: profile.isPregnant,
-          isOutdoorWorker: profile.isOutdoorWorker,
-          roomSizeSqFt,
-          customRoutine,
-        });
-
-        const updatedPlan = await generateAirQualityPlan({
-          city: selectedCity.name,
-          metrics: data,
-          profile,
-          roomSizeSqFt,
-          customRoutine,
-          geminiApiKey,
-        });
-
-        if (coordinatorRef.current.isPlanResponseValid(planCtx)) {
-          setPlan(updatedPlan);
-        }
-      } else {
-        setPlan(null);
-      }
+      await generateCoordinatedPlan(data, sourcePreferenceRef.current);
     } catch (err: any) {
       if (err?.name !== 'AbortError') {
         console.error('Failed to reload telemetry:', err);
@@ -302,48 +381,21 @@ export default function Home() {
     }
   };
 
-  // Handle manual plan regeneration with generation protection
+  // Handle manual plan regeneration with generation protection (Fix D)
   const handleGeneratePlan = async () => {
-    if (!metrics || metrics.status === 'error' || metrics.usAqi === null || metrics.pm25 === null) return;
-    setIsPlanGenerating(true);
-    const planCtx = coordinatorRef.current.beginPlanRequest({
-      cityName: selectedCity.name,
-      metricsTimestamp: metrics.timestamp,
-      usAqi: metrics.usAqi,
-      pm25: metrics.pm25,
-      profileId: `${profile.ageGroup}:${profile.hasAsthmaOrRespiratory ? 'resp' : 'norm'}:${profile.hasCardiovascularCondition ? 'cardio' : 'nocardio'}:${profile.isPregnant ? 'preg' : 'nopreg'}:${profile.isOutdoorWorker ? 'outdoor' : 'indoor'}`,
-      ageGroup: profile.ageGroup,
-      hasAsthmaOrRespiratory: profile.hasAsthmaOrRespiratory,
-      hasCardiovascularCondition: profile.hasCardiovascularCondition,
-      isPregnant: profile.isPregnant,
-      isOutdoorWorker: profile.isOutdoorWorker,
-      roomSizeSqFt,
-      customRoutine,
+    const activeMetrics = metrics ?? latestMetricsRef.current;
+    if (!activeMetrics || activeMetrics.status === 'error') return;
+
+    await generateCoordinatedPlan(activeMetrics, sourcePreferenceRef.current, {
+      switchToRoutineTab: true,
+      trackLoading: true,
     });
-
-    try {
-      const updatedPlan = await generateAirQualityPlan({
-        city: selectedCity.name,
-        metrics,
-        profile,
-        roomSizeSqFt,
-        customRoutine,
-        geminiApiKey,
-      });
-
-      if (coordinatorRef.current.isPlanResponseValid(planCtx)) {
-        setPlan(updatedPlan);
-        // Seamlessly switch to Daily Plan to view optimized results
-        setActiveTab('routine');
-      }
-    } catch (err) {
-      console.error('Plan generation failed:', err);
-    } finally {
-      setIsPlanGenerating(false);
-    }
   };
 
-  const aqiCategory = metrics?.usAqi !== null && metrics?.usAqi !== undefined ? getAQICategory(metrics.usAqi) : 'Unavailable';
+  const aqiCategory =
+    currentSourceMeasurement.isAvailable && currentSourceMeasurement.usAqi !== null
+      ? getAQICategory(currentSourceMeasurement.usAqi)
+      : 'Unavailable';
 
   const officialGrapStatus = resolveOfficialGrapStatus(undefined, {
     cityName: selectedCity.name,
@@ -389,7 +441,9 @@ export default function Home() {
             : metrics?.status === 'error'
             ? `Telemetry error: ${metrics.errorMessage || 'Live sensor data currently unavailable.'}`
             : metrics
-            ? `Air quality data updated for ${selectedCity.name}. US EPA AQI: ${metrics.usAqi ?? 'unavailable'}, PM2.5: ${metrics.pm25 ?? 'unavailable'} micrograms per cubic meter.`
+            ? !currentSourceMeasurement.isAvailable
+              ? `Air quality data updated for ${selectedCity.name}. Source: ${currentSourceMeasurement.sourceName}. Current measurements unavailable without silent fallback.`
+              : `Air quality data updated for ${selectedCity.name}. Source: ${currentSourceMeasurement.sourceName}. CPCB NAQI: ${currentSourceMeasurement.cpcbAqi ?? 'unavailable'}, US EPA AQI: ${currentSourceMeasurement.usAqi ?? 'unavailable'}, PM2.5: ${currentSourceMeasurement.pm25 ?? 'unavailable'} micrograms per cubic meter.`
             : `Selected city: ${selectedCity.name}.`}
         </div>
 
@@ -407,11 +461,13 @@ export default function Home() {
           onOpenMultiSource={() => setIsMultiSourceModalOpen(true)}
           onOpenDailyPlan={() => setActiveTab('routine')}
           onSnapToNow={() => setSelectedTemporalPoint(null)}
+          sourcePreference={sourcePreference}
+          onUpdateSourcePreference={handleUpdateSourcePreference}
         />
 
-        {/* Action-First Quick Health & Activity Decision Guide */}
+        {/* Action-First Quick Health & Activity Decision Guide (Fix F) */}
         <ActionDecisionCard
-          metrics={metrics}
+          metrics={currentSourceMetricsView}
           category={aqiCategory}
           onOpenDailyPlan={() => setActiveTab('routine')}
         />
@@ -486,10 +542,10 @@ export default function Home() {
               currentStatus={metrics?.status ?? null}
             />
 
-            {/* 4 & 5. Commute Exposure & Mask/Filter Lifespan Calculators */}
+            {/* 4 & 5. Commute Exposure & Mask/Filter Lifespan Calculators (Fix E) */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <CommuteCalculator ambientPm25={metrics?.pm25 ?? null} />
-              <FilterLifespanEstimator ambientPm25={metrics?.pm25 ?? null} />
+              <CommuteCalculator ambientPm25={currentSourceMeasurement.pm25} />
+              <FilterLifespanEstimator ambientPm25={currentSourceMeasurement.pm25} />
             </div>
 
             {/* Location Search & Health Profile */}
@@ -552,7 +608,7 @@ export default function Home() {
             className="space-y-8 animate-in fade-in duration-300 focus-visible-ring rounded-2xl outline-none"
           >
             <RoutineBuilder
-              currentPm25={metrics?.pm25 ?? null}
+              currentPm25={currentSourceMeasurement.pm25}
               proposedShifts={deterministicPlan?.activityShifts}
               aiExplanation={aiExplanation || undefined}
               onScheduleChange={(newSched) => {
@@ -748,7 +804,7 @@ export default function Home() {
         isOpen={isRwaModalOpen}
         onClose={() => setIsRwaModalOpen(false)}
         cityName={selectedCity.name}
-        metrics={metrics}
+        metrics={currentSourceMetricsView}
       />
 
       <ScienceExplainerModal
@@ -761,8 +817,8 @@ export default function Home() {
         isOpen={isSchoolModalOpen}
         onClose={() => setIsSchoolModalOpen(false)}
         cityName={selectedCity.name}
-        usAqi={metrics?.usAqi ?? null}
-        pm25={metrics?.pm25 ?? null}
+        usAqi={currentSourceMeasurement.usAqi}
+        pm25={currentSourceMeasurement.pm25}
       />
 
       {/* 7. Instant WhatsApp & Telegram Smog Bulletin Modal */}
@@ -770,16 +826,22 @@ export default function Home() {
         isOpen={isShareModalOpen}
         onClose={() => setIsShareModalOpen(false)}
         cityName={selectedCity.name}
-        usAqi={metrics?.usAqi ?? null}
-        pm25={metrics?.pm25 ?? null}
+        usAqi={currentSourceMeasurement.usAqi}
+        pm25={currentSourceMeasurement.pm25}
         cigarettes={
-          metrics?.pm25 !== null && metrics?.pm25 !== undefined && Number.isFinite(metrics.pm25) && metrics.pm25 >= 0
-            ? Math.round((metrics.pm25 / 22) * 10) / 10
+          currentSourceMeasurement.isAvailable && currentSourceMeasurement.pm25 !== null
+            ? Math.round((currentSourceMeasurement.pm25 / 22) * 10) / 10
             : null
         }
-        sourceAttribution={metrics?.sourceAttribution}
-        provenance={metrics?.provenance}
-        timestamp={metrics?.timestamp}
+        sourceAttribution={currentSourceMeasurement.sourceName}
+        provenance={
+          !currentSourceMeasurement.isAvailable
+            ? 'Unavailable'
+            : currentSourceMeasurement.isModel
+            ? 'Atmospheric Chemistry Model'
+            : currentSourceMeasurement.providerName || 'Physical Ground Station'
+        }
+        timestamp={currentSourceMeasurement.timestamp || metrics?.timestamp}
       />
 
       {/* 8. Multi-Source Atmospheric Telemetry Consensus & Uncertainty Inspector */}
@@ -791,6 +853,8 @@ export default function Home() {
         environmentalSources={metrics?.environmentalSources}
         sourceComparison={metrics?.sourceComparison}
         metrics={metrics}
+        sourcePreference={sourcePreference}
+        onUpdateSourcePreference={handleUpdateSourcePreference}
       />
     </div>
   );

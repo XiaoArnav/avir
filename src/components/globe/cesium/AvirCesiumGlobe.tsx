@@ -122,7 +122,14 @@ export function AvirCesiumGlobe({
           baseLayer = new Cesium.ImageryLayer(osmProvider);
         }
 
-        // 6. Initialize streamlined Cesium Viewer tailored for Avir aerospace UI
+        // 6. Remove unnecessary Cesium ion branding since no Cesium ion services are used at runtime
+        try {
+          (Cesium.CreditDisplay as any).cesiumCredit = undefined;
+        } catch {
+          // Fallback handled by scoped styling
+        }
+
+        // 7. Initialize streamlined Cesium Viewer tailored for Avir aerospace UI
         const viewer = new Cesium.Viewer(containerRef.current, {
           animation: false,
           baseLayerPicker: false,
@@ -444,10 +451,31 @@ export function AvirCesiumGlobe({
       )}
       <div ref={containerRef} className="w-full h-full" />
 
-      {/* Honest Provider Attribution Badge */}
-      <div className="absolute bottom-1 left-2 z-10 pointer-events-none text-[9px] text-slate-400/70 telemetry-mono">
-        Imagery: Tiles © Esri, Maxar, Earthstar Geographics | © OpenStreetMap | CesiumJS
-      </div>
+      {/* Scoped CSS: Remove unnecessary Cesium ion branding logo while retaining clean UI */}
+      <style jsx global>{`
+        .cesium-credit-logoContainer {
+          display: none !important;
+        }
+        .cesium-viewer-bottom {
+          display: none !important;
+        }
+      `}</style>
+
+      {/* Legally Required Satellite & Map Data Attribution Badge (Compact & Non-overlapping) */}
+      <aside
+        role="contentinfo"
+        aria-label="Satellite imagery and map data attribution"
+        className="absolute bottom-[11.5rem] sm:bottom-20 left-3 sm:left-6 z-20 pointer-events-auto max-w-[260px] sm:max-w-md bg-slate-950/80 backdrop-blur-md px-2.5 py-1.5 rounded-lg border border-slate-700/50 shadow-lg text-[9px] sm:text-[10px] text-slate-300 telemetry-mono leading-tight flex flex-col gap-0.5 select-none"
+      >
+        <div className="flex items-center gap-1.5 text-slate-400">
+          <span className="font-semibold text-slate-200 uppercase tracking-wider text-[8px] sm:text-[9px]">Map Attribution</span>
+          <span className="text-slate-500">•</span>
+          <span className="text-slate-400">CesiumJS</span>
+        </div>
+        <div className="text-slate-300/90 text-[8.5px] sm:text-[9.5px]">
+          Imagery: Tiles © Esri, Maxar, Earthstar Geographics | © OpenStreetMap contributors
+        </div>
+      </aside>
     </div>
   );
 }

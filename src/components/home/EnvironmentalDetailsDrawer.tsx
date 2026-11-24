@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useMemo } from 'react';
 import {
   X,
   Wind,
@@ -19,6 +19,7 @@ import { AtmosphericMetrics, HourlyAtmosphericPoint } from '@/domain/types';
 import { GeocodedLocation } from '@/services/telemetry-service';
 import { AqiStandard } from '@/services/geo/geographic-observation-adapter';
 import { TelemetryReadout } from '@/components/ui/futuristic';
+import { ResolvedSourceData } from '@/services/source-control/source-control-types';
 
 export interface EnvironmentalDetailsDrawerProps {
   isOpen: boolean;
@@ -38,6 +39,7 @@ export interface EnvironmentalDetailsDrawerProps {
   };
   isOfficialGround: boolean;
   isThermalInversion: boolean;
+  resolvedSource?: ResolvedSourceData | null;
 }
 
 export function EnvironmentalDetailsDrawer({
@@ -54,6 +56,7 @@ export function EnvironmentalDetailsDrawer({
   grapStage,
   isOfficialGround,
   isThermalInversion,
+  resolvedSource,
 }: EnvironmentalDetailsDrawerProps) {
   const drawerRef = useRef<HTMLDivElement>(null);
 
@@ -68,14 +71,97 @@ export function EnvironmentalDetailsDrawer({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
 
-  if (!isOpen) return null;
+  const isForecastSelected = Boolean(selectedTemporalPoint?.isForecast);
 
-  const pm25 = metrics?.pm25 ?? null;
-  const pm10 = metrics?.pm10 ?? null;
-  const o3 = metrics?.o3 ?? null;
-  const no2 = metrics?.no2 ?? null;
-  const so2 = metrics?.so2 ?? null;
-  const co = metrics?.co ?? null;
+  // Pollutant resolution with strict provenance parity (Defect 3)
+  const pollutantData = useMemo(() => {
+    if (isForecastSelected && selectedTemporalPoint) {
+      return {
+        pm25: { value: selectedTemporalPoint.pm25 ?? null, unit: 'µg/m³', provenance: 'modeled' as const },
+        pm10: { value: selectedTemporalPoint.pm10 ?? null, unit: 'µg/m³', provenance: 'modeled' as const },
+        o3: { value: metrics?.o3 ?? null, unit: 'µg/m³', provenance: 'modeled' as const },
+        no2: { value: metrics?.no2 ?? null, unit: 'µg/m³', provenance: 'modeled' as const },
+        so2: { value: metrics?.so2 ?? null, unit: 'µg/m³', provenance: 'modeled' as const },
+        co: { value: metrics?.co ?? null, unit: 'µg/m³', provenance: 'modeled' as const },
+      };
+    }
+
+    if (resolvedSource) {
+      if (resolvedSource.resolutionStatus === 'unavailable') {
+        return {
+          pm25: { value: null, unit: 'µg/m³', provenance: 'unavailable' as const },
+          pm10: { value: null, unit: 'µg/m³', provenance: 'unavailable' as const },
+          o3: { value: metrics?.o3 ?? null, unit: 'µg/m³', provenance: 'modeled' as const },
+          no2: { value: metrics?.no2 ?? null, unit: 'µg/m³', provenance: 'modeled' as const },
+          so2: { value: metrics?.so2 ?? null, unit: 'µg/m³', provenance: 'modeled' as const },
+          co: { value: metrics?.co ?? null, unit: 'µg/m³', provenance: 'modeled' as const },
+        };
+      }
+
+      // Check measurements on resolved source record
+      const sourceMeas = resolvedSource.resolvedSource?.measurements || [];
+      const pm25M = sourceMeas.find((m) => m && m.pollutant === 'pm25');
+      const pm10M = sourceMeas.find((m) => m && m.pollutant === 'pm10');
+      const o3M = sourceMeas.find((m) => m && m.pollutant === 'o3');
+      const no2M = sourceMeas.find((m) => m && m.pollutant === 'no2');
+      const so2M = sourceMeas.find((m) => m && m.pollutant === 'so2');
+      const coM = sourceMeas.find((m) => m && m.pollutant === 'co');
+
+      const physicalProv = resolvedSource.sourceKind === 'official_ground_station' ? ('official' as const) : ('indicative' as const);
+      const pm25Prov = resolvedSource.isModel ? ('modeled' as const) : physicalProv;
+
+      // PM10
+      let pm10Val: number | null = null;
+      let pm10Prov: 'official' | 'modeled' | 'indicative' | 'unavailable' = 'unavailable';
+      if (pm10M && pm10M.value !== null && Number.isFinite(pm10M.value) && pm10M.value >= 0) {
+        pm10Val = pm10M.value;
+        pm10Prov = resolvedSource.isModel ? 'modeled' : physicalProv;
+      } else if (metrics?.pm10 !== null && metrics?.pm10 !== undefined) {
+        pm10Val = metrics.pm10;
+        pm10Prov = 'modeled'; // Explicitly labeled as model data!
+      }
+
+      // Chemical pollutants: use source measurement if present, else model labeled as modeled
+      const resolveChemical = (m: typeof o3M, modelVal: number | null | undefined) => {
+        if (m && m.value !== null && Number.isFinite(m.value) && m.value >= 0) {
+          return { value: m.value, unit: m.unit || 'µg/m³', provenance: resolvedSource.isModel ? ('modeled' as const) : physicalProv };
+        }
+        if (modelVal !== null && modelVal !== undefined) {
+          return { value: modelVal, unit: 'µg/m³', provenance: 'modeled' as const };
+        }
+        return { value: null, unit: 'µg/m³', provenance: 'unavailable' as const };
+      };
+
+      return {
+        pm25: { value: resolvedSource.concentration, unit: resolvedSource.unit, provenance: pm25Prov },
+        pm10: { value: pm10Val, unit: 'µg/m³', provenance: pm10Prov },
+        o3: resolveChemical(o3M, metrics?.o3),
+        no2: resolveChemical(no2M, metrics?.no2),
+        so2: resolveChemical(so2M, metrics?.so2),
+        co: resolveChemical(coM, metrics?.co),
+      };
+    }
+
+    // Default fallback to metrics
+    const prov = isOfficialGround ? ('official' as const) : ('modeled' as const);
+    return {
+      pm25: { value: metrics?.pm25 ?? null, unit: 'µg/m³', provenance: prov },
+      pm10: { value: metrics?.pm10 ?? null, unit: 'µg/m³', provenance: prov },
+      o3: { value: metrics?.o3 ?? null, unit: 'µg/m³', provenance: 'modeled' as const },
+      no2: { value: metrics?.no2 ?? null, unit: 'µg/m³', provenance: 'modeled' as const },
+      so2: { value: metrics?.so2 ?? null, unit: 'µg/m³', provenance: 'modeled' as const },
+      co: { value: metrics?.co ?? null, unit: 'µg/m³', provenance: 'modeled' as const },
+    };
+  }, [isForecastSelected, selectedTemporalPoint, resolvedSource, metrics, isOfficialGround]);
+
+  const pm25 = pollutantData.pm25.value;
+  const pm10 = pollutantData.pm10.value;
+  const o3 = pollutantData.o3.value;
+  const no2 = pollutantData.no2.value;
+  const so2 = pollutantData.so2.value;
+  const co = pollutantData.co.value;
+
+  if (!isOpen) return null;
 
   return (
     <div
@@ -131,7 +217,27 @@ export function EnvironmentalDetailsDrawer({
             </div>
 
             <div className="text-[11px] text-slate-400 telemetry-mono">
-              {isOfficialGround ? (
+              {isForecastSelected ? (
+                <span className="text-sky-300 font-semibold flex items-center gap-1">
+                  <Clock className="w-3.5 h-3.5" />
+                  <span>Forecast Hour (+{selectedTemporalPoint?.hour}h) &bull; ECMWF CAMS Model</span>
+                </span>
+              ) : resolvedSource?.resolutionStatus === 'unavailable' ? (
+                <span className="text-amber-400 font-semibold flex items-center gap-1">
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                  <span>Selected Source Offline / Stale</span>
+                </span>
+              ) : resolvedSource?.resolutionStatus === 'fallback' ? (
+                <span className="text-amber-300 font-semibold flex items-center gap-1">
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                  <span>Fallback: CAMS Atmospheric Model</span>
+                </span>
+              ) : resolvedSource && !resolvedSource.isModel ? (
+                <span className="text-emerald-400 font-semibold flex items-center gap-1">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>Physical Station: {resolvedSource.stationName}</span>
+                </span>
+              ) : isOfficialGround ? (
                 <span className="text-emerald-400 font-semibold flex items-center gap-1">
                   <CheckCircle2 className="w-3.5 h-3.5" />
                   <span>Physical CAAQMS Ground Station</span>
@@ -143,6 +249,16 @@ export function EnvironmentalDetailsDrawer({
                 </span>
               )}
             </div>
+
+            {resolvedSource && (
+              <div className="w-full flex items-center justify-between text-[11px] pt-1 text-slate-300">
+                <span className="text-slate-400">Selected Source:</span>
+                <span className="font-bold text-sky-200 telemetry-mono truncate max-w-[220px]" title={resolvedSource.stationName}>
+                  {resolvedSource.stationName}
+                  {resolvedSource.isFallback && ' (Fallback Model)'}
+                </span>
+              </div>
+            )}
           </div>
 
           {/* 1. Complete Criteria Chemical Pollutants Matrix */}
@@ -154,39 +270,39 @@ export function EnvironmentalDetailsDrawer({
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
               <TelemetryReadout
                 label="PM2.5 (FINE)"
-                value={pm25}
-                unit="µg/m³"
-                provenance={isOfficialGround ? 'official' : 'modeled'}
+                value={pollutantData.pm25.value}
+                unit={pollutantData.pm25.unit}
+                provenance={pollutantData.pm25.provenance}
               />
               <TelemetryReadout
                 label="PM10 (COARSE)"
-                value={pm10}
-                unit="µg/m³"
-                provenance={isOfficialGround ? 'official' : 'modeled'}
+                value={pollutantData.pm10.value}
+                unit={pollutantData.pm10.unit}
+                provenance={pollutantData.pm10.provenance}
               />
               <TelemetryReadout
                 label="O3 (OZONE)"
-                value={o3}
-                unit="µg/m³"
-                provenance="modeled"
+                value={pollutantData.o3.value}
+                unit={pollutantData.o3.unit}
+                provenance={pollutantData.o3.provenance}
               />
               <TelemetryReadout
                 label="NO2 (DIOXIDE)"
-                value={no2}
-                unit="µg/m³"
-                provenance="modeled"
+                value={pollutantData.no2.value}
+                unit={pollutantData.no2.unit}
+                provenance={pollutantData.no2.provenance}
               />
               <TelemetryReadout
                 label="SO2 (DIOXIDE)"
-                value={so2}
-                unit="µg/m³"
-                provenance="modeled"
+                value={pollutantData.so2.value}
+                unit={pollutantData.so2.unit}
+                provenance={pollutantData.so2.provenance}
               />
               <TelemetryReadout
                 label="CO (MONOXIDE)"
-                value={co}
-                unit="µg/m³"
-                provenance="modeled"
+                value={pollutantData.co.value}
+                unit={pollutantData.co.unit}
+                provenance={pollutantData.co.provenance}
               />
             </div>
           </section>
