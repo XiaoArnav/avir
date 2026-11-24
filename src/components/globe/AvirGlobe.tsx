@@ -6,7 +6,7 @@ import {
   GeographicObservationPoint,
   AqiStandard,
 } from '@/services/geo/geographic-observation-adapter';
-import { GlobeControls } from './GlobeControls';
+import { GlobeControls, EnvironmentalLayersState } from './GlobeControls';
 import { GlobeCityCard } from './GlobeCityCard';
 import { AccessibleEarthFallback } from './AccessibleEarthFallback';
 import type { CameraAction } from './cesium/AvirCesiumGlobe';
@@ -49,6 +49,8 @@ export interface AvirGlobeProps {
   selectedHour?: number;
   validAtUtc?: string | null;
   themeMode?: 'dark' | 'light';
+  layers?: Partial<EnvironmentalLayersState>;
+  onToggleLayer?: (layer: keyof EnvironmentalLayersState) => void;
   className?: string;
 }
 
@@ -64,6 +66,8 @@ export function AvirGlobe({
   selectedHour = 12,
   validAtUtc,
   themeMode = 'dark',
+  layers,
+  onToggleLayer,
   className = '',
 }: AvirGlobeProps) {
   const [is3D, setIs3D] = useState<boolean>(true);
@@ -72,6 +76,25 @@ export function AvirGlobe({
   const [zoomLevel, setZoomLevel] = useState<number>(260);
   const [cameraAction, setCameraAction] = useState<CameraAction | null>(null);
   const [fallbackNotice, setFallbackNotice] = useState<string | null>(null);
+  const [internalLayers, setInternalLayers] = useState<EnvironmentalLayersState>({
+    wind: true,
+    fires: true,
+    terrain: false,
+    satelliteComparison: false,
+  });
+
+  const activeLayers = {
+    ...internalLayers,
+    ...layers,
+  };
+
+  const handleToggleLayer = (layer: keyof EnvironmentalLayersState) => {
+    setInternalLayers((prev) => ({
+      ...prev,
+      [layer]: !prev[layer],
+    }));
+    onToggleLayer?.(layer);
+  };
 
   const selectedPoint = points.find((p) => p.id === selectedPointId) || null;
 
@@ -197,6 +220,8 @@ export function AvirGlobe({
           onToggleStandard={onToggleStandard || (() => {})}
           engineMode={engineMode}
           onToggleEngine={() => setEngineMode((prev) => (prev === 'three' ? 'cesium' : 'three'))}
+          layers={activeLayers}
+          onToggleLayer={handleToggleLayer}
         />
       </div>
 
