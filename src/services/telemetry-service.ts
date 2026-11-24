@@ -729,6 +729,8 @@ export async function fetchLiveAtmosphericMetrics(
       cpcbAqi: cpcbResult.aqi ?? (cpcb?.aqi ?? null),
       cpcbCategory: cpcbResult.category ?? (cpcb?.category === 'Unavailable' ? null : cpcb?.category ?? null),
       cpcbStatus: cpcbResult.classification,
+      dominantPollutant: cpcbResult.dominantPollutant ?? 'PM2.5',
+      primaryPollutant: cpcbResult.dominantPollutant ?? 'PM2.5',
       aqiEvidence,
       cpcbEvidence: cpcbResult.evidence,
       sourceAttribution: 'Open-Meteo Air Quality (ECMWF CAMS) & Weather (NOAA GFS)',

@@ -11,27 +11,17 @@ import {
   AqiStandard,
 } from '@/services/geo/geographic-observation-adapter';
 import { AvirGlobe } from '@/components/globe/AvirGlobe';
+import { MissionHeader } from '@/components/ui/futuristic';
+import { CompactCityCard } from './CompactCityCard';
+import { EnvironmentalDetailsDrawer } from './EnvironmentalDetailsDrawer';
 import {
-  HoloPanel,
-  MissionHeader,
-  TelemetryReadout,
-  FuturisticBadge,
-} from '@/components/ui/futuristic';
-import {
-  ShieldAlert,
-  RefreshCw,
-  Compass,
-  ArrowRight,
-  Share2,
-  Info,
-  Layers,
-  Activity,
   Sun,
   RotateCcw,
 } from 'lucide-react';
 import { assessJurisdiction, resolveOfficialGrapStatus } from '@/services/advisories/grap-status-resolver';
 import { isThermalInversion } from '@/domain/air-math';
-import { formatTimeAgo } from '@/domain/presentation-contract';
+import { formatTimeAgo, resolveTruthfulSourceLabel } from '@/domain/presentation-contract';
+import { calculateComprehensiveCpcbNaqi } from '@/domain/cpcb-naqi';
 
 export interface EarthCommandCenterProps {
   currentCity: GeocodedLocation;
@@ -44,6 +34,7 @@ export interface EarthCommandCenterProps {
   onOpenMultiSource: () => void;
   onOpenDailyPlan: () => void;
   className?: string;
+  initialDetailsOpen?: boolean;
 }
 
 const VERIFIED_CITY_ELEVATIONS: Record<string, number> = {
@@ -72,9 +63,11 @@ export function EarthCommandCenter({
   onOpenMultiSource,
   onOpenDailyPlan,
   className = '',
+  initialDetailsOpen = false,
 }: EarthCommandCenterProps) {
   const [standard, setStandard] = useState<AqiStandard>('cpcb');
   const [selectedGlobePointId, setSelectedGlobePointId] = useState<string | null>(null);
+  const [isDetailsOpen, setIsDetailsOpen] = useState(initialDetailsOpen);
 
   // 24-hour Diurnal Scrubber state (defaults to current live hour)
   const liveHour = useMemo(() => new Date().getHours(), []);
@@ -134,19 +127,34 @@ export function EarthCommandCenter({
     }
   };
 
-  // Strict Scientific Standard Separation: CPCB NAQI must NEVER fall back to US EPA AQI!
+  const isFutureHour = selectedHour !== liveHour;
+
+  // Strict Scientific Standard Separation & Future Hour Forecast Integrity (Part 1.1, 1.2, 5.2):
+  // Never silently reuse the current CPCB measurement for future forecast hours!
   const aqiValue = useMemo(() => {
+    if (isFutureHour) {
+      if (standard === 'epa') {
+        return hourlyPoint?.usAqi ?? null;
+      }
+      // CPCB NAQI does not publish official statutory forecasts.
+      // If modeled PM2.5/PM10 forecast exists, calculate indicative sub-index honestly:
+      if (hourlyPoint?.pm25 !== null && hourlyPoint?.pm25 !== undefined) {
+        const cpcbRes = calculateComprehensiveCpcbNaqi({
+          pm25: hourlyPoint.pm25,
+          pm10: hourlyPoint.pm10 ?? null,
+        });
+        return cpcbRes.aqi;
+      }
+      return null;
+    }
+
+    // Current observation / present hour
     if (standard === 'cpcb') {
       return activeGlobePoint?.cpcbAqi ?? null;
     }
-    // US EPA standard
-    if (selectedHour !== liveHour && hourlyPoint?.usAqi !== null && hourlyPoint?.usAqi !== undefined) {
-      return hourlyPoint.usAqi;
-    }
     return activeGlobePoint?.usAqi ?? metrics?.usAqi ?? null;
-  }, [standard, activeGlobePoint, selectedHour, liveHour, hourlyPoint, metrics]);
+  }, [isFutureHour, standard, activeGlobePoint, hourlyPoint, metrics]);
 
-  const aqiDisplay = aqiValue !== null && aqiValue !== undefined ? Math.round(aqiValue) : '--';
   const hasOfficialGround = Boolean(
     metrics?.groundStation &&
     metrics.groundStation.pm25 !== null &&
@@ -154,16 +162,37 @@ export function EarthCommandCenter({
     metrics.groundStation.stationState !== 'measurement_unavailable'
   );
 
-  // Active PM2.5 accounting for scrubbed hour
-  const activePm25 = useMemo(() => {
-    if (selectedHour !== liveHour && hourlyPoint?.pm25 !== null && hourlyPoint?.pm25 !== undefined) {
-      return hourlyPoint.pm25;
-    }
-    return metrics?.pm25 ?? null;
-  }, [selectedHour, liveHour, hourlyPoint, metrics]);
+  // Truthful Provenance & Source Labeling (Part 1.3)
+  const sourceInfo = useMemo(() => {
+    return resolveTruthfulSourceLabel({
+      isForecast: isFutureHour,
+      hasOfficialGround,
+      groundStationProvider: metrics?.groundStation?.provider,
+      isCached: metrics?.cacheMetadata?.isCached,
+      isLive: metrics?.isLive,
+      status: metrics?.status,
+    });
+  }, [isFutureHour, hasOfficialGround, metrics]);
 
-  // Scientifically grounded WHO 24-hour Guideline Ratio (15 µg/m³ threshold)
-  const whoMultiple = activePm25 !== null && activePm25 !== undefined ? (activePm25 / 15).toFixed(1) : null;
+  // Honest freshness state: never display "Live" when timestamp is absent
+  const relativeFreshness = useMemo(() => {
+    if (isFutureHour) {
+      const timeStr = hourlyPoint?.localDisplayTime || `${selectedHour.toString().padStart(2, '0')}:00`;
+      return `Forecast for ${timeStr}`;
+    }
+    if (!metrics?.timestamp) return 'Awaiting Telemetry';
+    return metrics.isLive
+      ? (formatTimeAgo(metrics.timestamp) || 'Just now')
+      : `Cached (${formatTimeAgo(metrics.timestamp) || 'Recent'})`;
+  }, [isFutureHour, hourlyPoint, selectedHour, metrics]);
+
+  // Scientific Thermal Inversion calculation for the active hour
+  const isHourlyInversion = useMemo(() => {
+    if (hourlyPoint) {
+      return isThermalInversion(hourlyPoint.boundaryLayerHeight, hourlyPoint.hour);
+    }
+    return Boolean(metrics?.isThermalInversionActive);
+  }, [hourlyPoint, metrics?.isThermalInversionActive]);
 
   // Authoritative statutory CAQM GRAP stage resolution with NCR jurisdiction enforcement
   const grapStage = useMemo(() => {
@@ -177,7 +206,7 @@ export function EarthCommandCenter({
     if (!jurisdiction.isNcr) {
       return {
         stage: null,
-        label: 'Not Applicable (NCR Only)',
+        label: 'Non-NCR Region',
         isJurisdiction: false,
       };
     }
@@ -208,23 +237,6 @@ export function EarthCommandCenter({
     };
   }, [currentCity]);
 
-  // Honest freshness state: never display "Live" when timestamp is absent
-  const relativeFreshness = useMemo(() => {
-    if (selectedHour !== liveHour) {
-      return `Scrubbing ${selectedHour.toString().padStart(2, '0')}:00`;
-    }
-    if (!metrics?.timestamp) return 'Awaiting Telemetry';
-    return metrics.isLive ? formatTimeAgo(metrics.timestamp) : `Cached (${formatTimeAgo(metrics.timestamp)})`;
-  }, [selectedHour, liveHour, metrics]);
-
-  // Scientific Thermal Inversion calculation for the active hour
-  const isHourlyInversion = useMemo(() => {
-    if (hourlyPoint) {
-      return isThermalInversion(hourlyPoint.boundaryLayerHeight, hourlyPoint.hour);
-    }
-    return Boolean(metrics?.isThermalInversionActive);
-  }, [hourlyPoint, metrics?.isThermalInversionActive]);
-
   // Verified city elevation lookup
   const elevation = VERIFIED_CITY_ELEVATIONS[currentCity.name.toLowerCase()] ?? undefined;
 
@@ -253,13 +265,13 @@ export function EarthCommandCenter({
         latitude={currentCity.latitude}
         longitude={currentCity.longitude}
         elevationMeters={elevation}
-        stationName={metrics?.groundStation?.stationName}
+        stationName={sourceInfo.label}
         hasOfficialGround={hasOfficialGround}
         standard={standard}
         onToggleStandard={toggleStandard}
       />
 
-      {/* 2. Panoramic Atmospheric Earth Command Center */}
+      {/* 2. Panoramic Atmospheric Earth Command Center (70-80% globe-first viewport) */}
       <div className="relative w-full min-h-[600px] lg:min-h-[720px] overflow-hidden flex flex-col justify-between">
         {/* Full-Bleed 3D Earth Globe Canvas Background */}
         <div className="absolute inset-0 w-full h-full z-0">
@@ -272,204 +284,68 @@ export function EarthCommandCenter({
             standard={standard}
             onToggleStandard={toggleStandard}
             selectedHour={selectedHour}
+            validAtUtc={hourlyPoint?.validAtUtc || metrics?.timestamp}
             className="w-full h-full !rounded-none !border-none !shadow-none !bg-transparent"
           />
         </div>
 
-        {/* Foreground Floating Frosted HUD Controls Layer */}
-        <div className="relative z-10 w-full p-4 sm:p-6 flex flex-col lg:flex-row justify-between items-start gap-6 pointer-events-none">
-          {/* Floating Left Telemetry HUD Card */}
-          <div className="w-full lg:w-[410px] pointer-events-auto">
-            <HoloPanel
-              elevation="raised"
-              brackets
-              glow
-              title={`OBSERVATION // ${currentCity.name.toUpperCase()}`}
-              badge={
-                hasOfficialGround ? (
-                  <FuturisticBadge label="CPCB GROUND" variant="emerald" pulse />
-                ) : metrics?.groundStation?.stationName ? (
-                  <FuturisticBadge label="MODEL TELEMETRY" variant="neutral" />
-                ) : (
-                  <FuturisticBadge label="MODEL (CAMS)" variant="cyan" pulse />
-                )
-              }
-              headerAction={
-                <button
-                  type="button"
-                  onClick={onRefreshTelemetry}
-                  disabled={isLoading}
-                  className="p-1.5 rounded-lg text-ink-muted dark:text-sky-300 hover:text-ink-primary dark:hover:text-white hover:bg-stone-100 dark:hover:bg-sky-950/40 transition-colors cursor-pointer"
-                  title="Refresh real-time telemetry"
-                  aria-label="Refresh real-time telemetry"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
-                </button>
-              }
-              className="backdrop-blur-2xl bg-white/85 dark:bg-[#060b18]/90 border border-stone-200/90 dark:border-sky-500/30 shadow-2xl"
-            >
-              {/* Primary AQI Readout Box */}
-              <div className="relative p-4 rounded-2xl bg-white/70 dark:bg-[#080d1a]/80 border border-stone-200/70 dark:border-sky-500/15 mb-3.5 overflow-hidden">
-                <div className="flex items-center justify-between text-xs mb-1">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-ink-muted dark:text-sky-300/80 telemetry-mono">
-                    {standard === 'cpcb' ? 'CPCB NAQI STANDARD' : 'US EPA AQI STANDARD'}
-                  </span>
-                  <span
-                    className="px-2.5 py-0.5 rounded-full text-xs font-bold text-white shadow-sm"
-                    style={{ backgroundColor: categoryInfo.color }}
-                  >
-                    {categoryInfo.label}
-                  </span>
-                </div>
-
-                <div className="flex items-baseline gap-3 my-1">
-                  <span
-                    className="text-5xl sm:text-6xl font-black tabular-nums telemetry-mono tracking-tighter"
-                    style={{ color: categoryInfo.color }}
-                  >
-                    {aqiDisplay}
-                  </span>
-                  <span className="text-xs font-semibold text-ink-muted dark:text-slate-400 telemetry-mono">
-                    INDEX VALUE
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between text-[11px] pt-2 border-t border-stone-200/50 dark:border-sky-500/10 text-ink-muted dark:text-slate-400">
-                  <span>Primary: <strong className="text-ink-primary dark:text-white">{activeGlobePoint?.primaryPollutant || 'PM2.5'}</strong></span>
-                  <span className="telemetry-mono text-ink-faint dark:text-sky-300/60">
-                    {relativeFreshness}
-                  </span>
-                </div>
-              </div>
-
-              {/* High-Impact Scientific Exposure & Statutory Badges */}
-              <div className="grid grid-cols-2 gap-2 mb-3.5 text-xs">
-                {whoMultiple !== null && (
-                  <div className="p-2 rounded-xl bg-stone-100/80 dark:bg-black/40 border border-stone-200/60 dark:border-sky-500/15 flex items-center gap-2">
-                    <Activity className="w-4 h-4 text-amber-500 flex-shrink-0" />
-                    <div>
-                      <span className="text-[10px] text-ink-muted dark:text-slate-400 uppercase telemetry-mono block">
-                        WHO 24h Cap
-                      </span>
-                      <span className="font-bold text-ink-primary dark:text-white telemetry-mono">
-                        ≈ {whoMultiple}× Cap
-                      </span>
-                    </div>
-                  </div>
-                )}
-                {grapStage && (
-                  <div className="p-2 rounded-xl bg-stone-100/80 dark:bg-black/40 border border-stone-200/60 dark:border-sky-500/15 flex items-center gap-2">
-                    <Layers className="w-4 h-4 text-sky-400 flex-shrink-0" />
-                    <div>
-                      <span className="text-[10px] text-ink-muted dark:text-slate-400 uppercase telemetry-mono block">
-                        Statutory GRAP
-                      </span>
-                      <span className="font-bold text-ink-primary dark:text-white telemetry-mono truncate block max-w-[125px]" title={grapStage.label}>
-                        {grapStage.isJurisdiction ? grapStage.label : 'Non-NCR Region'}
-                      </span>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Key Telemetry Pollutant Readout Matrix */}
-              <div className="grid grid-cols-2 gap-2.5 mb-3.5">
-                <TelemetryReadout
-                  label="PM2.5"
-                  value={activePm25}
-                  unit="µg/m³"
-                  provenance={hasOfficialGround ? 'official' : 'modeled'}
-                  categoryLabel={categoryInfo.label}
-                />
-                <TelemetryReadout
-                  label="PM10"
-                  value={metrics?.pm10}
-                  unit="µg/m³"
-                  provenance={hasOfficialGround ? 'official' : 'modeled'}
-                />
-                <TelemetryReadout
-                  label="WIND SPEED"
-                  value={metrics?.windSpeed}
-                  unit="km/h"
-                  provenance="modeled"
-                  uncertainty={1.2}
-                />
-                <TelemetryReadout
-                  label="THERMAL INVERSION"
-                  value={isHourlyInversion ? 'ACTIVE' : 'NORMAL'}
-                  provenance="modeled"
-                  categoryColor={isHourlyInversion ? 'rose' : 'emerald'}
-                />
-              </div>
-
-              {/* Actionable Exposure Guidance Alert */}
-              <div className="p-3.5 rounded-xl bg-sky-500/10 dark:bg-sky-950/40 border border-sky-500/25 flex items-start gap-3">
-                <ShieldAlert className="w-5 h-5 text-sky-600 dark:text-sky-400 flex-shrink-0 mt-0.5" />
-                <div className="flex-1 min-w-0">
-                  <h5 className="text-xs font-bold text-ink-primary dark:text-white tracking-wide uppercase telemetry-mono">
-                    Exposure Guidance
-                  </h5>
-                  <p className="text-xs text-ink-muted dark:text-slate-300 mt-0.5 leading-relaxed">
-                    {metrics?.isThermalInversionActive
-                      ? 'Thermal inversion trapping particulate smog. Avoid strenuous outdoor activities until afternoon dispersion.'
-                      : 'Atmospheric boundary layer is open. Review optimal hourly exposure windows in your Daily Plan.'}
-                  </p>
-                  <button
-                    type="button"
-                    onClick={onOpenDailyPlan}
-                    className="inline-flex items-center gap-1.5 mt-2 text-xs font-bold text-sky-600 dark:text-sky-400 hover:underline telemetry-mono cursor-pointer"
-                  >
-                    <span>Open Daily Plan Workspace</span>
-                    <ArrowRight className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-
-              {/* Quick Scientific Modals Footer */}
-              <div className="flex items-center justify-between pt-3 border-t border-stone-200/60 dark:border-sky-500/15 text-xs">
-                <button
-                  type="button"
-                  onClick={onOpenMultiSource}
-                  className="inline-flex items-center gap-1 text-ink-muted dark:text-sky-300/80 hover:text-ink-primary dark:hover:text-white telemetry-mono cursor-pointer"
-                >
-                  <Compass className="w-3.5 h-3.5 text-sky-500" />
-                  <span>Source Inspector</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={onOpenExplainer}
-                  className="inline-flex items-center gap-1 text-ink-muted dark:text-sky-300/80 hover:text-ink-primary dark:hover:text-white telemetry-mono cursor-pointer"
-                >
-                  <Info className="w-3.5 h-3.5 text-emerald-500" />
-                  <span>Scientific Methodology</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={onOpenShare}
-                  className="inline-flex items-center gap-1 text-ink-muted dark:text-sky-300/80 hover:text-ink-primary dark:hover:text-white telemetry-mono cursor-pointer"
-                >
-                  <Share2 className="w-3.5 h-3.5 text-sky-400" />
-                  <span>Share Bulletin</span>
-                </button>
-              </div>
-            </HoloPanel>
+        {/* Foreground Floating Controls Layer (unobtrusive, allows 80% globe visibility) */}
+        <div className="relative z-10 w-full p-4 sm:p-6 flex justify-between items-start pointer-events-none">
+          {/* Top-Left Compact Floating City Card (Part 2.3) */}
+          <div className="pointer-events-auto">
+            <CompactCityCard
+              cityName={currentCity.name}
+              admin1={currentCity.admin1}
+              country={currentCity.country}
+              aqiValue={aqiValue}
+              categoryLabel={categoryInfo.label}
+              categoryColor={categoryInfo.color}
+              primaryPollutant={activeGlobePoint?.primaryPollutant || 'PM2.5'}
+              standard={standard}
+              onToggleStandard={toggleStandard}
+              provenanceLabel={sourceInfo.shortLabel}
+              isOfficialGround={hasOfficialGround}
+              freshnessLabel={relativeFreshness}
+              onOpenDetails={() => setIsDetailsOpen(true)}
+              onRefresh={onRefreshTelemetry}
+              isLoading={isLoading}
+            />
           </div>
         </div>
 
-        {/* 3. Interactive 24-Hour Diurnal Time Scrubber Bar */}
-        <div className="relative z-10 w-full px-4 sm:px-6 py-3 bg-black/75 backdrop-blur-xl border-t border-b border-white/10 pointer-events-auto">
+        {/* Slide-out Environmental Details Drawer (Part 2.2) */}
+        <EnvironmentalDetailsDrawer
+          isOpen={isDetailsOpen}
+          onClose={() => setIsDetailsOpen(false)}
+          city={currentCity}
+          metrics={metrics}
+          standard={standard}
+          onToggleStandard={toggleStandard}
+          onOpenDailyPlan={onOpenDailyPlan}
+          onOpenMultiSource={onOpenMultiSource}
+          onOpenExplainer={onOpenExplainer}
+          grapStage={grapStage}
+          isOfficialGround={hasOfficialGround}
+          isThermalInversion={isHourlyInversion}
+        />
+
+        {/* 3. Interactive 24-Hour Diurnal Time Scrubber Bar (Part 5) */}
+        <div className="relative z-10 w-full px-4 sm:px-6 py-2.5 bg-black/80 backdrop-blur-xl border-t border-b border-white/10 pointer-events-auto">
           <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-3 text-xs">
             {/* Scrubber Label & Active Hour */}
             <div className="flex items-center gap-2.5 text-slate-300 telemetry-mono">
               <Sun className="w-4 h-4 text-amber-400 animate-spin-slow" />
               <span className="font-bold text-white uppercase tracking-wider text-[11px]">
-                DIURNAL ORBIT // 24H SCRUBBER
+                DIURNAL TIMELINE
               </span>
               <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-sky-500/20 text-sky-300 border border-sky-500/30">
-                {selectedHour.toString().padStart(2, '0')}:00 {selectedHour >= 12 ? 'PM' : 'AM'}
+                {hourlyPoint?.localDisplayTime || `${selectedHour.toString().padStart(2, '0')}:00`}
               </span>
+              {isFutureHour && (
+                <span className="text-[10px] uppercase font-bold text-sky-400 telemetry-mono">
+                  [FORECAST]
+                </span>
+              )}
               {selectedHour !== liveHour && (
                 <button
                   type="button"
@@ -478,7 +354,7 @@ export function EarthCommandCenter({
                   title="Snap back to current live observation hour"
                 >
                   <RotateCcw className="w-3 h-3" />
-                  <span>SNAP TO NOW</span>
+                  <span>NOW</span>
                 </button>
               )}
             </div>
@@ -527,7 +403,7 @@ export function EarthCommandCenter({
         </div>
 
         {/* 4. Bottom Quick-Access Metro Selector Bar */}
-        <div className="relative z-10 w-full p-4 sm:p-6 bg-gradient-to-t from-black/90 via-black/50 to-transparent pointer-events-auto">
+        <div className="relative z-10 w-full p-4 sm:p-5 bg-gradient-to-t from-black/90 via-black/50 to-transparent pointer-events-auto">
           <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3 text-xs">
             {/* Quick Metro City Switcher */}
             <div className="flex items-center gap-1.5 overflow-x-auto py-1 no-scrollbar">

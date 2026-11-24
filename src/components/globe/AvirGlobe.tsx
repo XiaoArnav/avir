@@ -32,6 +32,8 @@ export interface AvirGlobeProps {
   standard?: AqiStandard;
   onToggleStandard?: () => void;
   selectedHour?: number;
+  validAtUtc?: string | null;
+  themeMode?: 'dark' | 'light';
   className?: string;
 }
 
@@ -44,6 +46,8 @@ export function AvirGlobe({
   standard = 'cpcb',
   onToggleStandard,
   selectedHour = 12,
+  validAtUtc,
+  themeMode = 'dark',
   className = '',
 }: AvirGlobeProps) {
   const [is3D, setIs3D] = useState<boolean>(true);
@@ -84,6 +88,8 @@ export function AvirGlobe({
           isAutoRotating={isAutoRotating}
           zoomLevel={zoomLevel}
           selectedHour={selectedHour}
+          validAtUtc={validAtUtc}
+          themeMode={themeMode}
           className="w-full h-full"
         />
       ) : (

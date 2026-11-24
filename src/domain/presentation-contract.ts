@@ -216,3 +216,81 @@ export const POLLUTANT_PRESENTATION_METADATA = {
     description: 'Horizontal atmospheric transport velocity.',
   },
 } as const;
+
+/**
+ * Truthfully resolves source and provenance labeling (Mandate Part 1.3).
+ * Eliminates synthetic "consensus" or false "ground" claims.
+ */
+export function resolveTruthfulSourceLabel(options: {
+  isForecast?: boolean;
+  hasOfficialGround?: boolean;
+  groundStationProvider?: string | null;
+  isCached?: boolean;
+  isLive?: boolean;
+  status?: string;
+}): {
+  label: string;
+  shortLabel: string;
+  variant: 'emerald' | 'cyan' | 'amber' | 'neutral';
+  isGround: boolean;
+} {
+  if (options.status === 'unavailable' || options.status === 'error') {
+    return {
+      label: 'Source Unavailable',
+      shortLabel: 'Unavailable',
+      variant: 'neutral',
+      isGround: false,
+    };
+  }
+
+  if (options.isForecast) {
+    return {
+      label: 'Forecast — Open-Meteo',
+      shortLabel: 'Model Forecast',
+      variant: 'cyan',
+      isGround: false,
+    };
+  }
+
+  if (options.hasOfficialGround) {
+    const provider = options.groundStationProvider?.toUpperCase() || '';
+    if (provider.includes('CPCB')) {
+      return {
+        label: 'CPCB Ground Observation',
+        shortLabel: 'CPCB Ground',
+        variant: 'emerald',
+        isGround: true,
+      };
+    }
+    if (provider.includes('OPENAQ')) {
+      return {
+        label: 'OpenAQ Observation',
+        shortLabel: 'OpenAQ Ground',
+        variant: 'emerald',
+        isGround: true,
+      };
+    }
+    return {
+      label: 'Official Ground Observation',
+      shortLabel: 'Ground Sensor',
+      variant: 'emerald',
+      isGround: true,
+    };
+  }
+
+  if (options.isCached) {
+    return {
+      label: 'Cached Observation',
+      shortLabel: 'Cached',
+      variant: 'amber',
+      isGround: false,
+    };
+  }
+
+  return {
+    label: 'CAMS Atmospheric Model',
+    shortLabel: 'CAMS Model',
+    variant: 'cyan',
+    isGround: false,
+  };
+}

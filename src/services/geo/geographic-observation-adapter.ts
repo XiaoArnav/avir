@@ -12,6 +12,7 @@ import { PREDEFINED_INDIAN_CITIES, GeocodedLocation } from '@/services/telemetry
 import { WORLD_METROS, WorldCityItem } from '@/services/world-telemetry-service';
 import { calculateComprehensiveCpcbNaqi } from '@/domain/cpcb-naqi';
 import { AtmosphericMetrics, DataProvenance } from '@/domain/types';
+import { resolveTruthfulSourceLabel } from '@/domain/presentation-contract';
 
 export type AqiStandard = 'epa' | 'cpcb';
 
@@ -128,59 +129,51 @@ export function buildGeographicObservations(options: {
     const pm25 = isSuccess ? currentMetrics.pm25 : null;
     const pm10 = isSuccess ? currentMetrics.pm10 : null;
     const usAqi = isSuccess ? currentMetrics.usAqi : null;
-
     let cpcbAqi: number | null = currentMetrics.cpcbAqi ?? null;
-    if (cpcbAqi === null && (pm25 !== null || pm10 !== null)) {
-      const pollutants: {
-        pm25?: number | null;
-        pm10?: number | null;
-        no2?: number | null;
-        so2?: number | null;
-        co?: number | null;
-        coUnit?: string;
-        o3?: number | null;
-      } = {
-        pm25,
-        pm10,
-        no2: currentMetrics.no2 ?? null,
-        so2: currentMetrics.so2 ?? null,
-        co: currentMetrics.co ?? null,
-        coUnit: 'ug/m3',
-        o3: currentMetrics.o3 ?? null,
-      };
-      const cpcbRes = calculateComprehensiveCpcbNaqi(pollutants);
-      if (cpcbRes.aqi !== null) {
-        cpcbAqi = cpcbRes.aqi;
-      }
+
+    const pollutants: {
+      pm25?: number | null;
+      pm10?: number | null;
+      no2?: number | null;
+      so2?: number | null;
+      co?: number | null;
+      coUnit?: string;
+      o3?: number | null;
+    } = {
+      pm25,
+      pm10,
+      no2: currentMetrics.no2 ?? null,
+      so2: currentMetrics.so2 ?? null,
+      co: currentMetrics.co ?? null,
+      coUnit: 'ug/m3',
+      o3: currentMetrics.o3 ?? null,
+    };
+    const cpcbRes = calculateComprehensiveCpcbNaqi(pollutants);
+    if (cpcbAqi === null && cpcbRes.aqi !== null) {
+      cpcbAqi = cpcbRes.aqi;
     }
 
-    // Determine accurate primary pollutant based on highest sub-index
-    let primaryPollutant = 'PM2.5';
-    if (currentMetrics.fields) {
-      const entries = Object.entries(currentMetrics.fields).filter(
-        ([, f]) => f && typeof f.subIndex === 'number' && Number.isFinite(f.subIndex)
-      );
-      if (entries.length > 0) {
-        entries.sort((a, b) => (b[1].subIndex ?? 0) - (a[1].subIndex ?? 0));
-        const topField = entries[0][0];
-        primaryPollutant =
-          topField === 'o3'
-            ? 'Ozone'
-            : topField === 'no2'
-            ? 'NO2'
-            : topField === 'so2'
-            ? 'SO2'
-            : topField === 'co'
-            ? 'CO'
-            : topField === 'pm10'
-            ? 'PM10'
-            : 'PM2.5';
+    // Determine accurate primary pollutant:
+    // Under CPCB NAQI, the primary pollutant is the one with the highest sub-index (e.g. Ozone or PM2.5)
+    let dominantName = currentMetrics.dominantPollutant || cpcbRes.dominantPollutant;
+    if (!dominantName && cpcbRes.subIndices) {
+      const sorted = Object.values(cpcbRes.subIndices).sort((a, b) => b.subIndex - a.subIndex);
+      if (sorted.length > 0 && sorted[0].subIndex > 0) {
+        dominantName = sorted[0].pollutant;
       }
     }
+    const primaryPollutant = dominantName || 'PM2.5';
 
     // Strict scientific separation: CPCB standard must NEVER fall back to EPA AQI
     const activeAqi = standard === 'cpcb' ? cpcbAqi : usAqi;
     const cat = standard === 'cpcb' ? getCpcbCategory(activeAqi) : getEpaCategory(activeAqi);
+
+    const isOfficialGround = Boolean(
+      currentMetrics.groundStation &&
+      currentMetrics.groundStation.pm25 !== null &&
+      currentMetrics.groundStation.stationState !== 'registry_only' &&
+      currentMetrics.groundStation.stationState !== 'measurement_unavailable'
+    );
 
     const activePoint: GeographicObservationPoint = {
       id: `current-${currentLocation.id || currentLocation.name}`,
@@ -200,10 +193,14 @@ export function buildGeographicObservations(options: {
       categoryLabel: cat.label,
       categoryColor: cat.color,
       primaryPollutant,
-      provenance: currentMetrics.provenance,
-      source: currentMetrics.isLive ? 'Live Atmospheric Feed' : 'Cached Observation',
+      provenance: isOfficialGround ? 'observed' : currentMetrics.provenance,
+      source: isOfficialGround
+        ? (currentMetrics.groundStation?.provider?.toUpperCase().includes('CPCB')
+          ? 'CPCB Ground Observation'
+          : 'Official Ground Observation')
+        : 'CAMS Atmospheric Model',
       timestamp: currentMetrics.timestamp,
-      isOfficialGround: false,
+      isOfficialGround,
     };
 
     points.push(activePoint);

@@ -163,5 +163,66 @@ describe('Avir — Futuristic UI Stabilization & Scientific Integrity Tests', ()
         expect(unobservedIndian.aqi).toBeNull();
       }
     });
+
+    it('correctly attributes dominant Ozone when PM2.5 is low and avoids false ground labeling (Bengaluru Regression Test)', () => {
+      const bengaluruLocation = {
+        id: 8,
+        name: 'Bengaluru',
+        admin1: 'Karnataka',
+        country: 'India',
+        countryCode: 'IN',
+        latitude: 12.9716,
+        longitude: 77.5946,
+      };
+
+      const bengaluruMetrics: AtmosphericMetrics = {
+        status: 'success',
+        provenance: 'modeled_forecast',
+        timestamp: '2026-11-24T06:00:00Z',
+        retrievedAt: '2026-11-24T06:05:00Z',
+        timezone: 'Asia/Kolkata',
+        usAqi: 59,
+        pm25: 2.4,
+        pm10: 2.0,
+        o3: 64.0,
+        no2: 12.0,
+        so2: 4.0,
+        co: 280,
+        boundaryLayerHeight: 1010,
+        isThermalInversionActive: false,
+        isLive: true,
+        groundStation: {
+          stationId: 'btm-layout-cpcb',
+          stationName: 'BTM Layout, Bengaluru - CPCB',
+          distanceKm: 4.2,
+          latitude: 12.91,
+          longitude: 77.61,
+          provider: 'CPCB',
+          stationType: 'official_reference',
+          stationState: 'registry_only', // Registry only, no streaming PM2.5 feed!
+          lastUpdated: '2026-11-24T05:00:00Z',
+          pm25: null,
+          pm10: null,
+        },
+      };
+
+      const points = buildGeographicObservations({
+        standard: 'cpcb',
+        currentMetrics: bengaluruMetrics,
+        currentLocation: bengaluruLocation,
+      });
+
+      const pt = points[0];
+      expect(pt.name).toBe('Bengaluru');
+      // Index is driven by Ozone (64 µg/m³ -> subindex 64)
+      expect(pt.aqi).toBe(64);
+      expect(pt.category).toBe('moderate');
+      expect(pt.categoryLabel).toBe('Satisfactory');
+      expect(pt.primaryPollutant).toBe('Ozone');
+      // Provenance must remain modeled, NOT false official ground!
+      expect(pt.isOfficialGround).toBe(false);
+      expect(pt.provenance).toBe('modeled_forecast');
+      expect(pt.source).toBe('CAMS Atmospheric Model');
+    });
   });
 });

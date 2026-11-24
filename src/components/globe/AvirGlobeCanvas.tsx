@@ -20,6 +20,8 @@ export interface AvirGlobeCanvasProps {
   isAutoRotating?: boolean;
   zoomLevel?: number;
   selectedHour?: number; // 0-23 diurnal hour
+  validAtUtc?: string | null;
+  themeMode?: 'dark' | 'light';
   className?: string;
 }
 
@@ -30,6 +32,8 @@ export function AvirGlobeCanvas({
   isAutoRotating = true,
   zoomLevel = 260,
   selectedHour = 12,
+  validAtUtc,
+  themeMode = 'dark',
   className = '',
 }: AvirGlobeCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -43,6 +47,7 @@ export function AvirGlobeCanvas({
     renderer: THREE.WebGLRenderer;
     globeGroup: THREE.Group;
     earthMesh: THREE.Mesh;
+    earthMat: THREE.MeshPhongMaterial;
     atmosMesh: THREE.Mesh;
     markersGroup: THREE.Group;
     starfield: THREE.Points;
@@ -129,6 +134,24 @@ export function AvirGlobeCanvas({
     const earthMesh = new THREE.Mesh(earthGeo, earthMat);
     globeGroup.add(earthMesh);
 
+    // Load authentic NASA satellite texture (Black Marble for night / Blue Marble for day)
+    const textureLoader = new THREE.TextureLoader();
+    const isDark = themeMode !== 'light';
+    const satelliteTexturePath = isDark ? '/textures/earth-night.jpg' : '/textures/earth-blue-marble.jpg';
+    textureLoader.load(
+      satelliteTexturePath,
+      (loadedTex) => {
+        loadedTex.colorSpace = THREE.SRGBColorSpace;
+        loadedTex.anisotropy = 4;
+        earthMat.map = loadedTex;
+        earthMat.needsUpdate = true;
+      },
+      undefined,
+      (err) => {
+        console.warn('Satellite texture load fallback to procedural texture:', err);
+      }
+    );
+
     // 6. Atmospheric Rayleigh Outer Rim Glow Shell (closely hugs the planet surface)
     const atmosGeo = new THREE.SphereGeometry(earthRadius * 1.012, 64, 64);
     const atmosMat = createAtmosphericRimShaderMaterial();
@@ -140,7 +163,14 @@ export function AvirGlobeCanvas({
     scene.add(ambientLight);
 
     const sunLight = new THREE.DirectionalLight(0xfff8ee, 1.2);
-    const initialSunAngle = ((selectedHour - 12) / 24) * Math.PI * 2;
+    let initialUtcHour = selectedHour ?? 12;
+    if (validAtUtc) {
+      const parsed = new Date(validAtUtc);
+      if (!Number.isNaN(parsed.getTime())) {
+        initialUtcHour = parsed.getUTCHours() + parsed.getUTCMinutes() / 60;
+      }
+    }
+    const initialSunAngle = ((12 - initialUtcHour) / 24) * Math.PI * 2;
     sunLight.position.set(Math.sin(initialSunAngle) * 350, 100, Math.cos(initialSunAngle) * 350);
     scene.add(sunLight);
 
@@ -164,6 +194,7 @@ export function AvirGlobeCanvas({
       renderer,
       globeGroup,
       earthMesh,
+      earthMat,
       atmosMesh,
       markersGroup,
       starfield,
@@ -243,10 +274,24 @@ export function AvirGlobeCanvas({
       // Smooth lerp on dynamic sunlight position according to diurnal hour
       sunLight.position.lerp(instances.targetSunPos, 0.06);
 
+      // Back-Side Marker Occlusion (Requirement 3.5):
+      // Calculate dot product of each marker's normal with the camera direction
+      const globeCenter = new THREE.Vector3();
+      globeGroup.getWorldPosition(globeCenter);
+
+      markersGroup.children.forEach((child) => {
+        const markerWorldPos = new THREE.Vector3();
+        child.getWorldPosition(markerWorldPos);
+        const normal = markerWorldPos.clone().sub(globeCenter).normalize();
+        const toCam = camera.position.clone().sub(markerWorldPos).normalize();
+        // Dot product > 0.08 means facing towards camera (front hemisphere)
+        child.visible = normal.dot(toCam) > 0.08;
+      });
+
       // Animate pulsing AQI beacon rings on surface
       if (!prefersReducedMotion) {
         markersGroup.children.forEach((child) => {
-          if (child.userData?.isPulseRing) {
+          if (child.visible && child.userData?.isPulseRing) {
             const pulse = (Math.sin(instances.elapsedTime * 3.5 + child.userData.phaseOffset) + 1) * 0.5;
             const s = 1.0 + pulse * 0.4;
             child.scale.set(s, s, s);
@@ -297,14 +342,41 @@ export function AvirGlobeCanvas({
     };
   }, [webGLAvailable, isAutoRotating]);
 
-  // Update dynamic sunlight position whenever selectedHour changes
+  // Update dynamic sunlight position whenever selectedHour or validAtUtc changes
   useEffect(() => {
     const inst = instancesRef.current;
     if (!inst) return;
-    const hour = selectedHour ?? 12;
-    const sunAngle = ((hour - 12) / 24) * Math.PI * 2;
-    inst.targetSunPos.set(Math.sin(sunAngle) * 350, 120, Math.cos(sunAngle) * 350);
-  }, [selectedHour]);
+    let utcHour = selectedHour ?? 12;
+    if (validAtUtc) {
+      const parsed = new Date(validAtUtc);
+      if (!Number.isNaN(parsed.getTime())) {
+        utcHour = parsed.getUTCHours() + parsed.getUTCMinutes() / 60;
+      }
+    }
+    const sunAngle = ((12 - utcHour) / 24) * Math.PI * 2;
+    inst.targetSunPos.set(Math.sin(sunAngle) * 350, 90, Math.cos(sunAngle) * 350);
+  }, [selectedHour, validAtUtc]);
+
+  // Dynamically swap NASA Satellite texture on Theme switch (Black Marble / Blue Marble)
+  useEffect(() => {
+    const inst = instancesRef.current;
+    if (!inst) return;
+    const isDark = themeMode !== 'light';
+    const satelliteTexturePath = isDark ? '/textures/earth-night.jpg' : '/textures/earth-blue-marble.jpg';
+    new THREE.TextureLoader().load(
+      satelliteTexturePath,
+      (loadedTex) => {
+        loadedTex.colorSpace = THREE.SRGBColorSpace;
+        loadedTex.anisotropy = 4;
+        inst.earthMat.map = loadedTex;
+        inst.earthMat.needsUpdate = true;
+      },
+      undefined,
+      (err) => {
+        console.warn('Satellite texture load fallback:', err);
+      }
+    );
+  }, [themeMode]);
 
   // Update camera target distance whenever zoomLevel changes
   useEffect(() => {
@@ -470,9 +542,10 @@ export function AvirGlobeCanvas({
       inst.mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
 
       inst.raycaster.setFromCamera(inst.mouse, inst.camera);
-      const intersects = inst.raycaster.intersectObjects(inst.markersGroup.children);
+      const visibleMarkers = inst.markersGroup.children.filter((c) => c.visible);
+      const intersects = inst.raycaster.intersectObjects([inst.earthMesh, ...visibleMarkers]);
 
-      if (intersects.length > 0) {
+      if (intersects.length > 0 && intersects[0].object !== inst.earthMesh) {
         const hit = intersects[0].object;
         if (hit.userData?.point) {
           setHoveredPoint(hit.userData.point);
@@ -501,9 +574,10 @@ export function AvirGlobeCanvas({
     inst.mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
 
     inst.raycaster.setFromCamera(inst.mouse, inst.camera);
-    const intersects = inst.raycaster.intersectObjects(inst.markersGroup.children);
+    const visibleMarkers = inst.markersGroup.children.filter((c) => c.visible);
+    const intersects = inst.raycaster.intersectObjects([inst.earthMesh, ...visibleMarkers]);
 
-    if (intersects.length > 0) {
+    if (intersects.length > 0 && intersects[0].object !== inst.earthMesh) {
       const hit = intersects[0].object;
       if (hit.userData?.point) {
         onSelectPoint(hit.userData.point);

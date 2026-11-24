@@ -191,6 +191,7 @@ export interface HourlyAtmosphericPoint {
   time: string;           // Local ISO timestamp in target city's timezone
   hour: number;           // 0-23 in target city's wall-clock time
   pm25: number | null;
+  pm10?: number | null;
   usAqi: number | null;
   boundaryLayerHeight: number | null;
   temperature?: number | null;
@@ -432,6 +433,9 @@ export interface AtmosphericMetrics {
   cpcbAqi?: number | null;
   cpcbCategory?: string | null;
   cpcbStatus?: 'statutory_compliant' | 'indicative_subindex' | 'indicative_snapshot' | 'unavailable';
+  dominantPollutant?: string | null;
+  primaryPollutant?: string | null;
+  provenanceLabel?: string;
   aqiEvidence?: AqiEvidence;
   cpcbEvidence?: AqiEvidence;
   sourceAttribution?: string;

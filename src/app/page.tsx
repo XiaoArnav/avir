@@ -44,6 +44,7 @@ import { loadScheduleFromStorage } from '@/services/routines/routine-storage';
 import { DeterministicPlanResult, AiPlanExplanation } from '@/domain/planning-types';
 import { DailySchedule } from '@/domain/routine-types';
 import { FloatingDock } from '@/components/ui/futuristic';
+import { FirstVisitLocationModal } from '@/components/location/FirstVisitLocationModal';
 
 const EarthCommandCenter = dynamic(
   () => import('@/components/home/EarthCommandCenter').then((module) => module.EarthCommandCenter),
@@ -84,6 +85,7 @@ export default function Home() {
   const [isSchoolModalOpen, setIsSchoolModalOpen] = useState(false);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [isMultiSourceModalOpen, setIsMultiSourceModalOpen] = useState(false);
+  const [isFirstVisitModalOpen, setIsFirstVisitModalOpen] = useState(false);
   const [geminiApiKey, setGeminiApiKey] = useState('');
   const [isDarkMode, setIsDarkMode] = useState(true);
 
@@ -100,12 +102,15 @@ export default function Home() {
           setIsDarkMode(false);
         }
 
+        const hasOnboarded = localStorage.getItem('avir_location_onboarded_v1');
         const savedCityJson = localStorage.getItem('avir_selected_city_v1');
         if (savedCityJson) {
           const parsed = JSON.parse(savedCityJson);
           if (parsed && typeof parsed.name === 'string' && typeof parsed.latitude === 'number' && typeof parsed.longitude === 'number') {
             setSelectedCity(parsed);
           }
+        } else if (!hasOnboarded) {
+          setIsFirstVisitModalOpen(true);
         }
       } catch (e) {
         console.warn('Failed to load user preferences from localStorage:', e);
@@ -700,12 +705,19 @@ export default function Home() {
           </p>
 
           <p className="text-[11px] text-stone-500 dark:text-zinc-500 max-w-2xl mx-auto leading-relaxed">
-            Mathematical calculations based on CPCB/EPA AQI breakpoints, Berkeley Earth particulate toxicology (22 µg/m³ ≈ 1 cig/day), and Corsi-Rosenthal Box fluid dynamics. Designed for community risk mitigation and routine shifting; not intended as a substitute for emergency clinical care during acute respiratory distress.
+            Mathematical calculations based on CPCB/EPA AQI breakpoints, WHO 2021 Global Air Quality Guidelines, and Corsi-Rosenthal Box fluid dynamics. Designed for community risk mitigation and routine shifting; not intended as a substitute for emergency clinical care during acute respiratory distress.
           </p>
         </div>
       </footer>
 
       {/* Modals */}
+      <FirstVisitLocationModal
+        isOpen={isFirstVisitModalOpen}
+        onClose={() => setIsFirstVisitModalOpen(false)}
+        onSelectCity={(loc) => {
+          setSelectedCity(loc);
+        }}
+      />
       <SettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}

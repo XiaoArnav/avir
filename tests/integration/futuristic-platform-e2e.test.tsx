@@ -165,6 +165,7 @@ describe('AVIR — Futuristic 3D Environmental Intelligence Platform E2E Verific
           currentCity={mockDelhi}
           metrics={mockMetrics}
           isLoading={false}
+          initialDetailsOpen={true}
           onSelectCity={vi.fn()}
           onRefreshTelemetry={vi.fn()}
           onOpenExplainer={vi.fn()}
@@ -176,7 +177,7 @@ describe('AVIR — Futuristic 3D Environmental Intelligence Platform E2E Verific
 
       expect(html).toContain('AVIR // COMMAND');
       expect(html).toContain('Delhi-NCR');
-      expect(html).toContain('CPCB GROUND');
+      expect(html).toContain('CPCB Ground');
       expect(html).toContain('PM2.5');
       expect(html).toContain('195');
       expect(html).toContain('Exposure Guidance');

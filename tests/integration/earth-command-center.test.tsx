@@ -70,12 +70,13 @@ describe('Earth Command Center & World Data Redesign (PR C)', () => {
       expect(html).toContain('GROUND STATION');
     });
 
-    it('renders pollutant telemetry readouts and exposure guidance', () => {
+    it('renders pollutant telemetry readouts and exposure guidance when drawer is open', () => {
       const html = ReactDOMServer.renderToString(
         <EarthCommandCenter
           currentCity={mockCity}
           metrics={mockMetrics}
           isLoading={false}
+          initialDetailsOpen={true}
           onSelectCity={vi.fn()}
           onRefreshTelemetry={vi.fn()}
           onOpenExplainer={vi.fn()}
