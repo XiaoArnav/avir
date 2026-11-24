@@ -87,4 +87,48 @@ describe('Server-Side AI Plan API Route (/api/ai/plan)', () => {
     // Adversarial string was neutralized
     expect(plan.routineShifts[0].activityName).toContain('Sanitized');
   });
+
+  it('returns validated structuredExplanation and decisionContext in Phase 2 payload', async () => {
+    const req = new NextRequest('http://localhost:3000/api/ai/plan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        city: 'Bengaluru',
+        coordinates: { lat: 12.9716, lng: 77.5946 },
+        schedule: {
+          id: 'sched-1',
+          name: 'Workday Routine',
+          activities: [
+            {
+              id: 'act-1',
+              name: 'Morning Jog',
+              startTime: '07:00',
+              endTime: '08:00',
+              intensity: 'vigorous',
+              environment: 'outdoor',
+            },
+          ],
+        },
+        hourlyForecast: [
+          { time: '2026-11-24T07:00', pm25: 75, aqi: 150 },
+          { time: '2026-11-24T14:00', pm25: 35, aqi: 80 },
+        ],
+        generalizedSensitivity: 'sensitive',
+      }),
+    });
+
+    const res = await POST(req);
+    expect(res.status).toBe(200);
+    const data = await res.json();
+
+    expect(data.success).toBe(true);
+    expect(data.structuredExplanation).toBeDefined();
+    expect(data.structuredExplanation.situationSummary).toContain('Bengaluru');
+    expect(data.structuredExplanation.actionableRecommendations.length).toBeGreaterThan(0);
+    expect(data.structuredExplanation.indoorGuidance).toBeDefined();
+    expect(data.structuredExplanation.commuteAdvice).toBeDefined();
+    expect(data.structuredExplanation.safetyLimitations.length).toBeGreaterThan(0);
+    expect(data.decisionContext).toBeDefined();
+    expect(data.decisionContext.city.name).toBe('Bengaluru');
+  });
 });

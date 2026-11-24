@@ -15,6 +15,12 @@ import { calculateDailyScheduleExposure } from '@/services/exposure/exposure-eng
 import { AiPlanExplanation } from '@/domain/planning-types';
 import { aiPlanRateLimiter, extractClientIp } from '@/lib/security/rate-limiter';
 import { readBoundedJson } from '@/lib/security/request-limiter';
+import {
+  EnvironmentalDecisionContext,
+  StructuredPlanExplanation,
+  validateDecisionContext,
+} from '@/services/ai/decision-context';
+import { generateDeterministicStructuredExplanation } from '@/services/ai/deterministic-assistant';
 
 const GEMINI_API_TIMEOUT_MS = 8000;
 
@@ -179,6 +185,25 @@ export async function POST(req: NextRequest) {
       sanitizeUserHealthContext(rawBody.profile);
 
     // =========================================================================
+    // TIER 2.5: DECISION CONTEXT AGGREGATION & VALIDATION (PHASE 2)
+    // =========================================================================
+    let decisionContext: EnvironmentalDecisionContext;
+    if (rawBody.decisionContext && typeof rawBody.decisionContext === 'object') {
+      const val = validateDecisionContext(rawBody.decisionContext);
+      if (val.isValid) {
+        decisionContext = rawBody.decisionContext;
+      } else {
+        decisionContext = buildFallbackDecisionContext(rawBody, sensitivity);
+      }
+    } else {
+      decisionContext = buildFallbackDecisionContext(rawBody, sensitivity);
+    }
+
+    // Always generate baseline deterministic structured explanation
+    let structuredExplanation: StructuredPlanExplanation =
+      generateDeterministicStructuredExplanation(decisionContext, deterministicPlan);
+
+    // =========================================================================
     // TIER 3: AI EXPLANATION LAYER (LLM AS EXPLANATION ONLY, NO CALCULATIONS)
     // STEP 22: HEADER-BASED AUTH (D-SEC-01) & ABORT TIMEOUT (D-REL-01)
     // =========================================================================
@@ -223,7 +248,7 @@ Return only valid JSON matching this schema:
                 optimizedExposureUg: deterministicPlan.optimizedExposureUg,
                 savingsUg: deterministicPlan.absoluteSavingsUg,
                 percentageSavings: deterministicPlan.percentageSavings,
-                shifts: deterministicPlan.activityShifts.map(s => ({
+                shifts: deterministicPlan.activityShifts.map((s: any) => ({
                   activity: s.activityName, from: s.originalStart, to: s.proposedStart,
                 })),
               }) }] }],
@@ -243,7 +268,7 @@ Return only valid JSON matching this schema:
             if (!Array.isArray(parsed?.actionableRecommendations) ||
                 parsed.actionableRecommendations.length > 8 ||
                 ![parsed.summary, parsed.narrative, parsed.healthContext, ...parsed.actionableRecommendations]
-                  .every(value => typeof value === 'string' && value.trim().length > 0 && value.length <= 1500 &&
+                  .every((value: any) => typeof value === 'string' && value.trim().length > 0 && value.length <= 1500 &&
                     !/\d/.test(value.replace(/\b(?:PM2\.5|PM10|N95|CO2)\b/gi, '')))) {
               throw new Error('Unusable explanation');
             }
@@ -258,6 +283,9 @@ Return only valid JSON matching this schema:
               generatedAt: new Date().toISOString(),
               isDeterministicVerified: true,
             };
+            structuredExplanation.situationSummary = aiExplanation.summary;
+            structuredExplanation.modelAttribution = 'Gemini 2.5 Flash + Deterministic Engine';
+            structuredExplanation.explanationSource = 'llm_generated';
             isAiGenerated = true;
             explanationSource = 'llm_generated';
           }
@@ -299,6 +327,8 @@ Return only valid JSON matching this schema:
         explanationSource,
         deterministicPlan,
         aiExplanation,
+        structuredExplanation,
+        decisionContext,
       });
     }
 
@@ -310,6 +340,8 @@ Return only valid JSON matching this schema:
       summaryAdvisory: aiExplanation.summary,
       deterministicPlan,
       aiExplanation,
+      structuredExplanation,
+      decisionContext,
     });
   } catch (err: any) {
     console.error('AI plan route error:', err);
@@ -318,4 +350,54 @@ Return only valid JSON matching this schema:
       { status: 500 }
     );
   }
+}
+
+function buildFallbackDecisionContext(rawBody: any, sensitivity: any): EnvironmentalDecisionContext {
+  const cityName = typeof rawBody.city === 'string' && rawBody.city.trim() ? rawBody.city.trim() : 'Local Area';
+  const lat = typeof rawBody.coordinates?.lat === 'number' && Number.isFinite(rawBody.coordinates.lat)
+    ? rawBody.coordinates.lat
+    : 12.9716;
+  const lng = typeof rawBody.coordinates?.lng === 'number' && Number.isFinite(rawBody.coordinates.lng)
+    ? rawBody.coordinates.lng
+    : 77.5946;
+
+  const provider = rawBody.source?.provider || rawBody.metrics?.sourceAttribution || 'Atmospheric Model';
+  const isModel = Boolean(rawBody.source?.isModel ?? true);
+
+  return {
+    city: {
+      name: cityName,
+      latitude: lat,
+      longitude: lng,
+      country: rawBody.country || 'India',
+      timezone: rawBody.timezone || 'Asia/Kolkata',
+    },
+    source: {
+      provider,
+      isModel,
+      freshnessHours: 1,
+      stationName: rawBody.source?.stationName,
+      distanceKm: rawBody.source?.distanceKm,
+    },
+    currentPollutants: {
+      pm25: typeof rawBody.metrics?.pm25 === 'number' ? rawBody.metrics.pm25 : null,
+      pm10: typeof rawBody.metrics?.pm10 === 'number' ? rawBody.metrics.pm10 : null,
+      aqi: typeof rawBody.metrics?.usAqi === 'number' ? rawBody.metrics.usAqi : null,
+      aqiStandard: rawBody.aqiStandard === 'epa' ? 'epa' : 'cpcb',
+      category: rawBody.metrics?.aqiCategory,
+    },
+    weather: {
+      temperatureC: typeof rawBody.metrics?.temperature === 'number' ? rawBody.metrics.temperature : null,
+      relativeHumidity: typeof rawBody.metrics?.humidity === 'number' ? rawBody.metrics.humidity : null,
+      windSpeedKmh: typeof rawBody.metrics?.windSpeed === 'number' ? rawBody.metrics.windSpeed : null,
+      windDirectionDeg: typeof rawBody.metrics?.windDirection === 'number' ? rawBody.metrics.windDirection : null,
+    },
+    userContext: {
+      generalizedSensitivity: sensitivity,
+      commuteMode: rawBody.commuteMode || 'mixed',
+      indoorAirPurification: rawBody.indoorAirPurification || 'unknown',
+    },
+    schedule: rawBody.schedule,
+    hourlyForecast: rawBody.hourlyForecast,
+  };
 }
