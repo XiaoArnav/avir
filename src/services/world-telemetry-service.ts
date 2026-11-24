@@ -472,33 +472,11 @@ export function evaluateWorldModelFreshness(
  */
 export function computeComparableCohortRanks(
   cities: WorldCityItem[],
-  now?: Date,
+  now: Date = new Date(),
   policy: ModelFreshnessPolicy = DEFAULT_MODEL_FRESHNESS_POLICY
 ): WorldCityItem[] {
-  // If clock is not explicitly injected, determine effective clock
-  let effectiveNow = now;
-  if (!effectiveNow) {
-    const validTimes = cities
-      .map((c) => c.modelValidAt)
-      .filter((t): t is string => Boolean(t))
-      .map((t) => new Date(t).getTime())
-      .filter((ms) => !isNaN(ms));
-
-    if (validTimes.length > 0) {
-      const maxTime = Math.max(...validTimes);
-      // If the model data is from a fixed past date (e.g. test fixture), synchronize reference time
-      if (Date.now() - maxTime > (policy.maxAgeHours ?? 24) * 3600000) {
-        effectiveNow = new Date(maxTime + 1000 * 60 * 30); // 30 minutes after model run
-      } else {
-        effectiveNow = new Date();
-      }
-    } else {
-      effectiveNow = new Date();
-    }
-  }
-
   // First, evaluate model freshness for each city
-  const freshnessResults = cities.map((c) => evaluateWorldModelFreshness(c.modelValidAt, effectiveNow, policy));
+  const freshnessResults = cities.map((c) => evaluateWorldModelFreshness(c.modelValidAt, now, policy));
 
   // Determine dominant model-valid timestamp among cities that are physically fresh
   const timestampCounts = new Map<string, number>();
