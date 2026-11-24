@@ -331,6 +331,11 @@ describe('AVIR — Step 6 Global Telemetry & World Comparisons (85 Scenarios)', 
   // GROUP C: Scientific Comparative Ranking & Ties (30–40)
   // =========================================================================
   describe('Group C: Scientific Comparative Ranking & Ties (30–40)', () => {
+    // Canonical test clock reference: 2026-11-23T07:00:00Z ensures fixtures at
+    // 05:00 and 06:00 on the same date are evaluated deterministically without
+    // dependence on runtime wall-clock time.
+    const TEST_NOW = new Date('2026-11-23T07:00:00Z');
+
     it('30. Comparable cities in the same timestamp window are ranked descending by US AQI', () => {
       const cities: WorldCityItem[] = [
         { id: 1, cityId: 'c1', name: 'Delhi', country: 'India', region: 'Asia', latitude: 28.6, longitude: 77.2, usAqi: 280, pm25: 220, category: 'VeryUnhealthy', status: 'available', comparable: true, incompatibilityReasons: [], modelValidAt: '2026-11-23T05:00', retrievedAt: '', sourceKind: 'atmospheric_model', providerId: 'open_meteo_cams', modelDomain: 'cams_global', observedAt: null, cohortRank: null, cohortSize: null },
@@ -338,7 +343,7 @@ describe('AVIR — Step 6 Global Telemetry & World Comparisons (85 Scenarios)', 
         { id: 3, cityId: 'c3', name: 'Paris', country: 'France', region: 'Europe', latitude: 48.8, longitude: 2.3, usAqi: 65, pm25: 18, category: 'Moderate', status: 'available', comparable: true, incompatibilityReasons: [], modelValidAt: '2026-11-23T05:00', retrievedAt: '', sourceKind: 'atmospheric_model', providerId: 'open_meteo_cams', modelDomain: 'cams_global', observedAt: null, cohortRank: null, cohortSize: null },
       ];
 
-      const ranked = computeComparableCohortRanks(cities);
+      const ranked = computeComparableCohortRanks(cities, TEST_NOW);
       expect(ranked.find(c => c.name === 'Delhi')?.cohortRank).toBe(1);
       expect(ranked.find(c => c.name === 'Paris')?.cohortRank).toBe(2);
       expect(ranked.find(c => c.name === 'Tokyo')?.cohortRank).toBe(3);
@@ -351,7 +356,7 @@ describe('AVIR — Step 6 Global Telemetry & World Comparisons (85 Scenarios)', 
         { id: 2, cityId: 'c2', name: 'NoTimeCity', country: 'X', region: 'Asia', latitude: 20, longitude: 80, usAqi: 150, pm25: 55, category: 'UnhealthySensitive', status: 'available', comparable: true, incompatibilityReasons: [], modelValidAt: null, retrievedAt: '', sourceKind: 'atmospheric_model', providerId: 'open_meteo_cams', modelDomain: 'cams_global', observedAt: null, cohortRank: null, cohortSize: null },
       ];
 
-      const ranked = computeComparableCohortRanks(cities);
+      const ranked = computeComparableCohortRanks(cities, TEST_NOW);
       const noTime = ranked.find(c => c.name === 'NoTimeCity');
       expect(noTime?.comparable).toBe(false);
       expect(noTime?.cohortRank).toBeNull();
@@ -364,7 +369,7 @@ describe('AVIR — Step 6 Global Telemetry & World Comparisons (85 Scenarios)', 
         { id: 2, cityId: 'c2', name: 'StaleLondon', country: 'UK', region: 'Europe', latitude: 51.5, longitude: -0.1, usAqi: 40, pm25: 10, category: 'Good', status: 'stale', comparable: true, incompatibilityReasons: [], modelValidAt: '2026-11-22T05:00', retrievedAt: '', sourceKind: 'atmospheric_model', providerId: 'open_meteo_cams', modelDomain: 'cams_global', observedAt: null, cohortRank: null, cohortSize: null },
       ];
 
-      const ranked = computeComparableCohortRanks(cities);
+      const ranked = computeComparableCohortRanks(cities, TEST_NOW);
       expect(ranked.find(c => c.name === 'StaleLondon')?.cohortRank).toBeNull();
       expect(ranked.find(c => c.name === 'StaleLondon')?.comparable).toBe(false);
     });
@@ -376,7 +381,7 @@ describe('AVIR — Step 6 Global Telemetry & World Comparisons (85 Scenarios)', 
         { id: 3, cityId: 'c3', name: 'OldCity', country: 'X', region: 'Americas', latitude: 40, longitude: -70, usAqi: 80, pm25: 25, category: 'Moderate', status: 'available', comparable: true, incompatibilityReasons: [], modelValidAt: '2026-11-23T00:00', retrievedAt: '', sourceKind: 'atmospheric_model', providerId: 'open_meteo_cams', modelDomain: 'cams_global', observedAt: null, cohortRank: null, cohortSize: null },
       ];
 
-      const ranked = computeComparableCohortRanks(cities);
+      const ranked = computeComparableCohortRanks(cities, TEST_NOW);
       expect(ranked.find(c => c.name === 'OldCity')?.cohortRank).toBeNull();
       expect(ranked.find(c => c.name === 'OldCity')?.comparable).toBe(false);
     });
@@ -387,7 +392,7 @@ describe('AVIR — Step 6 Global Telemetry & World Comparisons (85 Scenarios)', 
         { id: 2, cityId: 'c2', name: 'DerivedCity', country: 'X', region: 'Asia', latitude: 20, longitude: 80, usAqi: 100, pm25: 35, category: 'Moderate', status: 'partial', comparable: false, incompatibilityReasons: ['US AQI is derived from single-species PM2.5 calculation'], modelValidAt: '2026-11-23T06:00', retrievedAt: '', sourceKind: 'atmospheric_model', providerId: 'open_meteo_cams', modelDomain: 'cams_global', observedAt: null, cohortRank: null, cohortSize: null },
       ];
 
-      const ranked = computeComparableCohortRanks(cities);
+      const ranked = computeComparableCohortRanks(cities, TEST_NOW);
       expect(ranked.find(c => c.name === 'DerivedCity')?.cohortRank).toBeNull();
       expect(ranked.find(c => c.name === 'Delhi')?.cohortRank).toBe(1);
     });
@@ -396,7 +401,7 @@ describe('AVIR — Step 6 Global Telemetry & World Comparisons (85 Scenarios)', 
       const cities: WorldCityItem[] = [
         { id: 1, cityId: 'c1', name: 'OfflineCity', country: 'X', region: 'Asia', latitude: 20, longitude: 80, usAqi: null, pm25: null, category: 'Unavailable', status: 'unavailable', comparable: false, incompatibilityReasons: [], modelValidAt: null, retrievedAt: '', sourceKind: 'atmospheric_model', providerId: 'open_meteo_cams', modelDomain: 'cams_global', observedAt: null, cohortRank: null, cohortSize: null },
       ];
-      const ranked = computeComparableCohortRanks(cities);
+      const ranked = computeComparableCohortRanks(cities, TEST_NOW);
       expect(ranked[0].cohortRank).toBeNull();
       expect(ranked[0].cohortSize).toBe(0);
     });
@@ -409,7 +414,7 @@ describe('AVIR — Step 6 Global Telemetry & World Comparisons (85 Scenarios)', 
         { id: 4, cityId: 'c4', name: 'City4', country: 'D', region: 'Oceania', latitude: 40, longitude: 40, usAqi: 50, pm25: 12, category: 'Good', status: 'available', comparable: true, incompatibilityReasons: [], modelValidAt: '2026-11-23T06:00', retrievedAt: '', sourceKind: 'atmospheric_model', providerId: 'open_meteo_cams', modelDomain: 'cams_global', observedAt: null, cohortRank: null, cohortSize: null },
       ];
 
-      const ranked = computeComparableCohortRanks(cities);
+      const ranked = computeComparableCohortRanks(cities, TEST_NOW);
       expect(ranked.find(c => c.name === 'City1')?.cohortRank).toBe(1);
       expect(ranked.find(c => c.name === 'City2A')?.cohortRank).toBe(2);
       expect(ranked.find(c => c.name === 'City2B')?.cohortRank).toBe(2);
@@ -445,7 +450,7 @@ describe('AVIR — Step 6 Global Telemetry & World Comparisons (85 Scenarios)', 
       const cities: WorldCityItem[] = [
         { id: 1, cityId: 'c1', name: 'CleanCity', country: 'IS', region: 'Europe', latitude: 64, longitude: -21, usAqi: 0, pm25: 0, category: 'Good', status: 'available', comparable: true, incompatibilityReasons: [], modelValidAt: '2026-11-23T06:00', retrievedAt: '', sourceKind: 'atmospheric_model', providerId: 'open_meteo_cams', modelDomain: 'cams_global', observedAt: null, cohortRank: null, cohortSize: null },
       ];
-      const ranked = computeComparableCohortRanks(cities);
+      const ranked = computeComparableCohortRanks(cities, TEST_NOW);
       expect(ranked[0].cohortRank).toBe(1);
       expect(ranked[0].cohortSize).toBe(1);
     });
@@ -456,7 +461,7 @@ describe('AVIR — Step 6 Global Telemetry & World Comparisons (85 Scenarios)', 
         { id: 2, cityId: 'c2', name: 'CityB', country: 'B', region: 'Asia', latitude: 20, longitude: 20, usAqi: null, pm25: null, category: 'Unavailable', status: 'unavailable', comparable: false, incompatibilityReasons: [], modelValidAt: null, retrievedAt: '', sourceKind: 'atmospheric_model', providerId: 'open_meteo_cams', modelDomain: 'cams_global', observedAt: null, cohortRank: null, cohortSize: null },
       ];
 
-      const ranked = computeComparableCohortRanks(cities);
+      const ranked = computeComparableCohortRanks(cities, TEST_NOW);
       expect(ranked[0].cohortRank).toBe(1);
       expect(ranked[0].cohortSize).toBe(1); // 1 comparable, not 2
     });
@@ -1049,6 +1054,138 @@ describe('AVIR — Step 6 Global Telemetry & World Comparisons (85 Scenarios)', 
       );
       expect(html).toContain('Bengaluru');
       expect(html).toContain('Comparison data unavailable');
+    });
+  });
+
+  // =========================================================================
+  // PHASE B: Deterministic Clocks & Scientific Freshness Invariants (B1–B8)
+  // =========================================================================
+  describe('Phase B: Deterministic Clocks & Scientific Freshness Invariants (B1–B8)', () => {
+    const TEST_NOW = new Date('2026-11-23T07:00:00Z');
+
+    it('B1. Fresh data is eligible for comparative ranking cohort (1h before TEST_NOW)', () => {
+      const freshCity: WorldCityItem = {
+        id: 1, cityId: 'c1', name: 'FreshCity', country: 'Test', region: 'Asia', latitude: 20, longitude: 80,
+        usAqi: 75, pm25: 23, category: 'Moderate', status: 'available', comparable: true, incompatibilityReasons: [],
+        modelValidAt: '2026-11-23T06:00:00Z', retrievedAt: '', sourceKind: 'atmospheric_model', providerId: 'open_meteo_cams',
+        modelDomain: 'cams_global', observedAt: null, cohortRank: null, cohortSize: null
+      };
+      const ranked = computeComparableCohortRanks([freshCity], TEST_NOW);
+      expect(ranked[0].comparable).toBe(true);
+      expect(ranked[0].cohortRank).toBe(1);
+      expect(ranked[0].cohortSize).toBe(1);
+    });
+
+    it('B2. Stale data (>24h old) is excluded from comparative ranking cohort', () => {
+      const staleCity: WorldCityItem = {
+        id: 1, cityId: 'c1', name: 'StaleCity', country: 'Test', region: 'Asia', latitude: 20, longitude: 80,
+        usAqi: 75, pm25: 23, category: 'Moderate', status: 'available', comparable: true, incompatibilityReasons: [],
+        modelValidAt: '2026-11-22T05:00:00Z', retrievedAt: '', sourceKind: 'atmospheric_model', providerId: 'open_meteo_cams',
+        modelDomain: 'cams_global', observedAt: null, cohortRank: null, cohortSize: null
+      };
+      const ranked = computeComparableCohortRanks([staleCity], TEST_NOW);
+      expect(ranked[0].comparable).toBe(false);
+      expect(ranked[0].cohortRank).toBeNull();
+      expect(ranked[0].status).toBe('stale');
+      expect(ranked[0].incompatibilityReasons?.some(r => r.toLowerCase().includes('old') || r.toLowerCase().includes('exceed'))).toBe(true);
+    });
+
+    it('B3. Future-dated data (>2h ahead) is rejected and unranked', () => {
+      const futureCity: WorldCityItem = {
+        id: 1, cityId: 'c1', name: 'FutureCity', country: 'Test', region: 'Asia', latitude: 20, longitude: 80,
+        usAqi: 75, pm25: 23, category: 'Moderate', status: 'available', comparable: true, incompatibilityReasons: [],
+        modelValidAt: '2026-11-23T15:00:00Z', retrievedAt: '', sourceKind: 'atmospheric_model', providerId: 'open_meteo_cams',
+        modelDomain: 'cams_global', observedAt: null, cohortRank: null, cohortSize: null
+      };
+      const ranked = computeComparableCohortRanks([futureCity], TEST_NOW);
+      expect(ranked[0].comparable).toBe(false);
+      expect(ranked[0].cohortRank).toBeNull();
+      expect(ranked[0].status).toBe('invalid');
+      expect(ranked[0].incompatibilityReasons?.some(r => r.includes('future'))).toBe(true);
+    });
+
+    it('B4. Missing modelValidAt timestamp is rejected as unavailable and unranked', () => {
+      const missingTimeCity: WorldCityItem = {
+        id: 1, cityId: 'c1', name: 'MissingTimeCity', country: 'Test', region: 'Asia', latitude: 20, longitude: 80,
+        usAqi: 75, pm25: 23, category: 'Moderate', status: 'available', comparable: true, incompatibilityReasons: [],
+        modelValidAt: null, retrievedAt: '', sourceKind: 'atmospheric_model', providerId: 'open_meteo_cams',
+        modelDomain: 'cams_global', observedAt: null, cohortRank: null, cohortSize: null
+      };
+      const ranked = computeComparableCohortRanks([missingTimeCity], TEST_NOW);
+      expect(ranked[0].comparable).toBe(false);
+      expect(ranked[0].cohortRank).toBeNull();
+      expect(ranked[0].status).toBe('unavailable');
+    });
+
+    it('B5. Derived single-species AQI is excluded from multi-pollutant ranking cohort', () => {
+      const derivedCity: WorldCityItem = {
+        id: 1, cityId: 'c1', name: 'DerivedCity', country: 'Test', region: 'Asia', latitude: 20, longitude: 80,
+        usAqi: 120, pm25: 42, category: 'UnhealthySensitive', status: 'partial', comparable: false,
+        incompatibilityReasons: ['US AQI is derived from single-species PM2.5 calculation'],
+        modelValidAt: '2026-11-23T06:00:00Z', retrievedAt: '', sourceKind: 'atmospheric_model', providerId: 'open_meteo_cams',
+        modelDomain: 'cams_global', observedAt: null, cohortRank: null, cohortSize: null
+      };
+      const multiCity: WorldCityItem = {
+        id: 2, cityId: 'c2', name: 'MultiCity', country: 'Test', region: 'Asia', latitude: 21, longitude: 81,
+        usAqi: 90, pm25: 31, category: 'Moderate', status: 'available', comparable: true, incompatibilityReasons: [],
+        modelValidAt: '2026-11-23T06:00:00Z', retrievedAt: '', sourceKind: 'atmospheric_model', providerId: 'open_meteo_cams',
+        modelDomain: 'cams_global', observedAt: null, cohortRank: null, cohortSize: null
+      };
+      const ranked = computeComparableCohortRanks([derivedCity, multiCity], TEST_NOW);
+      expect(ranked.find(c => c.name === 'DerivedCity')?.cohortRank).toBeNull();
+      expect(ranked.find(c => c.name === 'MultiCity')?.cohortRank).toBe(1);
+      expect(ranked.find(c => c.name === 'MultiCity')?.cohortSize).toBe(1);
+    });
+
+    it('B6. Zero AQI (usAqi: 0, pm25: 0) remains eligible and ranked #1', () => {
+      const zeroCity: WorldCityItem = {
+        id: 1, cityId: 'c1', name: 'PristineCity', country: 'IS', region: 'Europe', latitude: 64, longitude: -21,
+        usAqi: 0, pm25: 0, category: 'Good', status: 'available', comparable: true, incompatibilityReasons: [],
+        modelValidAt: '2026-11-23T06:00:00Z', retrievedAt: '', sourceKind: 'atmospheric_model', providerId: 'open_meteo_cams',
+        modelDomain: 'cams_global', observedAt: null, cohortRank: null, cohortSize: null
+      };
+      const ranked = computeComparableCohortRanks([zeroCity], TEST_NOW);
+      expect(ranked[0].cohortRank).toBe(1);
+      expect(ranked[0].cohortSize).toBe(1);
+      expect(ranked[0].comparable).toBe(true);
+    });
+
+    it('B7. Expired data stays expired when default clock (new Date()) is used without injection', () => {
+      // Historical fixture from Nov 23, 2026 run against current wall clock (>24h later)
+      const historicalCity: WorldCityItem = {
+        id: 1, cityId: 'c1', name: 'PastCity', country: 'Test', region: 'Asia', latitude: 20, longitude: 80,
+        usAqi: 80, pm25: 25, category: 'Moderate', status: 'available', comparable: true, incompatibilityReasons: [],
+        modelValidAt: '2026-11-23T05:00:00Z', retrievedAt: '', sourceKind: 'atmospheric_model', providerId: 'open_meteo_cams',
+        modelDomain: 'cams_global', observedAt: null, cohortRank: null, cohortSize: null
+      };
+      // When now is not passed, production default clock is used. In production today (2026-11-24+),
+      // this record is genuinely stale. No automatic clock-rewinding should make it eligible.
+      const ranked = computeComparableCohortRanks([historicalCity]);
+      expect(ranked[0].comparable).toBe(false);
+      expect(ranked[0].cohortRank).toBeNull();
+      expect(ranked[0].status).toBe('stale');
+    });
+
+    it('B8. Determinism verified across multiple execution dates', () => {
+      const testCity: WorldCityItem = {
+        id: 1, cityId: 'c1', name: 'TestCity', country: 'Test', region: 'Asia', latitude: 20, longitude: 80,
+        usAqi: 110, pm25: 38, category: 'UnhealthySensitive', status: 'available', comparable: true, incompatibilityReasons: [],
+        modelValidAt: '2026-11-23T06:00:00Z', retrievedAt: '', sourceKind: 'atmospheric_model', providerId: 'open_meteo_cams',
+        modelDomain: 'cams_global', observedAt: null, cohortRank: null, cohortSize: null
+      };
+      // 1. Same day evaluation -> fresh & ranked
+      const sameDayRanked = computeComparableCohortRanks([testCity], new Date('2026-11-23T08:00:00Z'));
+      expect(sameDayRanked[0].cohortRank).toBe(1);
+
+      // 2. Future year evaluation (2027-01-01) -> stale & unranked
+      const futureYearRanked = computeComparableCohortRanks([testCity], new Date('2027-01-01T00:00:00Z'));
+      expect(futureYearRanked[0].cohortRank).toBeNull();
+      expect(futureYearRanked[0].status).toBe('stale');
+
+      // 3. Prior year evaluation (2025-01-01) -> future-dated & rejected
+      const priorYearRanked = computeComparableCohortRanks([testCity], new Date('2025-01-01T00:00:00Z'));
+      expect(priorYearRanked[0].cohortRank).toBeNull();
+      expect(priorYearRanked[0].status).toBe('invalid');
     });
   });
 });
