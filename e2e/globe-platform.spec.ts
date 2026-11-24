@@ -101,4 +101,19 @@ test.describe('Avir Flagship Earth Command Center & Planetary Telemetry E2E', ()
     await expect(missionHeader.getByText(/delhi/i)).toBeVisible();
     await expect(missionHeader.getByText(/28\.61/)).toBeVisible();
   });
+
+  test('toggles 3D engine between Three.js and CesiumJS without crashing', async ({ page }) => {
+    // Locate engine toggle button in GlobeControls
+    const engineButton = page.getByRole('button', { name: /toggle 3d engine/i });
+    await expect(engineButton).toBeVisible();
+    await expect(engineButton).toHaveText('THREE');
+
+    // Click to switch to Cesium
+    await engineButton.click();
+    await expect(engineButton).toHaveText('CESIUM');
+
+    // Switch back to Three.js
+    await engineButton.click();
+    await expect(engineButton).toHaveText('THREE');
+  });
 });

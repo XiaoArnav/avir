@@ -23,6 +23,19 @@ const DynamicGlobeCanvas = dynamic(
   }
 );
 
+// Client-only dynamic import of the CesiumJS Photorealistic Engine (God's Eye View Architecture)
+const DynamicCesiumGlobe = dynamic(
+  () => import('./cesium/AvirCesiumGlobe').then((mod) => mod.AvirCesiumGlobe),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="w-full h-full flex items-center justify-center bg-[#030712] text-xs text-sky-300 telemetry-mono">
+        <span className="animate-pulse">INITIALIZING CESIUMJS PHOTOREALISTIC TERRAIN...</span>
+      </div>
+    ),
+  }
+);
+
 export interface AvirGlobeProps {
   points: GeographicObservationPoint[];
   selectedPointId?: string | null;
@@ -51,6 +64,7 @@ export function AvirGlobe({
   className = '',
 }: AvirGlobeProps) {
   const [is3D, setIs3D] = useState<boolean>(true);
+  const [engineMode, setEngineMode] = useState<'three' | 'cesium'>('three');
   const [isAutoRotating, setIsAutoRotating] = useState<boolean>(true);
   const [zoomLevel, setZoomLevel] = useState<number>(260);
 
@@ -79,19 +93,33 @@ export function AvirGlobe({
       <div className="absolute inset-0 bg-radial-atmosphere pointer-events-none" />
       <div className="absolute inset-0 hud-grid-background opacity-40 pointer-events-none" />
 
-      {/* Main 3D Canvas or Accessible 2D Fallback */}
+      {/* Main 3D Canvas, CesiumJS Engine, or Accessible 2D Fallback */}
       {is3D ? (
-        <DynamicGlobeCanvas
-          points={points}
-          selectedPointId={selectedPointId}
-          onSelectPoint={onSelectPoint}
-          isAutoRotating={isAutoRotating}
-          zoomLevel={zoomLevel}
-          selectedHour={selectedHour}
-          validAtUtc={validAtUtc}
-          themeMode={themeMode}
-          className="w-full h-full"
-        />
+        engineMode === 'cesium' ? (
+          <DynamicCesiumGlobe
+            points={points}
+            selectedPointId={selectedPointId}
+            activeCityName={activeCityName}
+            onSelectPoint={onSelectPoint}
+            onSetActiveCity={onSetActiveCity}
+            standard={standard}
+            validAtUtc={validAtUtc}
+            themeMode={themeMode}
+            className="w-full h-full"
+          />
+        ) : (
+          <DynamicGlobeCanvas
+            points={points}
+            selectedPointId={selectedPointId}
+            onSelectPoint={onSelectPoint}
+            isAutoRotating={isAutoRotating}
+            zoomLevel={zoomLevel}
+            selectedHour={selectedHour}
+            validAtUtc={validAtUtc}
+            themeMode={themeMode}
+            className="w-full h-full"
+          />
+        )
       ) : (
         <div className="p-4 w-full h-full overflow-y-auto">
           <AccessibleEarthFallback
@@ -128,6 +156,8 @@ export function AvirGlobe({
           onResetView={handleResetView}
           standard={standard}
           onToggleStandard={onToggleStandard || (() => {})}
+          engineMode={engineMode}
+          onToggleEngine={() => setEngineMode((prev) => (prev === 'three' ? 'cesium' : 'three'))}
         />
       </div>
 
