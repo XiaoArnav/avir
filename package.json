@@ -10,11 +10,13 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "postinstall": "node scripts/copy-cesium.mjs"
   },
   "dependencies": {
     "@types/three": "^0.187.0",
     "@vercel/analytics": "^2.0.1",
+    "cesium": "^1.147.0",
     "clsx": "^2.1.1",
     "lucide-react": "^1.16.0",
     "motion": "^14.14.0",

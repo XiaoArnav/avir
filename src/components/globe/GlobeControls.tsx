@@ -14,6 +14,8 @@ export interface GlobeControlsProps {
   onResetView: () => void;
   standard: AqiStandard;
   onToggleStandard: () => void;
+  engineMode?: 'three' | 'cesium';
+  onToggleEngine?: () => void;
   className?: string;
 }
 
@@ -27,6 +29,8 @@ export function GlobeControls({
   onResetView,
   standard,
   onToggleStandard,
+  engineMode = 'three',
+  onToggleEngine,
   className = '',
 }: GlobeControlsProps) {
   return (
@@ -105,6 +109,22 @@ export function GlobeControls({
       >
         <RotateCcw className="w-3.5 h-3.5" />
       </button>
+
+      {/* 3D Engine Switcher (Three.js vs CesiumJS) */}
+      {is3D && onToggleEngine && (
+        <>
+          <div className="h-4 w-px bg-stone-300 dark:bg-sky-500/20 mx-0.5" />
+          <button
+            type="button"
+            onClick={onToggleEngine}
+            className="px-2 py-1 rounded-lg text-[11px] font-semibold border border-stone-200 dark:border-sky-500/30 bg-stone-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300 hover:border-sky-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 transition-colors telemetry-mono uppercase"
+            title={`Active Engine: ${engineMode === 'cesium' ? 'CesiumJS (Satellite Earth)' : 'Three.js (Atmospheric Globe)'}. Click to switch.`}
+            aria-label={`Toggle 3D Engine, currently ${engineMode === 'cesium' ? 'CesiumJS (Satellite Earth)' : 'Three.js (Atmospheric Globe)'}`}
+          >
+            {engineMode === 'cesium' ? 'CESIUM' : 'THREE'}
+          </button>
+        </>
+      )}
 
       {/* Standard Selector */}
       <div className="h-4 w-px bg-stone-300 dark:bg-sky-500/20 mx-0.5" />
