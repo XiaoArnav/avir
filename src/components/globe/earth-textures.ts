@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 
 /**
- * Atmospheric Earth Textures & Shaders (Option A: AirIndx + Apple Weather)
+ * Atmospheric Earth Textures & Shaders
  * Generates an offline, high-definition photorealistic Earth texture,
  * starfield, and Rayleigh scattering atmospheric shaders.
  */
@@ -15,9 +15,6 @@ function geoToCanvas(lat: number, lon: number, width: number, height: number): [
   return [x, y];
 }
 
-/**
- * High-definition simplified continent polygons based on true geographic coordinates
- */
 interface PolygonCoord {
   lat: number;
   lon: number;
@@ -62,7 +59,6 @@ const CONTINENT_POLYGONS: PolygonCoord[][] = [
   ],
   // 2. Eurasia (Europe, Russia, Central Asia, China, East Asia, SE Asia)
   [
-    // Norway / Scandinavia
     { lat: 71.0, lon: 26.0 },
     { lat: 68.0, lon: 44.0 },
     { lat: 73.0, lon: 70.0 },
@@ -70,11 +66,9 @@ const CONTINENT_POLYGONS: PolygonCoord[][] = [
     { lat: 72.0, lon: 130.0 },
     { lat: 70.0, lon: 170.0 },
     { lat: 66.0, lon: 170.0 },
-    // Kamchatka
     { lat: 58.0, lon: 162.0 },
     { lat: 51.0, lon: 157.0 },
     { lat: 55.0, lon: 140.0 },
-    // China & East Asia
     { lat: 48.0, lon: 135.0 },
     { lat: 42.0, lon: 131.0 },
     { lat: 38.0, lon: 119.0 },
@@ -82,43 +76,40 @@ const CONTINENT_POLYGONS: PolygonCoord[][] = [
     { lat: 26.0, lon: 119.5 },
     { lat: 22.5, lon: 114.0 }, // Hong Kong
     { lat: 21.0, lon: 108.0 },
-    // Indochina & SE Asia
     { lat: 15.0, lon: 108.5 },
     { lat: 10.5, lon: 107.0 },
     { lat: 1.3, lon: 103.8 }, // Singapore/Malaysia
     { lat: 6.0, lon: 100.0 },
     { lat: 15.0, lon: 98.0 },
     { lat: 20.0, lon: 93.0 },
-    // Across to Middle East & Mediterranean
-    { lat: 25.0, lon: 66.0 }, // Pakistan coast
+    { lat: 25.0, lon: 66.0 },
     { lat: 25.0, lon: 57.0 },
-    { lat: 30.0, lon: 49.0 }, // Persian Gulf
+    { lat: 30.0, lon: 49.0 },
     { lat: 27.0, lon: 51.0 },
     { lat: 24.0, lon: 54.0 },
-    { lat: 13.0, lon: 44.0 }, // Yemen
-    { lat: 16.0, lon: 42.0 }, // Red Sea
+    { lat: 13.0, lon: 44.0 },
+    { lat: 16.0, lon: 42.0 },
     { lat: 28.0, lon: 34.0 },
     { lat: 32.0, lon: 35.0 },
-    { lat: 36.5, lon: 36.0 }, // Turkey
+    { lat: 36.5, lon: 36.0 },
     { lat: 37.0, lon: 27.0 },
     { lat: 40.0, lon: 26.0 },
-    // Southern & Western Europe
-    { lat: 38.0, lon: 23.0 }, // Greece
+    { lat: 38.0, lon: 23.0 },
     { lat: 41.0, lon: 19.5 },
-    { lat: 41.0, lon: 15.0 }, // Italy
+    { lat: 41.0, lon: 15.0 },
     { lat: 38.0, lon: 15.5 },
     { lat: 43.5, lon: 10.5 },
     { lat: 43.5, lon: 4.0 },
-    { lat: 36.0, lon: -5.5 }, // Gibraltar
-    { lat: 37.0, lon: -9.0 }, // Portugal
+    { lat: 36.0, lon: -5.5 },
+    { lat: 37.0, lon: -9.0 },
     { lat: 43.5, lon: -9.0 },
-    { lat: 43.5, lon: -1.5 }, // Bay of Biscay
-    { lat: 48.5, lon: -4.5 }, // Brittany
+    { lat: 43.5, lon: -1.5 },
+    { lat: 48.5, lon: -4.5 },
     { lat: 51.0, lon: 2.0 },
-    { lat: 54.0, lon: 8.5 }, // Denmark
+    { lat: 54.0, lon: 8.5 },
     { lat: 58.0, lon: 11.5 },
-    { lat: 64.0, lon: 21.0 }, // Baltic
-    { lat: 60.0, lon: 5.0 },  // Norway west
+    { lat: 64.0, lon: 21.0 },
+    { lat: 60.0, lon: 5.0 },
   ],
   // Great Britain & Ireland
   [
@@ -133,7 +124,7 @@ const CONTINENT_POLYGONS: PolygonCoord[][] = [
   [
     { lat: 45.5, lon: 142.0 },
     { lat: 43.0, lon: 145.5 },
-    { lat: 35.5, lon: 140.5 }, // Tokyo
+    { lat: 35.5, lon: 140.5 },
     { lat: 33.5, lon: 135.5 },
     { lat: 31.0, lon: 130.5 },
     { lat: 34.0, lon: 131.0 },
@@ -142,26 +133,26 @@ const CONTINENT_POLYGONS: PolygonCoord[][] = [
   ],
   // 3. Africa
   [
-    { lat: 37.0, lon: 10.0 }, // Tunisia
-    { lat: 32.0, lon: 24.0 }, // Libya/Egypt
-    { lat: 31.5, lon: 32.0 }, // Nile Delta
+    { lat: 37.0, lon: 10.0 },
+    { lat: 32.0, lon: 24.0 },
+    { lat: 31.5, lon: 32.0 },
     { lat: 24.0, lon: 36.0 },
-    { lat: 12.0, lon: 44.0 }, // Horn of Africa
+    { lat: 12.0, lon: 44.0 },
     { lat: 10.0, lon: 51.0 },
-    { lat: 0.0, lon: 42.5 },  // Kenya coast
+    { lat: 0.0, lon: 42.5 },
     { lat: -15.0, lon: 40.5 },
     { lat: -28.0, lon: 32.5 },
-    { lat: -34.5, lon: 20.0 }, // Cape of Good Hope
-    { lat: -33.0, lon: 18.0 }, // Cape Town
-    { lat: -22.0, lon: 14.5 }, // Namibia
+    { lat: -34.5, lon: 20.0 },
+    { lat: -33.0, lon: 18.0 },
+    { lat: -22.0, lon: 14.5 },
     { lat: -6.0, lon: 12.0 },
-    { lat: 4.5, lon: 7.0 },   // Gulf of Guinea / Nigeria
+    { lat: 4.5, lon: 7.0 },
     { lat: 5.0, lon: -3.0 },
-    { lat: 11.5, lon: -15.0 }, // West Africa
-    { lat: 15.0, lon: -17.5 }, // Dakar
+    { lat: 11.5, lon: -15.0 },
+    { lat: 15.0, lon: -17.5 },
     { lat: 21.0, lon: -17.0 },
     { lat: 28.0, lon: -12.0 },
-    { lat: 35.5, lon: -6.0 }, // Morocco
+    { lat: 35.5, lon: -6.0 },
     { lat: 36.0, lon: 1.0 },
   ],
   // Madagascar
@@ -173,31 +164,31 @@ const CONTINENT_POLYGONS: PolygonCoord[][] = [
   ],
   // 4. North America
   [
-    { lat: 71.0, lon: -156.0 }, // Alaska North
-    { lat: 65.0, lon: -168.0 }, // Bering Strait
+    { lat: 71.0, lon: -156.0 },
+    { lat: 65.0, lon: -168.0 },
     { lat: 58.0, lon: -160.0 },
     { lat: 58.0, lon: -136.0 },
-    { lat: 50.0, lon: -127.0 }, // Vancouver
-    { lat: 38.0, lon: -123.0 }, // San Francisco
-    { lat: 33.0, lon: -118.0 }, // Los Angeles
-    { lat: 23.0, lon: -110.0 }, // Baja
-    { lat: 18.0, lon: -105.0 }, // Mexico Pacific
+    { lat: 50.0, lon: -127.0 },
+    { lat: 38.0, lon: -123.0 },
+    { lat: 33.0, lon: -118.0 },
+    { lat: 23.0, lon: -110.0 },
+    { lat: 18.0, lon: -105.0 },
     { lat: 15.0, lon: -93.0 },
-    { lat: 8.5, lon: -80.0 },  // Panama
+    { lat: 8.5, lon: -80.0 },
     { lat: 10.0, lon: -83.5 },
-    { lat: 16.0, lon: -88.0 }, // Yucatan
+    { lat: 16.0, lon: -88.0 },
     { lat: 21.5, lon: -87.0 },
-    { lat: 26.0, lon: -97.0 }, // Texas Gulf
+    { lat: 26.0, lon: -97.0 },
     { lat: 29.0, lon: -95.0 },
-    { lat: 29.5, lon: -89.5 }, // Mississippi Delta
-    { lat: 25.0, lon: -80.5 }, // Florida tip
+    { lat: 29.5, lon: -89.5 },
+    { lat: 25.0, lon: -80.5 },
     { lat: 31.0, lon: -81.0 },
-    { lat: 36.0, lon: -75.5 }, // Outer Banks
-    { lat: 40.5, lon: -74.0 }, // New York
-    { lat: 44.5, lon: -64.0 }, // Nova Scotia
-    { lat: 52.0, lon: -56.0 }, // Newfoundland
-    { lat: 60.0, lon: -65.0 }, // Labrador
-    { lat: 63.0, lon: -80.0 }, // Hudson Bay
+    { lat: 36.0, lon: -75.5 },
+    { lat: 40.5, lon: -74.0 },
+    { lat: 44.5, lon: -64.0 },
+    { lat: 52.0, lon: -56.0 },
+    { lat: 60.0, lon: -65.0 },
+    { lat: 63.0, lon: -80.0 },
     { lat: 70.0, lon: -95.0 },
     { lat: 72.0, lon: -125.0 },
   ],
@@ -211,35 +202,35 @@ const CONTINENT_POLYGONS: PolygonCoord[][] = [
   ],
   // 5. South America
   [
-    { lat: 12.0, lon: -72.0 }, // Colombia / Venezuela
+    { lat: 12.0, lon: -72.0 },
     { lat: 10.5, lon: -62.0 },
-    { lat: 6.0, lon: -53.0 },  // Guyanas
-    { lat: -1.0, lon: -48.0 }, // Amazon mouth
-    { lat: -7.0, lon: -35.0 }, // Brazil bulge
-    { lat: -13.0, lon: -38.5 }, // Salvador
-    { lat: -23.0, lon: -43.0 }, // Rio
-    { lat: -34.5, lon: -58.5 }, // Buenos Aires
+    { lat: 6.0, lon: -53.0 },
+    { lat: -1.0, lon: -48.0 },
+    { lat: -7.0, lon: -35.0 },
+    { lat: -13.0, lon: -38.5 },
+    { lat: -23.0, lon: -43.0 },
+    { lat: -34.5, lon: -58.5 },
     { lat: -42.0, lon: -64.0 },
-    { lat: -54.5, lon: -67.0 }, // Tierra del Fuego
-    { lat: -45.0, lon: -75.0 }, // Chile fjords
-    { lat: -33.0, lon: -71.5 }, // Santiago
+    { lat: -54.5, lon: -67.0 },
+    { lat: -45.0, lon: -75.0 },
+    { lat: -33.0, lon: -71.5 },
     { lat: -18.0, lon: -71.0 },
-    { lat: -5.0, lon: -81.0 },  // Peru west
+    { lat: -5.0, lon: -81.0 },
     { lat: 1.0, lon: -79.0 },
     { lat: 8.0, lon: -77.5 },
   ],
   // 6. Australia
   [
-    { lat: -12.0, lon: 136.0 }, // Arnhem Land
-    { lat: -11.0, lon: 142.5 }, // Cape York
+    { lat: -12.0, lon: 136.0 },
+    { lat: -11.0, lon: 142.5 },
     { lat: -20.0, lon: 148.5 },
-    { lat: -28.0, lon: 153.5 }, // Brisbane
-    { lat: -34.0, lon: 151.0 }, // Sydney
-    { lat: -38.5, lon: 146.0 }, // Melbourne
-    { lat: -35.0, lon: 136.0 }, // Adelaide
-    { lat: -32.0, lon: 115.5 }, // Perth
-    { lat: -22.0, lon: 114.0 }, // North West Cape
-    { lat: -15.0, lon: 125.0 }, // Kimberley
+    { lat: -28.0, lon: 153.5 },
+    { lat: -34.0, lon: 151.0 },
+    { lat: -38.5, lon: 146.0 },
+    { lat: -35.0, lon: 136.0 },
+    { lat: -32.0, lon: 115.5 },
+    { lat: -22.0, lon: 114.0 },
+    { lat: -15.0, lon: 125.0 },
     { lat: -15.0, lon: 136.0 },
   ],
   // New Zealand
@@ -251,22 +242,22 @@ const CONTINENT_POLYGONS: PolygonCoord[][] = [
   ],
   // 7. Maritime Southeast Asia (Indonesia & Philippines)
   [
-    { lat: 5.5, lon: 95.5 },   // Sumatra
+    { lat: 5.5, lon: 95.5 },
     { lat: -5.5, lon: 105.5 },
-    { lat: -7.5, lon: 112.5 }, // Java
+    { lat: -7.5, lon: 112.5 },
     { lat: -8.5, lon: 116.0 },
-    { lat: 4.0, lon: 117.0 },  // Borneo
+    { lat: 4.0, lon: 117.0 },
     { lat: -3.0, lon: 115.0 },
     { lat: -1.0, lon: 109.5 },
-    { lat: 7.0, lon: 125.5 },  // Mindanao
-    { lat: 14.5, lon: 121.0 }, // Luzon / Manila
+    { lat: 7.0, lon: 125.5 },
+    { lat: 14.5, lon: 121.0 },
     { lat: 18.0, lon: 120.5 },
   ],
-  // 8. Antarctica Coastline (Southern Ring)
+  // 8. Antarctica Coastline
   [
     { lat: -65.0, lon: -180.0 },
     { lat: -64.0, lon: -120.0 },
-    { lat: -63.0, lon: -65.0 }, // Antarctic Peninsula
+    { lat: -63.0, lon: -65.0 },
     { lat: -72.0, lon: -30.0 },
     { lat: -68.0, lon: 20.0 },
     { lat: -66.0, lon: 90.0 },
@@ -277,58 +268,55 @@ const CONTINENT_POLYGONS: PolygonCoord[][] = [
   ],
 ];
 
-/**
- * Authentic Global Metropolises for High-Density Night Lights
- */
 const CITY_LIGHTS = [
   // Indo-Gangetic & Indian Megalopolises
-  { lat: 28.61, lon: 77.21, intensity: 1.0, r: 7 }, // Delhi-NCR
-  { lat: 19.07, lon: 72.87, intensity: 0.95, r: 6 }, // Mumbai
-  { lat: 12.97, lon: 77.59, intensity: 0.9, r: 5 }, // Bengaluru
-  { lat: 22.57, lon: 88.36, intensity: 0.85, r: 5 }, // Kolkata
-  { lat: 13.08, lon: 80.27, intensity: 0.8, r: 5 }, // Chennai
-  { lat: 17.38, lon: 78.48, intensity: 0.8, r: 5 }, // Hyderabad
-  { lat: 23.02, lon: 72.57, intensity: 0.75, r: 4 }, // Ahmedabad
-  { lat: 26.85, lon: 80.94, intensity: 0.7, r: 4 }, // Lucknow
-  { lat: 31.52, lon: 74.35, intensity: 0.8, r: 4 }, // Lahore
-  { lat: 23.81, lon: 90.41, intensity: 0.8, r: 5 }, // Dhaka
+  { lat: 28.61, lon: 77.21, intensity: 1.0, r: 5 }, // Delhi-NCR
+  { lat: 19.07, lon: 72.87, intensity: 0.95, r: 4.5 }, // Mumbai
+  { lat: 12.97, lon: 77.59, intensity: 0.9, r: 4 }, // Bengaluru
+  { lat: 22.57, lon: 88.36, intensity: 0.85, r: 4 }, // Kolkata
+  { lat: 13.08, lon: 80.27, intensity: 0.8, r: 4 }, // Chennai
+  { lat: 17.38, lon: 78.48, intensity: 0.8, r: 4 }, // Hyderabad
+  { lat: 23.02, lon: 72.57, intensity: 0.75, r: 3.5 }, // Ahmedabad
+  { lat: 26.85, lon: 80.94, intensity: 0.7, r: 3 }, // Lucknow
+  { lat: 31.52, lon: 74.35, intensity: 0.8, r: 3.5 }, // Lahore
+  { lat: 23.81, lon: 90.41, intensity: 0.8, r: 3.5 }, // Dhaka
   // East & Southeast Asia
-  { lat: 35.68, lon: 139.69, intensity: 1.0, r: 8 }, // Tokyo
-  { lat: 31.23, lon: 121.47, intensity: 1.0, r: 7 }, // Shanghai
-  { lat: 39.90, lon: 116.40, intensity: 0.95, r: 7 }, // Beijing
-  { lat: 23.13, lon: 113.26, intensity: 0.95, r: 7 }, // Pearl River Delta
-  { lat: 37.56, lon: 126.97, intensity: 0.9, r: 6 }, // Seoul
-  { lat: 1.35, lon: 103.82, intensity: 0.85, r: 4 }, // Singapore
-  { lat: 13.75, lon: 100.50, intensity: 0.85, r: 5 }, // Bangkok
-  { lat: -6.20, lon: 106.84, intensity: 0.8, r: 5 }, // Jakarta
+  { lat: 35.68, lon: 139.69, intensity: 1.0, r: 5 }, // Tokyo
+  { lat: 31.23, lon: 121.47, intensity: 1.0, r: 5 }, // Shanghai
+  { lat: 39.90, lon: 116.40, intensity: 0.95, r: 4.5 }, // Beijing
+  { lat: 23.13, lon: 113.26, intensity: 0.95, r: 4.5 }, // Pearl River Delta
+  { lat: 37.56, lon: 126.97, intensity: 0.9, r: 4 }, // Seoul
+  { lat: 1.35, lon: 103.82, intensity: 0.85, r: 3 }, // Singapore
+  { lat: 13.75, lon: 100.50, intensity: 0.85, r: 3.5 }, // Bangkok
+  { lat: -6.20, lon: 106.84, intensity: 0.8, r: 3.5 }, // Jakarta
   // Europe
-  { lat: 51.51, lon: -0.12, intensity: 0.95, r: 6 }, // London
-  { lat: 48.85, lon: 2.35, intensity: 0.95, r: 6 }, // Paris
-  { lat: 52.52, lon: 13.40, intensity: 0.85, r: 5 }, // Berlin
-  { lat: 55.75, lon: 37.61, intensity: 0.9, r: 6 }, // Moscow
-  { lat: 41.90, lon: 12.49, intensity: 0.8, r: 4 }, // Rome
-  { lat: 40.41, lon: -3.70, intensity: 0.8, r: 5 }, // Madrid
+  { lat: 51.51, lon: -0.12, intensity: 0.95, r: 4.5 }, // London
+  { lat: 48.85, lon: 2.35, intensity: 0.95, r: 4.5 }, // Paris
+  { lat: 52.52, lon: 13.40, intensity: 0.85, r: 4 }, // Berlin
+  { lat: 55.75, lon: 37.61, intensity: 0.9, r: 4 }, // Moscow
+  { lat: 41.90, lon: 12.49, intensity: 0.8, r: 3.5 }, // Rome
+  { lat: 40.41, lon: -3.70, intensity: 0.8, r: 3.5 }, // Madrid
   // North America
-  { lat: 40.71, lon: -74.00, intensity: 1.0, r: 8 }, // New York
-  { lat: 34.05, lon: -118.24, intensity: 0.95, r: 7 }, // Los Angeles
-  { lat: 41.88, lon: -87.63, intensity: 0.9, r: 6 }, // Chicago
-  { lat: 37.77, lon: -122.42, intensity: 0.85, r: 5 }, // San Francisco
-  { lat: 29.76, lon: -95.37, intensity: 0.85, r: 5 }, // Houston
-  { lat: 19.43, lon: -99.13, intensity: 0.9, r: 6 }, // Mexico City
+  { lat: 40.71, lon: -74.00, intensity: 1.0, r: 5 }, // New York
+  { lat: 34.05, lon: -118.24, intensity: 0.95, r: 5 }, // Los Angeles
+  { lat: 41.88, lon: -87.63, intensity: 0.9, r: 4 }, // Chicago
+  { lat: 37.77, lon: -122.42, intensity: 0.85, r: 4 }, // San Francisco
+  { lat: 29.76, lon: -95.37, intensity: 0.85, r: 3.5 }, // Houston
+  { lat: 19.43, lon: -99.13, intensity: 0.9, r: 4 }, // Mexico City
   // Middle East & Africa
-  { lat: 25.20, lon: 55.27, intensity: 0.95, r: 5 }, // Dubai
-  { lat: 30.04, lon: 31.23, intensity: 0.9, r: 6 }, // Cairo
-  { lat: -26.20, lon: 28.04, intensity: 0.8, r: 5 }, // Johannesburg
+  { lat: 25.20, lon: 55.27, intensity: 0.95, r: 4 }, // Dubai
+  { lat: 30.04, lon: 31.23, intensity: 0.9, r: 4 }, // Cairo
+  { lat: -26.20, lon: 28.04, intensity: 0.8, r: 3.5 }, // Johannesburg
   // South America & Oceania
-  { lat: -23.55, lon: -46.63, intensity: 0.95, r: 7 }, // São Paulo
-  { lat: -34.60, lon: -58.38, intensity: 0.85, r: 6 }, // Buenos Aires
-  { lat: -33.87, lon: 151.21, intensity: 0.85, r: 5 }, // Sydney
+  { lat: -23.55, lon: -46.63, intensity: 0.95, r: 4.5 }, // São Paulo
+  { lat: -34.60, lon: -58.38, intensity: 0.85, r: 4 }, // Buenos Aires
+  { lat: -33.87, lon: 151.21, intensity: 0.85, r: 4 }, // Sydney
 ];
 
 /**
  * Creates a photorealistic, 2048x1024 high-definition Earth texture on an offscreen canvas
- * with deep ocean gradients, turquoise coastal shelves, realistic terrain colors,
- * night city clusters, and procedural atmospheric cloud swirls.
+ * with deep obsidian oceans, delicate turquoise coastal shelves, refined satellite terrain,
+ * and warm night city clusters.
  */
 export function createAtmosphericEarthTexture(): THREE.CanvasTexture {
   const width = 2048;
@@ -339,28 +327,28 @@ export function createAtmosphericEarthTexture(): THREE.CanvasTexture {
   const ctx = canvas.getContext('2d');
 
   if (ctx) {
-    // 1. Deep Ocean Base (Vibrant navy-black with oceanic depth gradient)
+    // 1. Deep Obsidian / Midnight Ocean Base
     const oceanGrad = ctx.createLinearGradient(0, 0, 0, height);
-    oceanGrad.addColorStop(0.0, '#030814'); // Polar cold dark ocean
-    oceanGrad.addColorStop(0.2, '#040d1e');
-    oceanGrad.addColorStop(0.5, '#06162d'); // Tropical deep navy
-    oceanGrad.addColorStop(0.8, '#040d1e');
-    oceanGrad.addColorStop(1.0, '#030814');
+    oceanGrad.addColorStop(0.0, '#02050e');
+    oceanGrad.addColorStop(0.2, '#030a18');
+    oceanGrad.addColorStop(0.5, '#051226');
+    oceanGrad.addColorStop(0.8, '#030a18');
+    oceanGrad.addColorStop(1.0, '#02050e');
     ctx.fillStyle = oceanGrad;
     ctx.fillRect(0, 0, width, height);
 
-    // Oceanic Basin Ambient Glow (Subtle mid-Atlantic and Indian Ocean depth highlights)
-    const oceanBathymetry = ctx.createRadialGradient(
-      width * 0.65, height * 0.65, 50,
-      width * 0.65, height * 0.65, 400
+    // Subtle oceanic bathymetric depth gradient
+    const bathymetry = ctx.createRadialGradient(
+      width * 0.65, height * 0.55, 80,
+      width * 0.65, height * 0.55, 600
     );
-    oceanBathymetry.addColorStop(0, 'rgba(14, 165, 233, 0.08)');
-    oceanBathymetry.addColorStop(1, 'transparent');
-    ctx.fillStyle = oceanBathymetry;
+    bathymetry.addColorStop(0, 'rgba(14, 165, 233, 0.05)');
+    bathymetry.addColorStop(1, 'transparent');
+    ctx.fillStyle = bathymetry;
     ctx.fillRect(0, 0, width, height);
 
     // 2. Latitude/Longitude Atmospheric Telemetry Grid
-    ctx.strokeStyle = 'rgba(56, 189, 248, 0.05)';
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.04)';
     ctx.lineWidth = 1;
     for (let lon = -180; lon <= 180; lon += 15) {
       const [x] = geoToCanvas(0, lon, width, height);
@@ -377,7 +365,7 @@ export function createAtmosphericEarthTexture(): THREE.CanvasTexture {
       ctx.stroke();
     }
 
-    // 3. Draw Continents with Multi-Layered Coastal Shelves & Terrains
+    // 3. Draw Continents with Refined Shallow Coastal Water Washes
     CONTINENT_POLYGONS.forEach((coords) => {
       if (coords.length < 3) return;
 
@@ -391,22 +379,22 @@ export function createAtmosphericEarthTexture(): THREE.CanvasTexture {
       }
       path2D.closePath();
 
-      // Outer Coastal Shelf Glow (NASA Cyan/Emerald Reefs)
-      ctx.strokeStyle = 'rgba(14, 165, 233, 0.35)';
-      ctx.lineWidth = 12;
+      // Outer Continental Shelf Glow (Subtle Aqua Haze)
+      ctx.strokeStyle = 'rgba(14, 165, 233, 0.20)';
+      ctx.lineWidth = 8;
       ctx.stroke(path2D);
 
-      ctx.strokeStyle = 'rgba(56, 189, 248, 0.20)';
-      ctx.lineWidth = 6;
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.12)';
+      ctx.lineWidth = 4;
       ctx.stroke(path2D);
 
-      // Continent Landmass Base (Deep moss green & temperate terrain)
-      ctx.fillStyle = '#0f2922'; // Lush emerald-slate
+      // Continent Landmass Base (Deep satellite obsidian-moss)
+      ctx.fillStyle = '#0a1d17';
       ctx.fill(path2D);
 
-      // Inner Shoreline Edge (Crisp cyan rim)
-      ctx.strokeStyle = 'rgba(56, 189, 248, 0.45)';
-      ctx.lineWidth = 2;
+      // Inner Shoreline Trace
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.35)';
+      ctx.lineWidth = 1.5;
       ctx.stroke(path2D);
     });
 
@@ -422,8 +410,8 @@ export function createAtmosphericEarthTexture(): THREE.CanvasTexture {
     aridRegions.forEach((reg) => {
       const [cx, cy] = geoToCanvas(reg.lat, reg.lon, width, height);
       const grad = ctx.createRadialGradient(cx, cy, 10, cx, cy, reg.rX);
-      grad.addColorStop(0, 'rgba(180, 130, 60, 0.28)');
-      grad.addColorStop(0.7, 'rgba(120, 90, 40, 0.12)');
+      grad.addColorStop(0, 'rgba(160, 115, 50, 0.20)');
+      grad.addColorStop(0.7, 'rgba(100, 75, 30, 0.08)');
       grad.addColorStop(1, 'transparent');
       ctx.fillStyle = grad;
       ctx.beginPath();
@@ -432,56 +420,52 @@ export function createAtmosphericEarthTexture(): THREE.CanvasTexture {
     });
 
     // 5. Polar Ice Caps & Glacial Covers
-    // Arctic Glaciers
     const arcticGrad = ctx.createLinearGradient(0, 0, 0, height * 0.14);
-    arcticGrad.addColorStop(0, 'rgba(215, 235, 255, 0.85)');
-    arcticGrad.addColorStop(0.6, 'rgba(160, 200, 240, 0.45)');
+    arcticGrad.addColorStop(0, 'rgba(215, 235, 255, 0.70)');
+    arcticGrad.addColorStop(0.6, 'rgba(160, 200, 240, 0.30)');
     arcticGrad.addColorStop(1, 'transparent');
     ctx.fillStyle = arcticGrad;
     ctx.fillRect(0, 0, width, height * 0.14);
 
-    // Antarctic Ice Sheet
     const antarcticGrad = ctx.createLinearGradient(0, height * 0.86, 0, height);
     antarcticGrad.addColorStop(0, 'transparent');
-    antarcticGrad.addColorStop(0.4, 'rgba(170, 210, 245, 0.55)');
-    antarcticGrad.addColorStop(1, 'rgba(225, 240, 255, 0.95)');
+    antarcticGrad.addColorStop(0.4, 'rgba(170, 210, 245, 0.35)');
+    antarcticGrad.addColorStop(1, 'rgba(225, 240, 255, 0.75)');
     ctx.fillStyle = antarcticGrad;
     ctx.fillRect(0, height * 0.86, width, height * 0.14);
 
     // 6. Night City Lights (Warm golden/amber luminescence)
     CITY_LIGHTS.forEach((city) => {
       const [cx, cy] = geoToCanvas(city.lat, city.lon, width, height);
-      const glow = ctx.createRadialGradient(cx, cy, 1, cx, cy, city.r * 2.8);
-      glow.addColorStop(0, `rgba(254, 240, 138, ${city.intensity})`);
-      glow.addColorStop(0.35, `rgba(251, 191, 36, ${city.intensity * 0.75})`);
+      const glow = ctx.createRadialGradient(cx, cy, 0.5, cx, cy, city.r * 2.2);
+      glow.addColorStop(0, `rgba(254, 240, 138, ${city.intensity * 0.9})`);
+      glow.addColorStop(0.4, `rgba(251, 191, 36, ${city.intensity * 0.4})`);
       glow.addColorStop(1, 'transparent');
 
       ctx.fillStyle = glow;
       ctx.beginPath();
-      ctx.arc(cx, cy, city.r * 2.8, 0, Math.PI * 2);
+      ctx.arc(cx, cy, city.r * 2.2, 0, Math.PI * 2);
       ctx.fill();
 
       // Sharp Core Light
       ctx.fillStyle = '#fffbeb';
       ctx.beginPath();
-      ctx.arc(cx, cy, Math.max(1.2, city.r * 0.35), 0, Math.PI * 2);
+      ctx.arc(cx, cy, Math.max(1.0, city.r * 0.25), 0, Math.PI * 2);
       ctx.fill();
     });
 
-    // 7. Atmospheric Cirrus & Cloud Swirls (Soft procedural wisps)
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.12)';
+    // 7. Atmospheric Cirrus & Cloud Swirls (Soft, refined transparency)
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.06)';
     const cloudBands = [
-      // Intertropical Convergence Zone (ITCZ)
-      { y: height * 0.48, h: height * 0.08, period: 140 },
-      // Mid-Latitude Jet Streams
-      { y: height * 0.28, h: height * 0.06, period: 200 },
-      { y: height * 0.68, h: height * 0.06, period: 180 },
+      { y: height * 0.48, h: height * 0.07, period: 140 },
+      { y: height * 0.28, h: height * 0.05, period: 200 },
+      { y: height * 0.68, h: height * 0.05, period: 180 },
     ];
 
     cloudBands.forEach((band) => {
       ctx.beginPath();
       for (let x = 0; x <= width; x += 30) {
-        const offset = Math.sin(x / band.period) * 18 + Math.cos(x / 45) * 8;
+        const offset = Math.sin(x / band.period) * 14 + Math.cos(x / 45) * 6;
         if (x === 0) ctx.moveTo(x, band.y + offset);
         else ctx.lineTo(x, band.y + offset);
       }
@@ -521,9 +505,8 @@ export function createAtmosphericRimShaderMaterial(): THREE.ShaderMaterial {
       varying vec3 vEye;
       void main() {
         float rim = 1.0 - max(0.0, dot(vNormal, vEye));
-        float atmosphere = pow(rim, 3.2) * 1.5;
-        // Sky cyan to deep azure gradient
-        vec3 skyColor = mix(vec3(0.06, 0.45, 0.95), vec3(0.22, 0.85, 0.98), rim);
+        float atmosphere = pow(rim, 3.8) * 1.3;
+        vec3 skyColor = mix(vec3(0.04, 0.45, 0.95), vec3(0.20, 0.85, 0.98), rim);
         gl_FragColor = vec4(skyColor, atmosphere);
       }
     `,
@@ -543,7 +526,6 @@ export function createDeepSpaceStarfield(count: number = 1000, radius: number = 
   const colors = new Float32Array(count * 3);
 
   for (let i = 0; i < count; i++) {
-    // Distribute on sphere surface with random variations
     const u = Math.random();
     const v = Math.random();
     const theta = u * 2.0 * Math.PI;
@@ -558,20 +540,19 @@ export function createDeepSpaceStarfield(count: number = 1000, radius: number = 
     positions[i * 3 + 1] = y;
     positions[i * 3 + 2] = z;
 
-    // Slight brightness & color tinting (white, slight cyan, slight gold)
     const tint = Math.random();
     if (tint > 0.8) {
-      colors[i * 3] = 0.7; // subtle cyan
-      colors[i * 3 + 1] = 0.85;
+      colors[i * 3] = 0.65;
+      colors[i * 3 + 1] = 0.82;
       colors[i * 3 + 2] = 1.0;
     } else if (tint > 0.6) {
-      colors[i * 3] = 1.0; // subtle gold
+      colors[i * 3] = 1.0;
       colors[i * 3 + 1] = 0.92;
       colors[i * 3 + 2] = 0.75;
     } else {
-      colors[i * 3] = 0.9; // crisp star white
-      colors[i * 3 + 1] = 0.9;
-      colors[i * 3 + 2] = 0.95;
+      colors[i * 3] = 0.85;
+      colors[i * 3 + 1] = 0.85;
+      colors[i * 3 + 2] = 0.92;
     }
   }
 
@@ -579,10 +560,10 @@ export function createDeepSpaceStarfield(count: number = 1000, radius: number = 
   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 
   const material = new THREE.PointsMaterial({
-    size: 2.2,
+    size: 2.0,
     vertexColors: true,
     transparent: true,
-    opacity: 0.85,
+    opacity: 0.8,
     sizeAttenuation: true,
   });
 

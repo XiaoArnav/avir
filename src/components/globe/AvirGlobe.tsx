@@ -31,6 +31,7 @@ export interface AvirGlobeProps {
   onSetActiveCity?: (point: GeographicObservationPoint) => void;
   standard?: AqiStandard;
   onToggleStandard?: () => void;
+  selectedHour?: number;
   className?: string;
 }
 
@@ -42,6 +43,7 @@ export function AvirGlobe({
   onSetActiveCity,
   standard = 'cpcb',
   onToggleStandard,
+  selectedHour = 12,
   className = '',
 }: AvirGlobeProps) {
   const [is3D, setIs3D] = useState<boolean>(true);
@@ -81,6 +83,7 @@ export function AvirGlobe({
           onSelectPoint={onSelectPoint}
           isAutoRotating={isAutoRotating}
           zoomLevel={zoomLevel}
+          selectedHour={selectedHour}
           className="w-full h-full"
         />
       ) : (

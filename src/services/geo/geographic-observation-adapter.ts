@@ -140,7 +140,8 @@ export function buildGeographicObservations(options: {
       }
     }
 
-    const activeAqi = standard === 'cpcb' ? cpcbAqi ?? usAqi : usAqi;
+    // Strict scientific separation: CPCB standard must NEVER fall back to EPA AQI
+    const activeAqi = standard === 'cpcb' ? cpcbAqi : usAqi;
     const cat = standard === 'cpcb' ? getCpcbCategory(activeAqi) : getEpaCategory(activeAqi);
 
     const activePoint: GeographicObservationPoint = {
@@ -200,7 +201,8 @@ export function buildGeographicObservations(options: {
       }
     }
 
-    const activeAqi = standard === 'cpcb' ? cpcbAqi ?? usAqi : usAqi;
+    // Strict scientific separation: CPCB standard must NEVER fall back to EPA AQI
+    const activeAqi = standard === 'cpcb' ? cpcbAqi : usAqi;
     const cat = standard === 'cpcb' ? getCpcbCategory(activeAqi) : getEpaCategory(activeAqi);
 
     const isLiveFresh = liveData && liveData.status === 'available';
@@ -225,7 +227,7 @@ export function buildGeographicObservations(options: {
       primaryPollutant: 'PM2.5',
       provenance: liveData ? (isLiveFresh ? 'modeled_forecast' : 'unavailable') : 'unavailable',
       source: liveData ? 'Open-Meteo Global Air Quality' : 'Registry Only',
-      timestamp: liveData?.modelValidAt || new Date().toISOString(),
+      timestamp: liveData?.modelValidAt || '',
       isOfficialGround: false,
     });
 
@@ -257,7 +259,7 @@ export function buildGeographicObservations(options: {
       primaryPollutant: 'PM2.5',
       provenance: 'unavailable',
       source: 'National Clean Air Programme Registry',
-      timestamp: new Date().toISOString(),
+      timestamp: '',
       isOfficialGround: false,
     });
 

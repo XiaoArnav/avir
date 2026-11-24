@@ -19,6 +19,7 @@ export interface AvirGlobeCanvasProps {
   onSelectPoint: (point: GeographicObservationPoint) => void;
   isAutoRotating?: boolean;
   zoomLevel?: number;
+  selectedHour?: number; // 0-23 diurnal hour
   className?: string;
 }
 
@@ -27,6 +28,8 @@ export function AvirGlobeCanvas({
   selectedPointId,
   onSelectPoint,
   isAutoRotating = true,
+  zoomLevel = 260,
+  selectedHour = 12,
   className = '',
 }: AvirGlobeCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -43,6 +46,8 @@ export function AvirGlobeCanvas({
     atmosMesh: THREE.Mesh;
     markersGroup: THREE.Group;
     starfield: THREE.Points;
+    sunLight: THREE.DirectionalLight;
+    targetSunPos: THREE.Vector3;
     raycaster: THREE.Raycaster;
     mouse: THREE.Vector2;
     animFrameId: number;
@@ -117,7 +122,7 @@ export function AvirGlobeCanvas({
     const earthTex = createAtmosphericEarthTexture();
     const earthMat = new THREE.MeshPhongMaterial({
       map: earthTex,
-      bumpScale: 0.08,
+      bumpScale: 0.06,
       specular: new THREE.Color(0x38bdf8),
       shininess: 24,
     });
@@ -130,21 +135,28 @@ export function AvirGlobeCanvas({
     const atmosMesh = new THREE.Mesh(atmosGeo, atmosMat);
     globeGroup.add(atmosMesh);
 
-    // 7. Lighting System
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.95);
+    // 7. Dynamic Diurnal Sunlight System
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.75);
     scene.add(ambientLight);
 
     const sunLight = new THREE.DirectionalLight(0xe0f2fe, 1.4);
-    sunLight.position.set(200, 120, 180);
+    const initialSunAngle = ((selectedHour - 12) / 24) * Math.PI * 2;
+    sunLight.position.set(Math.sin(initialSunAngle) * 350, 120, Math.cos(initialSunAngle) * 350);
     scene.add(sunLight);
 
-    const fillLight = new THREE.DirectionalLight(0x0284c7, 0.45);
+    const fillLight = new THREE.DirectionalLight(0x0284c7, 0.35);
     fillLight.position.set(-180, -60, -100);
     scene.add(fillLight);
 
     // 8. 3D Beacons & Markers Group
     const markersGroup = new THREE.Group();
     globeGroup.add(markersGroup);
+
+    const targetSunPos = new THREE.Vector3(
+      Math.sin(initialSunAngle) * 350,
+      120,
+      Math.cos(initialSunAngle) * 350
+    );
 
     const instances = {
       scene,
@@ -155,6 +167,8 @@ export function AvirGlobeCanvas({
       atmosMesh,
       markersGroup,
       starfield,
+      sunLight,
+      targetSunPos,
       raycaster: new THREE.Raycaster(),
       mouse: new THREE.Vector2(),
       animFrameId: 0,
@@ -162,26 +176,61 @@ export function AvirGlobeCanvas({
       currentRotation: { x: globeGroup.rotation.x, y: globeGroup.rotation.y },
       isDragging: false,
       previousMousePosition: { x: 0, y: 0 },
-      cameraDistance: 260,
-      targetCameraDistance: 260,
+      cameraDistance: zoomLevel || 260,
+      targetCameraDistance: zoomLevel || 260,
       elapsedTime: 0,
+      isVisible: true,
     };
     instancesRef.current = instances;
+
+    // Visibility and Performance Optimization (pause rendering offscreen / tab hidden)
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        instances.isVisible = false;
+      } else {
+        instances.isVisible = true;
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    let observer: IntersectionObserver | null = null;
+    if (typeof IntersectionObserver !== 'undefined' && containerRef.current) {
+      observer = new IntersectionObserver(
+        (entries) => {
+          entries.forEach((entry) => {
+            instances.isVisible = entry.isIntersecting && !document.hidden;
+          });
+        },
+        { threshold: 0.05 }
+      );
+      observer.observe(containerRef.current);
+    }
 
     // Animation Render Loop
     const animate = () => {
       instances.animFrameId = requestAnimationFrame(animate);
+
+      // Skip heavy GPU render calls if canvas is offscreen or document is hidden
+      if (!instances.isVisible) return;
+
       instances.elapsedTime += 0.016;
 
-      // Subtle slow starfield drift
-      starfield.rotation.y += 0.00015;
+      const prefersReducedMotion =
+        typeof window !== 'undefined' &&
+        window.matchMedia &&
+        window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-      // Auto-rotation when user is not actively dragging
-      if (isAutoRotating && !instances.isDragging) {
-        instances.targetRotation.y += 0.0016;
+      if (!prefersReducedMotion) {
+        // Slow starfield drift
+        starfield.rotation.y += 0.0001;
+
+        // Auto-rotation when user is not dragging
+        if (isAutoRotating && !instances.isDragging) {
+          instances.targetRotation.y += 0.0014;
+        }
       }
 
-      // Smooth damping on rotation (glide to target)
+      // Smooth damping on rotation
       instances.currentRotation.x += (instances.targetRotation.x - instances.currentRotation.x) * 0.07;
       instances.currentRotation.y += (instances.targetRotation.y - instances.currentRotation.y) * 0.07;
       globeGroup.rotation.x = instances.currentRotation.x;
@@ -191,18 +240,23 @@ export function AvirGlobeCanvas({
       instances.cameraDistance += (instances.targetCameraDistance - instances.cameraDistance) * 0.1;
       camera.position.z = instances.cameraDistance;
 
+      // Smooth lerp on dynamic sunlight position according to diurnal hour
+      sunLight.position.lerp(instances.targetSunPos, 0.06);
+
       // Animate pulsing AQI beacon rings on surface
-      markersGroup.children.forEach((child) => {
-        if (child.userData?.isPulseRing) {
-          const pulse = (Math.sin(instances.elapsedTime * 3.5 + child.userData.phaseOffset) + 1) * 0.5;
-          const s = 1.0 + pulse * 0.45;
-          child.scale.set(s, s, s);
-          const mat = child as THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>;
-          if (mat.material) {
-            mat.material.opacity = 0.85 - pulse * 0.45;
+      if (!prefersReducedMotion) {
+        markersGroup.children.forEach((child) => {
+          if (child.userData?.isPulseRing) {
+            const pulse = (Math.sin(instances.elapsedTime * 3.5 + child.userData.phaseOffset) + 1) * 0.5;
+            const s = 1.0 + pulse * 0.4;
+            child.scale.set(s, s, s);
+            const mat = child as THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>;
+            if (mat.material) {
+              mat.material.opacity = 0.8 - pulse * 0.45;
+            }
           }
-        }
-      });
+        });
+      }
 
       renderer.render(scene, camera);
     };
@@ -221,6 +275,8 @@ export function AvirGlobeCanvas({
 
     return () => {
       window.removeEventListener('resize', handleResize);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      if (observer) observer.disconnect();
       cancelAnimationFrame(instances.animFrameId);
       earthGeo.dispose();
       earthMat.dispose();
@@ -241,7 +297,23 @@ export function AvirGlobeCanvas({
     };
   }, [webGLAvailable, isAutoRotating]);
 
-  // Construct High-Impact 3D AQI Beacons & Surface Markers
+  // Update dynamic sunlight position whenever selectedHour changes
+  useEffect(() => {
+    const inst = instancesRef.current;
+    if (!inst) return;
+    const hour = selectedHour ?? 12;
+    const sunAngle = ((hour - 12) / 24) * Math.PI * 2;
+    inst.targetSunPos.set(Math.sin(sunAngle) * 350, 120, Math.cos(sunAngle) * 350);
+  }, [selectedHour]);
+
+  // Update camera target distance whenever zoomLevel changes
+  useEffect(() => {
+    const inst = instancesRef.current;
+    if (!inst || zoomLevel === undefined) return;
+    inst.targetCameraDistance = zoomLevel;
+  }, [zoomLevel]);
+
+  // Construct Refined 3D AQI Beacons & Surface Markers
   useEffect(() => {
     const inst = instancesRef.current;
     if (!inst) return;
@@ -265,28 +337,26 @@ export function AvirGlobeCanvas({
       const isSelected = selectedPointId === point.id;
       const markerColor = new THREE.Color(point.categoryColor);
 
-      // 1. Dynamic AQI Pillar Height (AirIndx Style: hazardous = tall beacon, good = short)
+      // Dynamic AQI Light Beam Pillar Height
       const aqiVal = point.aqi ?? 50;
       const pillarHeight = isSelected
-        ? Math.max(16, 10 + (Math.min(aqiVal, 500) / 500) * 32)
-        : Math.max(8, 6 + (Math.min(aqiVal, 500) / 500) * 24);
+        ? Math.max(14, 8 + (Math.min(aqiVal, 500) / 500) * 26)
+        : Math.max(6, 4 + (Math.min(aqiVal, 500) / 500) * 18);
 
-      // Vertical 3D Light Cylinder
+      // 1. Refined Slim 3D Light Cylinder
       const cylGeo = new THREE.CylinderGeometry(
-        isSelected ? 0.7 : 0.45,
-        isSelected ? 1.4 : 0.9,
+        isSelected ? 0.45 : 0.3,
+        isSelected ? 0.9 : 0.6,
         pillarHeight,
-        12
+        10
       );
       const cylMat = new THREE.MeshBasicMaterial({
         color: markerColor,
         transparent: true,
-        opacity: isSelected ? 0.9 : 0.65,
+        opacity: isSelected ? 0.85 : 0.55,
         blending: THREE.AdditiveBlending,
       });
       const cylMesh = new THREE.Mesh(cylGeo, cylMat);
-
-      // Position cylinder along the surface normal
       cylMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), normal);
       cylMesh.position
         .copy(surfacePos as THREE.Vector3)
@@ -294,8 +364,8 @@ export function AvirGlobeCanvas({
       cylMesh.userData = { point };
       inst.markersGroup.add(cylMesh);
 
-      // 2. Beacon Glowing Head / Flare Sphere at top of pillar
-      const headGeo = new THREE.SphereGeometry(isSelected ? 2.2 : 1.3, 16, 16);
+      // 2. Beacon Point Flare at Pillar Top
+      const headGeo = new THREE.SphereGeometry(isSelected ? 1.6 : 1.0, 12, 12);
       const headMat = new THREE.MeshBasicMaterial({
         color: markerColor,
         transparent: true,
@@ -304,24 +374,24 @@ export function AvirGlobeCanvas({
       const headMesh = new THREE.Mesh(headGeo, headMat);
       headMesh.position
         .copy(surfacePos as THREE.Vector3)
-        .addScaledVector(normal, pillarHeight + (isSelected ? 1.5 : 0.8));
+        .addScaledVector(normal, pillarHeight + (isSelected ? 1.0 : 0.6));
       headMesh.userData = { point };
       inst.markersGroup.add(headMesh);
 
-      // 3. Surface Base Pulsing Halo Ring on Earth surface
-      const ringGeo = new THREE.RingGeometry(isSelected ? 2.5 : 1.2, isSelected ? 5.5 : 3.2, 32);
+      // 3. Surface Base Pulsing Ring on Earth
+      const ringGeo = new THREE.RingGeometry(isSelected ? 2.0 : 1.0, isSelected ? 4.5 : 2.5, 24);
       const ringMat = new THREE.MeshBasicMaterial({
         color: markerColor,
         side: THREE.DoubleSide,
         transparent: true,
-        opacity: 0.8,
+        opacity: 0.75,
         blending: THREE.AdditiveBlending,
       });
       const ringMesh = new THREE.Mesh(ringGeo, ringMat);
       ringMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
       ringMesh.position
         .copy(surfacePos as THREE.Vector3)
-        .addScaledVector(normal, 0.4);
+        .addScaledVector(normal, 0.3);
       ringMesh.userData = {
         point,
         isPulseRing: true,
@@ -329,25 +399,25 @@ export function AvirGlobeCanvas({
       };
       inst.markersGroup.add(ringMesh);
 
-      // 4. Extra Concentric Orbital Ring for Currently Selected City
+      // 4. Highlight Targeting Halo for Selected City
       if (isSelected) {
-        const outerRingGeo = new THREE.RingGeometry(6.0, 7.2, 32);
+        const outerRingGeo = new THREE.RingGeometry(5.0, 6.0, 32);
         const outerRingMat = new THREE.MeshBasicMaterial({
-          color: 0x38bdf8, // vibrant cyan targeting ring
+          color: 0x38bdf8,
           side: THREE.DoubleSide,
           transparent: true,
-          opacity: 0.9,
+          opacity: 0.85,
           blending: THREE.AdditiveBlending,
         });
         const outerRingMesh = new THREE.Mesh(outerRingGeo, outerRingMat);
         outerRingMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
         outerRingMesh.position
           .copy(surfacePos as THREE.Vector3)
-          .addScaledVector(normal, 0.5);
+          .addScaledVector(normal, 0.4);
         outerRingMesh.userData = {
           point,
           isPulseRing: true,
-          phaseOffset: 1.2,
+          phaseOffset: 1.0,
         };
         inst.markersGroup.add(outerRingMesh);
       }
@@ -362,7 +432,6 @@ export function AvirGlobeCanvas({
     const selectedPt = points.find((p) => p.id === selectedPointId);
     if (!selectedPt) return;
 
-    // Calculate rotation angles to orient the target city front and center to the camera
     const targetY = -((selectedPt.longitude + 90) * (Math.PI / 180));
     const targetX = selectedPt.latitude * (Math.PI / 180) * 0.55;
 
@@ -395,7 +464,6 @@ export function AvirGlobeCanvas({
       inst.previousMousePosition = { x: e.clientX, y: e.clientY };
     }
 
-    // Raycast check for hover feedback over beacon pillars
     if (containerRef.current) {
       const rect = containerRef.current.getBoundingClientRect();
       inst.mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
@@ -451,7 +519,6 @@ export function AvirGlobeCanvas({
     inst.targetCameraDistance = Math.max(140, Math.min(380, newDist));
   };
 
-  // Accessible Fallback for WebGL-disabled environments
   if (!webGLAvailable) {
     return (
       <AccessibleEarthFallback
@@ -477,9 +544,9 @@ export function AvirGlobeCanvas({
 
       {/* Floating Hover Beacon Telemetry Tooltip */}
       {hoveredPoint && (
-        <div className="pointer-events-none absolute bottom-6 left-1/2 -translate-x-1/2 px-4 py-2 rounded-2xl bg-black/85 backdrop-blur-md border border-sky-500/40 text-white text-xs shadow-2xl flex items-center gap-3 telemetry-mono z-20 animate-in fade-in zoom-in-95 duration-150">
+        <div className="pointer-events-none absolute bottom-6 left-1/2 -translate-x-1/2 px-4 py-2 rounded-2xl bg-black/80 backdrop-blur-xl border border-sky-500/30 text-white text-xs shadow-2xl flex items-center gap-3 telemetry-mono z-20 animate-in fade-in zoom-in-95 duration-150">
           <span
-            className="w-3 h-3 rounded-full ring-2 ring-white/30"
+            className="w-2.5 h-2.5 rounded-full ring-2 ring-white/20"
             style={{ backgroundColor: hoveredPoint.categoryColor }}
           />
           <div className="flex flex-col">
