@@ -4,8 +4,9 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
 import { HourlyAtmosphericPoint } from '@/domain/types';
 import { analyzeDiurnalRelativeWindows } from '@/services/forecast/hourly-alignment';
-import { Clock, Sun, AlertTriangle, TrendingUp, Table } from 'lucide-react';
+import { Clock, Sun, AlertTriangle, TrendingUp, Table, RotateCcw } from 'lucide-react';
 import { springs, duration } from '@/lib/motion-tokens';
+import { isThermalInversion } from '@/domain/air-math';
 
 interface DiurnalForecastTimelineProps {
   hourlyForecast?: HourlyAtmosphericPoint[];
@@ -168,6 +169,28 @@ export const DiurnalForecastTimeline: React.FC<DiurnalForecastTimelineProps> = (
     hourlyForecast.find((p) => (p.validAtUtc || p.time || String(p.hour)) === selectedKey) ||
     hourlyForecast[0];
 
+  const selectedHour = activePoint?.hour ?? currentHour;
+  const isFutureHour = Boolean(activePoint?.isForecast || (activePoint && activePoint.hour > currentHour));
+  const isHourlyInversion = activePoint
+    ? isThermalInversion(activePoint.boundaryLayerHeight, activePoint.hour)
+    : false;
+
+  const handleSliderChange = (newHour: number) => {
+    const match = hourlyForecast.find((p) => p.hour === newHour);
+    if (match) {
+      const key = match.validAtUtc || match.time || String(match.hour);
+      setSelectedKey(key);
+    }
+  };
+
+  const handleSnapToNow = () => {
+    const nowPt = hourlyForecast.find((p) => p.hour === currentHour) || hourlyForecast[0];
+    if (nowPt) {
+      const key = nowPt.validAtUtc || nowPt.time || String(nowPt.hour);
+      setSelectedKey(key);
+    }
+  };
+
   return (
     <div className="bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl p-5 sm:p-6 shadow-sm space-y-6">
       {/* Header with Metric Selector */}
@@ -258,6 +281,79 @@ export const DiurnalForecastTimeline: React.FC<DiurnalForecastTimelineProps> = (
           </span>
         </div>
       )}
+
+      {/* Interactive 24-Hour Diurnal Timeline Scrubber Bar */}
+      <div className="w-full px-4 py-3 bg-stone-900/95 dark:bg-[#040814]/95 rounded-xl border border-stone-200/80 dark:border-sky-500/20 text-xs shadow-md">
+        <div className="flex flex-col md:flex-row items-center justify-between gap-3">
+          {/* Scrubber Label & Active Hour */}
+          <div className="flex items-center gap-2.5 text-slate-300 telemetry-mono">
+            <Sun className="w-4 h-4 text-amber-400 animate-spin-slow" />
+            <span className="font-bold text-white uppercase tracking-wider text-[11px]">
+              DIURNAL TIMELINE
+            </span>
+            <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-sky-500/20 text-sky-300 border border-sky-500/30">
+              {activePoint?.localDisplayTime || `${selectedHour.toString().padStart(2, '0')}:00`}
+            </span>
+            {isFutureHour && (
+              <span className="text-[10px] uppercase font-bold text-sky-400 telemetry-mono">
+                [FORECAST]
+              </span>
+            )}
+            {selectedHour !== currentHour && (
+              <button
+                type="button"
+                onClick={handleSnapToNow}
+                className="flex items-center gap-1 px-2.5 py-0.5 rounded text-[11px] font-bold bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 border border-emerald-500/30 transition-colors cursor-pointer"
+                title="Snap back to current live observation hour"
+              >
+                <RotateCcw className="w-3 h-3" />
+                <span>NOW</span>
+              </button>
+            )}
+          </div>
+
+          {/* Scrubber Interactive Range Slider */}
+          <div className="w-full md:w-[440px] flex items-center gap-3">
+            <span className="text-[10px] text-slate-400 telemetry-mono">00:00</span>
+            <input
+              type="range"
+              min={0}
+              max={23}
+              step={1}
+              value={selectedHour}
+              onChange={(e) => handleSliderChange(Number(e.target.value))}
+              className="w-full h-2 bg-slate-700/80 rounded-lg appearance-none cursor-pointer accent-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-400/50"
+              aria-label="24-hour diurnal sunlight and atmospheric forecast scrubber"
+            />
+            <span className="text-[10px] text-slate-400 telemetry-mono">23:00</span>
+          </div>
+
+          {/* Real-time Planetary Atmospheric Indicators */}
+          <div className="flex items-center gap-2 text-[11px] telemetry-mono">
+            <span className="text-slate-400">MIXING DEPTH:</span>
+            <span className="text-white font-bold">
+              {activePoint?.boundaryLayerHeight !== null && activePoint?.boundaryLayerHeight !== undefined
+                ? `${Math.round(activePoint.boundaryLayerHeight)}m`
+                : 'Modeled'}
+            </span>
+            <span
+              className={`px-2.5 py-0.5 rounded text-[10px] font-bold ${
+                activePoint?.isSafeVentingWindow
+                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                  : isHourlyInversion
+                  ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                  : 'bg-slate-700/50 text-slate-300'
+              }`}
+            >
+              {activePoint?.isSafeVentingWindow
+                ? 'VENTING OPEN'
+                : isHourlyInversion
+                ? 'INVERSION TRAP'
+                : 'EQUILIBRIUM'}
+            </span>
+          </div>
+        </div>
+      </div>
 
       {/* Continuous Scaled SVG Diurnal Trajectory Chart */}
       <div className="relative w-full overflow-hidden bg-stone-50/70 dark:bg-zinc-950/70 rounded-xl border border-stone-200 dark:border-zinc-800/80 p-3">

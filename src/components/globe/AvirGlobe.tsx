@@ -117,7 +117,7 @@ export function AvirGlobe({
       )}
 
       {/* Floating Bottom Globe Controls */}
-      <div className="absolute bottom-28 right-4 sm:bottom-32 sm:right-6 z-20">
+      <div className="absolute bottom-16 right-4 sm:bottom-20 sm:right-6 z-20">
         <GlobeControls
           is3D={is3D}
           onToggle3D={() => setIs3D((prev) => !prev)}

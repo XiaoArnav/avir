@@ -14,10 +14,6 @@ import { AvirGlobe } from '@/components/globe/AvirGlobe';
 import { MissionHeader } from '@/components/ui/futuristic';
 import { CompactCityCard } from './CompactCityCard';
 import { EnvironmentalDetailsDrawer } from './EnvironmentalDetailsDrawer';
-import {
-  Sun,
-  RotateCcw,
-} from 'lucide-react';
 import { assessJurisdiction, resolveOfficialGrapStatus } from '@/services/advisories/grap-status-resolver';
 import { isThermalInversion } from '@/domain/air-math';
 import { formatTimeAgo, resolveTruthfulSourceLabel } from '@/domain/presentation-contract';
@@ -69,15 +65,12 @@ export function EarthCommandCenter({
   const [selectedGlobePointId, setSelectedGlobePointId] = useState<string | null>(null);
   const [isDetailsOpen, setIsDetailsOpen] = useState(initialDetailsOpen);
 
-  // 24-hour Diurnal Scrubber state (defaults to current live hour)
+  // Current live hour observation point from forecast registry if available
   const liveHour = useMemo(() => new Date().getHours(), []);
-  const [selectedHour, setSelectedHour] = useState<number>(liveHour);
-
-  // Look up hourly forecast slice for selected diurnal hour
   const hourlyPoint = useMemo(() => {
     if (!metrics?.hourlyForecast || metrics.hourlyForecast.length === 0) return null;
-    return metrics.hourlyForecast.find((h) => h.hour === selectedHour) ?? null;
-  }, [metrics?.hourlyForecast, selectedHour]);
+    return metrics.hourlyForecast.find((h) => h.hour === liveHour) ?? null;
+  }, [metrics?.hourlyForecast, liveHour]);
 
   // Build reactive geographic observation points from current telemetry & world registries
   const points = useMemo(() => {
@@ -127,33 +120,14 @@ export function EarthCommandCenter({
     }
   };
 
-  const isFutureHour = selectedHour !== liveHour;
-
-  // Strict Scientific Standard Separation & Future Hour Forecast Integrity (Part 1.1, 1.2, 5.2):
-  // Never silently reuse the current CPCB measurement for future forecast hours!
+  // Strict Scientific Standard Separation:
+  // CPCB NAQI and US EPA AQI values preserved without cross-contamination
   const aqiValue = useMemo(() => {
-    if (isFutureHour) {
-      if (standard === 'epa') {
-        return hourlyPoint?.usAqi ?? null;
-      }
-      // CPCB NAQI does not publish official statutory forecasts.
-      // If modeled PM2.5/PM10 forecast exists, calculate indicative sub-index honestly:
-      if (hourlyPoint?.pm25 !== null && hourlyPoint?.pm25 !== undefined) {
-        const cpcbRes = calculateComprehensiveCpcbNaqi({
-          pm25: hourlyPoint.pm25,
-          pm10: hourlyPoint.pm10 ?? null,
-        });
-        return cpcbRes.aqi;
-      }
-      return null;
-    }
-
-    // Current observation / present hour
     if (standard === 'cpcb') {
       return activeGlobePoint?.cpcbAqi ?? null;
     }
     return activeGlobePoint?.usAqi ?? metrics?.usAqi ?? null;
-  }, [isFutureHour, standard, activeGlobePoint, hourlyPoint, metrics]);
+  }, [standard, activeGlobePoint, metrics]);
 
   const hasOfficialGround = Boolean(
     metrics?.groundStation &&
@@ -165,26 +139,22 @@ export function EarthCommandCenter({
   // Truthful Provenance & Source Labeling (Part 1.3)
   const sourceInfo = useMemo(() => {
     return resolveTruthfulSourceLabel({
-      isForecast: isFutureHour,
+      isForecast: false,
       hasOfficialGround,
       groundStationProvider: metrics?.groundStation?.provider,
       isCached: metrics?.cacheMetadata?.isCached,
       isLive: metrics?.isLive,
       status: metrics?.status,
     });
-  }, [isFutureHour, hasOfficialGround, metrics]);
+  }, [hasOfficialGround, metrics]);
 
   // Honest freshness state: never display "Live" when timestamp is absent
   const relativeFreshness = useMemo(() => {
-    if (isFutureHour) {
-      const timeStr = hourlyPoint?.localDisplayTime || `${selectedHour.toString().padStart(2, '0')}:00`;
-      return `Forecast for ${timeStr}`;
-    }
     if (!metrics?.timestamp) return 'Awaiting Telemetry';
     return metrics.isLive
       ? (formatTimeAgo(metrics.timestamp) || 'Just now')
       : `Cached (${formatTimeAgo(metrics.timestamp) || 'Recent'})`;
-  }, [isFutureHour, hourlyPoint, selectedHour, metrics]);
+  }, [metrics]);
 
   // Scientific Thermal Inversion calculation for the active hour
   const isHourlyInversion = useMemo(() => {
@@ -283,8 +253,7 @@ export function EarthCommandCenter({
             onSetActiveCity={handleGlobeSetActiveCity}
             standard={standard}
             onToggleStandard={toggleStandard}
-            selectedHour={selectedHour}
-            validAtUtc={hourlyPoint?.validAtUtc || metrics?.timestamp}
+            validAtUtc={metrics?.timestamp || hourlyPoint?.validAtUtc}
             className="w-full h-full !rounded-none !border-none !shadow-none !bg-transparent"
           />
         </div>
@@ -329,80 +298,7 @@ export function EarthCommandCenter({
           isThermalInversion={isHourlyInversion}
         />
 
-        {/* 3. Interactive 24-Hour Diurnal Time Scrubber Bar (Part 5) */}
-        <div className="relative z-10 w-full px-4 sm:px-6 py-2.5 bg-black/80 backdrop-blur-xl border-t border-b border-white/10 pointer-events-auto">
-          <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-3 text-xs">
-            {/* Scrubber Label & Active Hour */}
-            <div className="flex items-center gap-2.5 text-slate-300 telemetry-mono">
-              <Sun className="w-4 h-4 text-amber-400 animate-spin-slow" />
-              <span className="font-bold text-white uppercase tracking-wider text-[11px]">
-                DIURNAL TIMELINE
-              </span>
-              <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-sky-500/20 text-sky-300 border border-sky-500/30">
-                {hourlyPoint?.localDisplayTime || `${selectedHour.toString().padStart(2, '0')}:00`}
-              </span>
-              {isFutureHour && (
-                <span className="text-[10px] uppercase font-bold text-sky-400 telemetry-mono">
-                  [FORECAST]
-                </span>
-              )}
-              {selectedHour !== liveHour && (
-                <button
-                  type="button"
-                  onClick={() => setSelectedHour(liveHour)}
-                  className="flex items-center gap-1 px-2.5 py-0.5 rounded text-[11px] font-bold bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 border border-emerald-500/30 transition-colors cursor-pointer"
-                  title="Snap back to current live observation hour"
-                >
-                  <RotateCcw className="w-3 h-3" />
-                  <span>NOW</span>
-                </button>
-              )}
-            </div>
-
-            {/* Scrubber Interactive Range Slider */}
-            <div className="w-full md:w-[480px] flex items-center gap-3">
-              <span className="text-[10px] text-slate-400 telemetry-mono">00:00</span>
-              <input
-                type="range"
-                min={0}
-                max={23}
-                step={1}
-                value={selectedHour}
-                onChange={(e) => setSelectedHour(Number(e.target.value))}
-                className="w-full h-2 bg-slate-700/80 rounded-lg appearance-none cursor-pointer accent-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-400/50"
-                aria-label="24-hour diurnal sunlight and atmospheric forecast scrubber"
-              />
-              <span className="text-[10px] text-slate-400 telemetry-mono">23:00</span>
-            </div>
-
-            {/* Real-time Planetary Atmospheric Indicators */}
-            <div className="flex items-center gap-2 text-[11px] telemetry-mono">
-              <span className="text-slate-400">MIXING DEPTH:</span>
-              <span className="text-white font-bold">
-                {hourlyPoint?.boundaryLayerHeight !== null && hourlyPoint?.boundaryLayerHeight !== undefined
-                  ? `${Math.round(hourlyPoint.boundaryLayerHeight)}m`
-                  : 'Modeled'}
-              </span>
-              <span
-                className={`px-2.5 py-0.5 rounded text-[10px] font-bold ${
-                  hourlyPoint?.isSafeVentingWindow
-                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                    : isHourlyInversion
-                    ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
-                    : 'bg-slate-700/50 text-slate-300'
-                }`}
-              >
-                {hourlyPoint?.isSafeVentingWindow
-                  ? 'VENTING OPEN'
-                  : isHourlyInversion
-                  ? 'INVERSION TRAP'
-                  : 'EQUILIBRIUM'}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* 4. Bottom Quick-Access Metro Selector Bar */}
+        {/* Bottom Quick-Access Metro Selector Bar */}
         <div className="relative z-10 w-full p-4 sm:p-5 bg-gradient-to-t from-black/90 via-black/50 to-transparent pointer-events-auto">
           <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3 text-xs">
             {/* Quick Metro City Switcher */}
