@@ -209,5 +209,4 @@ test.describe('Avir Flagship Earth Command Center & Planetary Telemetry E2E', ()
     await engineButton.click();
     await expect(engineButton).toHaveText('THREE');
   });
-  });
 });
