@@ -16,6 +16,20 @@ interface CachedReverseGeo {
   };
 }
 
+const WORLD_METRO_COUNTRY_CODES: Record<string, string> = {
+  tokyo: 'JP',
+  london: 'GB',
+  'new york': 'US',
+  newyork: 'US',
+  sydney: 'AU',
+  paris: 'FR',
+  berlin: 'DE',
+  beijing: 'CN',
+  singapore: 'SG',
+  dubai: 'AE',
+  bangkok: 'TH',
+};
+
 // In-memory cache for reverse geocoding with 24-hour TTL (preserves privacy and respects rate limits)
 const reverseGeoCache = new Map<string, CachedReverseGeo>();
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -83,7 +97,7 @@ export async function GET(req: NextRequest) {
     const cached = reverseGeoCache.get(cacheKey);
     if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
       return NextResponse.json(cached.data, {
-        headers: { 'Cache-Control': 'public, max-age=86400, s-maxage=86400' },
+        headers: { 'Cache-Control': 'private, no-cache, no-store, must-revalidate' },
       });
     }
 
@@ -94,8 +108,8 @@ export async function GET(req: NextRequest) {
 
     let cityName = '';
     let admin1: string | undefined = undefined;
-    let country = 'Detected Location';
-    let countryCode = 'IN';
+    let country = 'Unknown';
+    let countryCode = '';
     let resolvedSource = 'nominatim';
 
     // Attempt upstream reverse geocoding via OpenStreetMap Nominatim with strict timeout
@@ -165,13 +179,13 @@ export async function GET(req: NextRequest) {
             nearestDist = d;
             nearestName = metro.name;
             nearestCountry = metro.country;
-            nearestCountryCode = 'GLO';
+            nearestCountryCode = WORLD_METRO_COUNTRY_CODES[metro.name.toLowerCase()] || 'UN';
           }
         }
       }
 
       if (nearestName) {
-        cityName = nearestName;
+        cityName = `Approx. near ${nearestName}`;
         admin1 = nearestAdmin1;
         country = nearestCountry;
         countryCode = nearestCountryCode;
@@ -180,6 +194,8 @@ export async function GET(req: NextRequest) {
         const latStr = lat >= 0 ? `${lat.toFixed(2)}°N` : `${Math.abs(lat).toFixed(2)}°S`;
         const lonStr = lon >= 0 ? `${lon.toFixed(2)}°E` : `${Math.abs(lon).toFixed(2)}°W`;
         cityName = `Near ${latStr}, ${lonStr}`;
+        country = 'Unspecified Region';
+        countryCode = 'UN';
         resolvedSource = 'coordinates_fallback';
       }
     }
@@ -202,7 +218,7 @@ export async function GET(req: NextRequest) {
     });
 
     return NextResponse.json(payload, {
-      headers: { 'Cache-Control': 'public, max-age=86400, s-maxage=86400' },
+      headers: { 'Cache-Control': 'private, no-cache, no-store, must-revalidate' },
     });
   } catch (err: any) {
     return NextResponse.json(

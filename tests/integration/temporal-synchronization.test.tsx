@@ -5,6 +5,7 @@ import { EarthCommandCenter } from '@/components/home/EarthCommandCenter';
 import { DiurnalForecastTimeline } from '@/components/DiurnalForecastTimeline';
 import { AtmosphericMetrics, HourlyAtmosphericPoint } from '@/domain/types';
 import { GeocodedLocation } from '@/services/telemetry-service';
+import { resolveCityTimezone } from '@/lib/time/city-timezone';
 
 describe('Canonical Temporal State & Timezone Synchronization', () => {
   const mockCity: GeocodedLocation = {
@@ -140,5 +141,51 @@ describe('Canonical Temporal State & Timezone Synchronization', () => {
     expect(html).toContain('02:00 PM');
     expect(html).toContain('[FORECAST]');
     expect(html).toContain('NOW');
+  });
+
+  it('correctly resolves IANA timezones across global cities without browser locale bleed', () => {
+    expect(resolveCityTimezone('Bengaluru')).toBe('Asia/Kolkata');
+    expect(resolveCityTimezone('Tokyo')).toBe('Asia/Tokyo');
+    expect(resolveCityTimezone('London')).toBe('Europe/London');
+    expect(resolveCityTimezone('New York')).toBe('America/New_York');
+  });
+
+  it('handles cross-midnight interval sequencing with unique validAtUtc timestamps', () => {
+    const midnightForecast: HourlyAtmosphericPoint[] = [
+      {
+        time: '2026-11-24T23:00:00+05:30',
+        hour: 23,
+        pm25: 60,
+        usAqi: 153,
+        boundaryLayerHeight: 150,
+        isForecast: true,
+        validAtUtc: '2026-11-24T17:30:00Z',
+        localDisplayTime: '11:00 PM',
+        localDisplayDate: '24 Nov',
+      },
+      {
+        time: '2026-11-25T00:00:00+05:30',
+        hour: 0,
+        pm25: 75,
+        usAqi: 161,
+        boundaryLayerHeight: 120,
+        isForecast: true,
+        validAtUtc: '2026-11-24T18:30:00Z',
+        localDisplayTime: '12:00 AM',
+        localDisplayDate: '25 Nov',
+      },
+    ];
+
+    const html = ReactDOMServer.renderToString(
+      <DiurnalForecastTimeline
+        hourlyForecast={midnightForecast}
+        cityName="Delhi-NCR"
+        selectedValidAtUtc="2026-11-24T18:30:00Z"
+      />
+    );
+
+    expect(html).toContain('DIURNAL TIMELINE');
+    expect(html).toContain('12:00 AM');
+    expect(html).toContain('25 Nov');
   });
 });

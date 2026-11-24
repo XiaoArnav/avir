@@ -27,7 +27,8 @@ export interface AvirGlobeProps {
   points: GeographicObservationPoint[];
   selectedPointId?: string | null;
   activeCityName?: string;
-  onSelectPoint: (point: GeographicObservationPoint) => void;
+  onSelectPoint: (point: GeographicObservationPoint | null) => void;
+  onClearInspectedPoint?: () => void;
   onSetActiveCity?: (point: GeographicObservationPoint) => void;
   standard?: AqiStandard;
   onToggleStandard?: () => void;
@@ -42,6 +43,7 @@ export function AvirGlobe({
   selectedPointId,
   activeCityName,
   onSelectPoint,
+  onClearInspectedPoint,
   onSetActiveCity,
   standard = 'cpcb',
   onToggleStandard,
@@ -111,7 +113,13 @@ export function AvirGlobe({
             onSelectAsActiveCity={(pt) => {
               if (onSetActiveCity) onSetActiveCity(pt);
             }}
-            onClose={() => onSelectPoint({} as GeographicObservationPoint)}
+            onClose={() => {
+              if (onClearInspectedPoint) {
+                onClearInspectedPoint();
+              } else {
+                onSelectPoint(null);
+              }
+            }}
           />
         </div>
       )}

@@ -221,9 +221,16 @@ export interface CanonicalTemporalState {
   validAtUtc: string | null; // ISO 8601 UTC timestamp or null for live 'now'
   targetHour: number;        // 0-23 in target city's wall-clock time
   displayTime: string;       // e.g. "14:00" or "NOW"
+  displayDate?: string;      // e.g. "Mon, 24 Nov"
   isForecast: boolean;
   sourceType: 'observation' | 'forecast' | 'analysis';
 }
+
+export type LocationSelectionSource =
+  | 'manual_predefined'
+  | 'manual_search'
+  | 'ephemeral_gps'
+  | 'saved_preference';
 
 // ---------------------------------------------------------------------------
 // Canonical Environmental Multi-Source & Provenance Model (Step 3/24)

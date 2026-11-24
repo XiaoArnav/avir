@@ -6,6 +6,7 @@ import {
   HourlyAtmosphericPoint,
 } from '@/domain/types';
 import { GeocodedLocation, PREDEFINED_INDIAN_CITIES } from '@/services/telemetry-service';
+import { WORLD_METROS } from '@/services/world-telemetry-service';
 import {
   buildGeographicObservations,
   GeographicObservationPoint,
@@ -72,12 +73,11 @@ export function EarthCommandCenter({
   const [selectedGlobePointId, setSelectedGlobePointId] = useState<string | null>(null);
   const [isDetailsOpen, setIsDetailsOpen] = useState(initialDetailsOpen);
 
-  // Current live hour observation point from forecast registry if available
-  const liveHour = useMemo(() => new Date().getHours(), []);
+  // Current live hour observation point from forecast registry without client clock matching
   const hourlyPoint = useMemo(() => {
     if (!metrics?.hourlyForecast || metrics.hourlyForecast.length === 0) return null;
-    return metrics.hourlyForecast.find((h) => h.hour === liveHour) ?? null;
-  }, [metrics?.hourlyForecast, liveHour]);
+    return metrics.hourlyForecast.find((h) => !h.isForecast) ?? metrics.hourlyForecast[0];
+  }, [metrics?.hourlyForecast]);
 
   // Active time point: explicitly selected point or default live point
   const isForecastSelected = Boolean(selectedTemporalPoint?.isForecast);
@@ -109,31 +109,48 @@ export function EarthCommandCenter({
     setStandard((prev) => (prev === 'cpcb' ? 'epa' : 'cpcb'));
   };
 
-  const handleGlobeSelectPoint = (point: GeographicObservationPoint) => {
-    setSelectedGlobePointId(point.id);
+  const handleGlobeSelectPoint = (point: GeographicObservationPoint | null) => {
+    setSelectedGlobePointId(point ? point.id : null);
   };
 
   const handleGlobeSetActiveCity = (point: GeographicObservationPoint) => {
-    const matched = PREDEFINED_INDIAN_CITIES.find(
+    const indianMatch = PREDEFINED_INDIAN_CITIES.find(
       (c) => c.name.toLowerCase() === point.name.toLowerCase()
     );
-    if (matched) {
-      onSelectCity(matched);
-    } else {
-      // Deterministic integer ID from coordinates & name hash
-      const latHash = Math.abs(Math.round(point.latitude * 1000));
-      const lonHash = Math.abs(Math.round(point.longitude * 1000));
-      const deterministicId = latHash * 10000 + (lonHash % 10000);
-
-      onSelectCity({
-        id: deterministicId,
-        name: point.name,
-        country: point.country,
-        countryCode: point.countryCode,
-        latitude: point.latitude,
-        longitude: point.longitude,
-      });
+    if (indianMatch) {
+      onSelectCity(indianMatch);
+      return;
     }
+
+    const worldMatch = WORLD_METROS.find(
+      (m) => m.name.toLowerCase() === point.name.toLowerCase()
+    );
+    if (worldMatch) {
+      onSelectCity({
+        id: worldMatch.id,
+        name: worldMatch.name,
+        admin1: worldMatch.admin1 ?? undefined,
+        country: worldMatch.country,
+        countryCode: worldMatch.countryCode,
+        latitude: worldMatch.latitude,
+        longitude: worldMatch.longitude,
+      });
+      return;
+    }
+
+    // Deterministic integer ID from coordinates & name hash
+    const latHash = Math.abs(Math.round(point.latitude * 1000));
+    const lonHash = Math.abs(Math.round(point.longitude * 1000));
+    const deterministicId = latHash * 10000 + (lonHash % 10000);
+
+    onSelectCity({
+      id: deterministicId,
+      name: point.name,
+      country: point.country,
+      countryCode: point.countryCode,
+      latitude: point.latitude,
+      longitude: point.longitude,
+    });
   };
 
   // Strict Scientific Standard Separation:
@@ -301,6 +318,7 @@ export function EarthCommandCenter({
             selectedPointId={selectedGlobePointId || activeGlobePoint?.id}
             activeCityName={currentCity.name}
             onSelectPoint={handleGlobeSelectPoint}
+            onClearInspectedPoint={() => setSelectedGlobePointId(null)}
             onSetActiveCity={handleGlobeSetActiveCity}
             standard={standard}
             onToggleStandard={toggleStandard}
