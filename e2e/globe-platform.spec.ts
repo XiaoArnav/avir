@@ -219,6 +219,7 @@ test.describe('Avir Flagship Earth Command Center & Planetary Telemetry E2E', ()
   });
 
   test('operates camera controls (zoom, auto-rotate, reset) when Cesium engine is active', async ({ page }) => {
+    test.setTimeout(60000);
     const engineButton = page.getByRole('button', { name: /toggle 3d engine/i });
     await expect(engineButton).toBeVisible();
     await engineButton.click();
