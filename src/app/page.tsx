@@ -388,27 +388,6 @@ export default function Home() {
           onOpenDailyPlan={() => setActiveTab('routine')}
         />
 
-        {/* Fast Metro Switcher Rail (One-tap swipe on mobile) */}
-        <MetroRail
-          currentCityName={selectedCity.name}
-          onSelectCity={handleCitySelect}
-          isLoading={isTelemetryLoading}
-        />
-
-        {/* Atmosphere Telemetry Hero - IQAir / AQI.in World-Class Duo Standard */}
-        <AtmosphereHero
-          city={selectedCity.name}
-          metrics={metrics}
-          category={aqiCategory}
-          onOpenExplainer={() => setIsExplainerOpen(true)}
-          onRefresh={refreshTelemetry}
-          onOpenShare={() => setIsShareModalOpen(true)}
-          onOpenSchoolAdvisory={() => setIsSchoolModalOpen(true)}
-          onOpenMultiSource={() => setIsMultiSourceModalOpen(true)}
-          isLoading={isTelemetryLoading}
-          isDarkMode={isDarkMode}
-        />
-
         {/* Action-First Quick Health & Activity Decision Guide */}
         <ActionDecisionCard
           metrics={metrics}

@@ -63,9 +63,11 @@ export function AvirGlobe({
     setIsAutoRotating(true);
   };
 
+  const hasCustomHeight = className.includes('h-');
+
   return (
     <div
-      className={`relative w-full h-[520px] sm:h-[620px] rounded-3xl overflow-hidden border border-stone-200/80 dark:border-sky-500/20 bg-stone-100 dark:bg-[#040711] shadow-2xl ${className}`}
+      className={`relative w-full ${hasCustomHeight ? '' : 'h-[520px] sm:h-[620px]'} rounded-3xl overflow-hidden border border-stone-200/80 dark:border-sky-500/20 bg-stone-100 dark:bg-[#040711] shadow-2xl ${className}`}
     >
       {/* Background Radial Atmosphere Glow */}
       <div className="absolute inset-0 bg-radial-atmosphere pointer-events-none" />
@@ -93,7 +95,7 @@ export function AvirGlobe({
 
       {/* Floating City Card Inspector */}
       {selectedPoint && (
-        <div className="absolute top-4 left-4 z-20">
+        <div className="absolute top-4 right-4 sm:top-6 sm:right-6 z-20">
           <GlobeCityCard
             point={selectedPoint}
             isActiveCity={activeCityName?.toLowerCase() === selectedPoint.name.toLowerCase()}
