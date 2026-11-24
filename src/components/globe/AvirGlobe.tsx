@@ -69,24 +69,20 @@ export function AvirGlobe({
   const [is3D, setIs3D] = useState<boolean>(true);
   const [engineMode, setEngineMode] = useState<'three' | 'cesium'>('three');
   const [isAutoRotating, setIsAutoRotating] = useState<boolean>(true);
-  const [zoomLevel, setZoomLevel] = useState<number>(260);
   const [cameraAction, setCameraAction] = useState<CameraAction | null>(null);
   const [fallbackNotice, setFallbackNotice] = useState<string | null>(null);
 
   const selectedPoint = points.find((p) => p.id === selectedPointId) || null;
 
   const handleZoomIn = () => {
-    setZoomLevel((prev) => Math.max(150, prev - 30));
     setCameraAction({ type: 'zoomIn', timestamp: Date.now() });
   };
 
   const handleZoomOut = () => {
-    setZoomLevel((prev) => Math.min(360, prev + 30));
     setCameraAction({ type: 'zoomOut', timestamp: Date.now() });
   };
 
   const handleResetView = () => {
-    setZoomLevel(260);
     setIsAutoRotating(true);
     setCameraAction({ type: 'reset', timestamp: Date.now() });
   };
@@ -144,9 +140,10 @@ export function AvirGlobe({
           <DynamicGlobeCanvas
             points={points}
             selectedPointId={selectedPointId}
+            activeCityName={activeCityName}
             onSelectPoint={onSelectPoint}
             isAutoRotating={isAutoRotating}
-            zoomLevel={zoomLevel}
+            cameraAction={cameraAction}
             selectedHour={selectedHour}
             validAtUtc={validAtUtc}
             themeMode={themeMode}
