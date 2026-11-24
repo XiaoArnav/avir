@@ -48,7 +48,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         aria-modal="true"
         aria-labelledby="settings-title"
         tabIndex={-1}
-        className="w-full max-w-md rounded-2xl bg-white dark:bg-zinc-950 border border-stone-300 dark:border-zinc-800 p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-150 transition-colors focus:outline-none"
+        className="w-full max-w-md rounded-3xl bg-white/95 dark:bg-[#060b18]/95 backdrop-blur-2xl border border-stone-200/90 dark:border-sky-500/30 p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-150 transition-colors focus:outline-none hud-corner-brackets"
       >
         <div className="flex items-center justify-between border-b border-stone-200 dark:border-zinc-800 pb-3">
           <div className="flex items-center gap-2">
@@ -90,6 +90,29 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <p className="text-[10px] text-stone-500 dark:text-zinc-500 mt-1">
               Keys remain strictly local to your browser session. Never transmitted to third-party databases.
             </p>
+          </div>
+
+          <div className="pt-2 border-t border-stone-200 dark:border-zinc-800">
+            <span className="block font-semibold text-ink dark:text-zinc-200 mb-1">
+              Location &amp; Privacy Controls
+            </span>
+            <p className="text-[10px] text-stone-500 dark:text-zinc-500 mb-2">
+              Clear your locally stored city preference and coordinate cache to reset to first-visit defaults.
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                try {
+                  localStorage.removeItem('avir_selected_city_v1');
+                  localStorage.removeItem('avir_location_onboarded_v1');
+                  alert('Location preferences cleared. Refreshing page...');
+                  window.location.reload();
+                } catch {}
+              }}
+              className="px-3 py-1.5 text-[11px] font-semibold rounded-lg bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 hover:bg-rose-500/20 transition-colors cursor-pointer"
+            >
+              Reset Location &amp; Privacy State
+            </button>
           </div>
         </div>
 

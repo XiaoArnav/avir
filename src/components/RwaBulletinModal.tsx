@@ -109,7 +109,7 @@ _Official CAQM Orders: https://caqm.nic.in/ | https://avir-blue.vercel.app_`
         aria-modal="true"
         aria-labelledby="rwa-modal-title"
         tabIndex={-1}
-        className="relative w-full max-w-2xl rounded-2xl bg-white dark:bg-zinc-950 border border-stone-300 dark:border-zinc-800 p-6 sm:p-8 shadow-2xl overflow-y-auto max-h-[90vh] transition-colors focus:outline-none"
+        className="relative w-full max-w-2xl rounded-3xl bg-white/95 dark:bg-[#060b18]/95 backdrop-blur-2xl border border-stone-200/90 dark:border-sky-500/30 p-6 sm:p-8 shadow-2xl overflow-y-auto max-h-[90vh] transition-colors focus:outline-none hud-corner-brackets"
       >
         {/* Header */}
         <div className="flex items-center justify-between pb-4 border-b border-stone-200 dark:border-zinc-800">

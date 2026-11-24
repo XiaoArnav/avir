@@ -783,7 +783,7 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
 
                 return (
                   <motion.button
-                    key={slot.hour}
+                    key={slot.validAtUtc || slot.time || slot.hour}
                     type="button"
                     onClick={() => setSelectedHour(slot.hour)}
                     whileHover={shouldReduceMotion ? undefined : { scaleY: 1.08 }}

@@ -191,6 +191,7 @@ export interface HourlyAtmosphericPoint {
   time: string;           // Local ISO timestamp in target city's timezone
   hour: number;           // 0-23 in target city's wall-clock time
   pm25: number | null;
+  pm10?: number | null;
   usAqi: number | null;
   boundaryLayerHeight: number | null;
   temperature?: number | null;
@@ -208,6 +209,28 @@ export interface HourlyAtmosphericPoint {
   sourceAttribution?: string;
   isModel?: boolean;
 }
+
+// ---------------------------------------------------------------------------
+// Canonical Temporal State for Absolute Timestamp Synchronization
+// ---------------------------------------------------------------------------
+
+export type TemporalSelectionMode = 'now' | 'interval';
+
+export interface CanonicalTemporalState {
+  mode: TemporalSelectionMode;
+  validAtUtc: string | null; // ISO 8601 UTC timestamp or null for live 'now'
+  targetHour: number;        // 0-23 in target city's wall-clock time
+  displayTime: string;       // e.g. "14:00" or "NOW"
+  displayDate?: string;      // e.g. "Mon, 24 Nov"
+  isForecast: boolean;
+  sourceType: 'observation' | 'forecast' | 'analysis';
+}
+
+export type LocationSelectionSource =
+  | 'manual_predefined'
+  | 'manual_search'
+  | 'ephemeral_gps'
+  | 'saved_preference';
 
 // ---------------------------------------------------------------------------
 // Canonical Environmental Multi-Source & Provenance Model (Step 3/24)
@@ -432,6 +455,9 @@ export interface AtmosphericMetrics {
   cpcbAqi?: number | null;
   cpcbCategory?: string | null;
   cpcbStatus?: 'statutory_compliant' | 'indicative_subindex' | 'indicative_snapshot' | 'unavailable';
+  dominantPollutant?: string | null;
+  primaryPollutant?: string | null;
+  provenanceLabel?: string;
   aqiEvidence?: AqiEvidence;
   cpcbEvidence?: AqiEvidence;
   sourceAttribution?: string;

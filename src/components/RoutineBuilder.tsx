@@ -192,10 +192,10 @@ export const RoutineBuilder: React.FC<RoutineBuilderProps> = ({
   return (
     <section
       aria-label="Personal Routine Builder"
-      className="rounded-2xl glass-panel p-6 sm:p-8 border border-stone-300 dark:border-zinc-800 bg-white/95 dark:bg-[#0c0c0e]/95 space-y-6 shadow-sm transition-colors"
+      className="rounded-3xl holo-panel-elevated p-6 sm:p-8 border border-stone-200/90 dark:border-sky-500/25 bg-white/90 dark:bg-[#060b18]/90 hud-corner-brackets space-y-6 shadow-2xl transition-colors"
     >
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-stone-200 dark:border-zinc-800/80 pb-5">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-stone-200 dark:border-sky-500/15 pb-5">
         <div>
           <div className="flex items-center gap-2 text-xs font-mono text-ink-muted dark:text-zinc-400 uppercase tracking-wider mb-1">
             <Clock className="w-3.5 h-3.5 text-blue-500" />

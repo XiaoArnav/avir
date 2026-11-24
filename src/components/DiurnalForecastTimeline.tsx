@@ -4,13 +4,17 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
 import { HourlyAtmosphericPoint } from '@/domain/types';
 import { analyzeDiurnalRelativeWindows } from '@/services/forecast/hourly-alignment';
-import { Clock, Sun, AlertTriangle, TrendingUp, Table } from 'lucide-react';
+import { Clock, Sun, AlertTriangle, TrendingUp, Table, RotateCcw } from 'lucide-react';
 import { springs, duration } from '@/lib/motion-tokens';
+import { isThermalInversion } from '@/domain/air-math';
 
 interface DiurnalForecastTimelineProps {
   hourlyForecast?: HourlyAtmosphericPoint[];
   currentHour?: number;
   cityName: string;
+  selectedValidAtUtc?: string | null;
+  onSelectTimePoint?: (point: HourlyAtmosphericPoint) => void;
+  onSnapToNow?: () => void;
 }
 
 export type ForecastMetricMode = 'pm25' | 'usAqi';
@@ -19,11 +23,25 @@ export const DiurnalForecastTimeline: React.FC<DiurnalForecastTimelineProps> = (
   hourlyForecast = [],
   currentHour = new Date().getHours(),
   cityName,
+  selectedValidAtUtc,
+  onSelectTimePoint,
+  onSnapToNow,
 }) => {
   const shouldReduceMotion = useReducedMotion();
 
+  // Compute canonical initial selection key safely across SSR and hydration
+  const initialKey = useMemo(() => {
+    if (!hourlyForecast || hourlyForecast.length === 0) return '';
+    if (selectedValidAtUtc) {
+      const match = hourlyForecast.find((p) => p.validAtUtc === selectedValidAtUtc);
+      if (match) return match.validAtUtc || match.time || String(match.hour);
+    }
+    const defaultPt = hourlyForecast.find((p) => !p.isForecast) || hourlyForecast[0];
+    return defaultPt.validAtUtc || defaultPt.time || String(defaultPt.hour);
+  }, [hourlyForecast, selectedValidAtUtc]);
+
   // Use unique timestamp key (validAtUtc or time) for stable cross-date identity
-  const [selectedKey, setSelectedKey] = useState<string>('');
+  const [selectedKey, setSelectedKey] = useState<string>(initialKey);
   const [metricMode, setMetricMode] = useState<ForecastMetricMode>('pm25');
   const [showDataTable, setShowDataTable] = useState(false);
 
@@ -128,16 +146,41 @@ export const DiurnalForecastTimeline: React.FC<DiurnalForecastTimelineProps> = (
     return result;
   }, [validPoints, minVal, range, chartWidth, chartHeight, paddingX, paddingY]);
 
-  // Keep selected point in sync when forecast or city changes
+  // Keep selected point in sync when forecast, selectedValidAtUtc, or city changes
   useEffect(() => {
     if (hourlyForecast && hourlyForecast.length > 0) {
-      const defaultPt = hourlyForecast.find((p) => p.hour === currentHour) || hourlyForecast[0];
+      if (selectedValidAtUtc) {
+        const found = hourlyForecast.find((p) => p.validAtUtc === selectedValidAtUtc);
+        if (found) {
+          const key = found.validAtUtc || found.time || String(found.hour);
+          setSelectedKey(key);
+          return;
+        }
+      }
+      const defaultPt = hourlyForecast.find((p) => !p.isForecast) || hourlyForecast[0];
       const key = defaultPt.validAtUtc || defaultPt.time || String(defaultPt.hour);
       setSelectedKey(key);
     } else {
       setSelectedKey('');
     }
-  }, [hourlyForecast, currentHour, cityName]);
+  }, [hourlyForecast, cityName, selectedValidAtUtc]);
+
+  // Active index computed strictly by canonical timestamp key or validAtUtc
+  const selectedIndex = useMemo(() => {
+    if (!validPoints || validPoints.length === 0) return 0;
+    if (selectedValidAtUtc) {
+      const idx = validPoints.findIndex((v) => v.point.validAtUtc === selectedValidAtUtc);
+      if (idx !== -1) return idx;
+    }
+    if (selectedKey) {
+      const idx = validPoints.findIndex(
+        (v) => (v.point.validAtUtc || v.point.time || String(v.point.hour)) === selectedKey
+      );
+      if (idx !== -1) return idx;
+    }
+    const liveIdx = validPoints.findIndex((v) => !v.point.isForecast);
+    return liveIdx !== -1 ? liveIdx : 0;
+  }, [validPoints, selectedValidAtUtc, selectedKey]);
 
   if (!hourlyForecast || hourlyForecast.length === 0) {
     return (
@@ -164,9 +207,29 @@ export const DiurnalForecastTimeline: React.FC<DiurnalForecastTimelineProps> = (
 
   const analysis = analyzeDiurnalRelativeWindows(hourlyForecast);
 
-  const activePoint =
-    hourlyForecast.find((p) => (p.validAtUtc || p.time || String(p.hour)) === selectedKey) ||
-    hourlyForecast[0];
+  const activePoint = validPoints[selectedIndex]?.point ?? hourlyForecast[0] ?? null;
+  const isFutureHour = Boolean(activePoint?.isForecast);
+  const isHourlyInversion = activePoint
+    ? isThermalInversion(activePoint.boundaryLayerHeight, activePoint.hour)
+    : false;
+
+  const handleSliderIndexChange = (newIndex: number) => {
+    const target = validPoints[newIndex];
+    if (target?.point) {
+      const key = target.point.validAtUtc || target.point.time || String(target.point.hour);
+      setSelectedKey(key);
+      onSelectTimePoint?.(target.point);
+    }
+  };
+
+  const handleSnapToNow = () => {
+    const livePt = hourlyForecast.find((p) => !p.isForecast) || hourlyForecast[0];
+    if (livePt) {
+      const key = livePt.validAtUtc || livePt.time || String(livePt.hour);
+      setSelectedKey(key);
+    }
+    onSnapToNow?.();
+  };
 
   return (
     <div className="bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 rounded-2xl p-5 sm:p-6 shadow-sm space-y-6">
@@ -259,6 +322,88 @@ export const DiurnalForecastTimeline: React.FC<DiurnalForecastTimelineProps> = (
         </div>
       )}
 
+      {/* Interactive 24-Hour Diurnal Timeline Scrubber Bar */}
+      <div className="w-full px-4 py-3 bg-stone-900/95 dark:bg-[#040814]/95 rounded-xl border border-stone-200/80 dark:border-sky-500/20 text-xs shadow-md">
+        <div className="flex flex-col md:flex-row items-center justify-between gap-3">
+          {/* Scrubber Label & Active Hour */}
+          <div className="flex items-center gap-2.5 text-slate-300 telemetry-mono">
+            <Sun className="w-4 h-4 text-amber-400 animate-spin-slow" />
+            <span className="font-bold text-white uppercase tracking-wider text-[11px]">
+              DIURNAL TIMELINE
+            </span>
+            <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-sky-500/20 text-sky-300 border border-sky-500/30">
+              {activePoint?.localDisplayTime || `${activePoint?.hour ?? 0}:00`}
+              {activePoint?.localDisplayDate ? ` • ${activePoint.localDisplayDate}` : ''}
+            </span>
+            {isFutureHour && (
+              <span className="text-[10px] uppercase font-bold text-sky-400 telemetry-mono">
+                [FORECAST]
+              </span>
+            )}
+            {selectedValidAtUtc && (
+              <button
+                type="button"
+                onClick={handleSnapToNow}
+                className="flex items-center gap-1 px-2.5 py-0.5 rounded text-[11px] font-bold bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 border border-emerald-500/30 transition-colors cursor-pointer"
+                title="Snap back to current live observation hour"
+              >
+                <RotateCcw className="w-3 h-3" />
+                <span>NOW</span>
+              </button>
+            )}
+          </div>
+
+          {/* Scrubber Interactive Range Slider (Absolute Timestamp Indexed) */}
+          <div className="w-full md:w-[440px] flex items-center gap-3">
+            <span className="text-[10px] text-slate-400 telemetry-mono whitespace-nowrap">
+              {validPoints[0]?.point.localDisplayTime || '00:00'}
+            </span>
+            <input
+              type="range"
+              min={0}
+              max={Math.max(0, validPoints.length - 1)}
+              step={1}
+              value={selectedIndex}
+              onChange={(e) => handleSliderIndexChange(Number(e.target.value))}
+              className="w-full h-2 bg-slate-700/80 rounded-lg appearance-none cursor-pointer accent-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-400/50"
+              aria-label="24-hour diurnal sunlight and atmospheric forecast scrubber"
+              aria-valuemin={0}
+              aria-valuemax={Math.max(0, validPoints.length - 1)}
+              aria-valuenow={selectedIndex}
+              aria-valuetext={activePoint?.localDisplayTime || undefined}
+            />
+            <span className="text-[10px] text-slate-400 telemetry-mono whitespace-nowrap">
+              {validPoints[validPoints.length - 1]?.point.localDisplayTime || '23:00'}
+            </span>
+          </div>
+
+          {/* Real-time Planetary Atmospheric Indicators */}
+          <div className="flex items-center gap-2 text-[11px] telemetry-mono">
+            <span className="text-slate-400">MIXING DEPTH:</span>
+            <span className="text-white font-bold">
+              {activePoint?.boundaryLayerHeight !== null && activePoint?.boundaryLayerHeight !== undefined
+                ? `${Math.round(activePoint.boundaryLayerHeight)}m`
+                : 'Modeled'}
+            </span>
+            <span
+              className={`px-2.5 py-0.5 rounded text-[10px] font-bold ${
+                activePoint?.isSafeVentingWindow
+                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                  : isHourlyInversion
+                  ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                  : 'bg-slate-700/50 text-slate-300'
+              }`}
+            >
+              {activePoint?.isSafeVentingWindow
+                ? 'VENTING OPEN'
+                : isHourlyInversion
+                ? 'INVERSION TRAP'
+                : 'EQUILIBRIUM'}
+            </span>
+          </div>
+        </div>
+      </div>
+
       {/* Continuous Scaled SVG Diurnal Trajectory Chart */}
       <div className="relative w-full overflow-hidden bg-stone-50/70 dark:bg-zinc-950/70 rounded-xl border border-stone-200 dark:border-zinc-800/80 p-3">
         <div className="flex items-center justify-between text-[11px] font-mono text-ink-muted dark:text-zinc-400 pb-1 px-1">
@@ -341,7 +486,10 @@ export const DiurnalForecastTimeline: React.FC<DiurnalForecastTimelineProps> = (
                     stroke={seg.isForecast ? '#0284c7' : '#10b981'}
                     strokeWidth={isSelected ? 2.5 : 1.5}
                     className="cursor-pointer transition-all hover:scale-125"
-                    onClick={() => setSelectedKey(pt.key)}
+                    onClick={() => {
+                      setSelectedKey(pt.key);
+                      onSelectTimePoint?.(pt.point);
+                    }}
                   >
                     <title>
                       {`${pt.point.localDisplayTime || `${pt.point.hour}:00`}: ${pt.val} ${metricMode === 'pm25' ? 'µg/m³' : 'AQI'} (${seg.isForecast ? 'Forecast' : 'Observation'})`}

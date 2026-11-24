@@ -31,6 +31,8 @@ import {
   AtmosphericMetrics,
   UserVulnerabilityProfile,
   RecommendationPlan,
+  HourlyAtmosphericPoint,
+  LocationSelectionSource,
 } from '@/domain/types';
 import { getAQICategory } from '@/domain/air-math';
 import {
@@ -43,13 +45,20 @@ import { sanitizeUserHealthContext } from '@/services/ai/plan-validator';
 import { loadScheduleFromStorage } from '@/services/routines/routine-storage';
 import { DeterministicPlanResult, AiPlanExplanation } from '@/domain/planning-types';
 import { DailySchedule } from '@/domain/routine-types';
+import { FloatingDock } from '@/components/ui/futuristic';
+import { FirstVisitLocationModal } from '@/components/location/FirstVisitLocationModal';
 
+const EarthCommandCenter = dynamic(
+  () => import('@/components/home/EarthCommandCenter').then((module) => module.EarthCommandCenter),
+  { ssr: false }
+);
 const IAQStudio = dynamic(() => import('@/components/IAQStudio').then(module => module.IAQStudio));
 const WorldDataExplorer = dynamic(() => import('@/components/WorldDataExplorer').then(module => module.WorldDataExplorer));
 
 export default function Home() {
   const [selectedCity, setSelectedCity] = useState<GeocodedLocation>(PREDEFINED_INDIAN_CITIES[0]);
   const [metrics, setMetrics] = useState<AtmosphericMetrics | null>(null);
+  const [selectedTemporalPoint, setSelectedTemporalPoint] = useState<HourlyAtmosphericPoint | null>(null);
   const [isTelemetryLoading, setIsTelemetryLoading] = useState(true);
   const [isPlanGenerating, setIsPlanGenerating] = useState(false);
   const [plannerMessage, setPlannerMessage] = useState('');
@@ -79,6 +88,7 @@ export default function Home() {
   const [isSchoolModalOpen, setIsSchoolModalOpen] = useState(false);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [isMultiSourceModalOpen, setIsMultiSourceModalOpen] = useState(false);
+  const [isFirstVisitModalOpen, setIsFirstVisitModalOpen] = useState(false);
   const [geminiApiKey, setGeminiApiKey] = useState('');
   const [isDarkMode, setIsDarkMode] = useState(true);
 
@@ -95,12 +105,15 @@ export default function Home() {
           setIsDarkMode(false);
         }
 
+        const hasOnboarded = localStorage.getItem('avir_location_onboarded_v1');
         const savedCityJson = localStorage.getItem('avir_selected_city_v1');
         if (savedCityJson) {
           const parsed = JSON.parse(savedCityJson);
           if (parsed && typeof parsed.name === 'string' && typeof parsed.latitude === 'number' && typeof parsed.longitude === 'number') {
             setSelectedCity(parsed);
           }
+        } else if (!hasOnboarded) {
+          setIsFirstVisitModalOpen(true);
         }
       } catch (e) {
         console.warn('Failed to load user preferences from localStorage:', e);
@@ -199,18 +212,28 @@ export default function Home() {
     };
   }, [selectedCity]);
 
-  // Handle city selection with clean transition to avoid race condition
-  const handleCitySelect = (loc: GeocodedLocation) => {
+  // Handle city selection with clean transition and strict privacy-conscious persistence
+  const handleCitySelect = (
+    loc: GeocodedLocation,
+    source: LocationSelectionSource = 'manual_predefined'
+  ) => {
     if (loc.id === selectedCity.id && loc.name === selectedCity.name) return;
-    try {
-      localStorage.setItem('avir_selected_city_v1', JSON.stringify(loc));
-    } catch (e) {
-      console.warn('Failed to persist selected city:', e);
+
+    // Privacy Policy: Only persist manual selections and explicit preferences.
+    // Ephemeral GPS-detected coordinates remain in-memory for the current session only.
+    if (source === 'manual_predefined' || source === 'manual_search' || source === 'saved_preference') {
+      try {
+        localStorage.setItem('avir_selected_city_v1', JSON.stringify(loc));
+      } catch (e) {
+        console.warn('Failed to persist selected city preference:', e);
+      }
     }
+
     planGenIdRef.current += 1;
     setIsPlanGenerating(false);
     setPlannerMessage('');
     setIsTelemetryLoading(true);
+    setSelectedTemporalPoint(null); // Reset temporal scrubber to live observation on city change
     setMetrics(null); // Clear stale city metrics immediately
     setPlan(null); // Clear stale previous city plan immediately
     setDeterministicPlan(null);
@@ -370,25 +393,20 @@ export default function Home() {
             : `Selected city: ${selectedCity.name}.`}
         </div>
 
-        {/* Fast Metro Switcher Rail (One-tap swipe on mobile) */}
-        <MetroRail
-          currentCityName={selectedCity.name}
-          onSelectCity={handleCitySelect}
-          isLoading={isTelemetryLoading}
-        />
-
-        {/* Atmosphere Telemetry Hero - IQAir / AQI.in World-Class Duo Standard */}
-        <AtmosphereHero
-          city={selectedCity.name}
+        {/* Flagship Futuristic 3D Earth Environmental Intelligence Command Center */}
+        <EarthCommandCenter
+          currentCity={selectedCity}
           metrics={metrics}
-          category={aqiCategory}
-          onOpenExplainer={() => setIsExplainerOpen(true)}
-          onRefresh={refreshTelemetry}
-          onOpenShare={() => setIsShareModalOpen(true)}
-          onOpenSchoolAdvisory={() => setIsSchoolModalOpen(true)}
-          onOpenMultiSource={() => setIsMultiSourceModalOpen(true)}
           isLoading={isTelemetryLoading}
-          isDarkMode={isDarkMode}
+          selectedTemporalPoint={selectedTemporalPoint}
+          themeMode={isDarkMode ? 'dark' : 'light'}
+          onSelectCity={handleCitySelect}
+          onRefreshTelemetry={refreshTelemetry}
+          onOpenExplainer={() => setIsExplainerOpen(true)}
+          onOpenShare={() => setIsShareModalOpen(true)}
+          onOpenMultiSource={() => setIsMultiSourceModalOpen(true)}
+          onOpenDailyPlan={() => setActiveTab('routine')}
+          onSnapToNow={() => setSelectedTemporalPoint(null)}
         />
 
         {/* Action-First Quick Health & Activity Decision Guide */}
@@ -398,12 +416,23 @@ export default function Home() {
           onOpenDailyPlan={() => setActiveTab('routine')}
         />
 
-        {/* High-Contrast Segmented Navigation View Controller */}
-        <SegmentedTabs 
-          activeTab={activeTab} 
-          onChangeTab={setActiveTab} 
-          reductionPercentage={reductionPercentage}
-        />
+        {/* Futuristic Floating Navigation Dock */}
+        <div className="flex justify-center my-2">
+          <FloatingDock
+            activeTab={activeTab}
+            onChangeTab={setActiveTab}
+            reductionPercentage={reductionPercentage}
+          />
+        </div>
+
+        {/* High-Contrast Segmented Navigation View Controller (Accessible Fallback) */}
+        <div className="sm:hidden">
+          <SegmentedTabs 
+            activeTab={activeTab} 
+            onChangeTab={setActiveTab} 
+            reductionPercentage={reductionPercentage}
+          />
+        </div>
 
         {/* Tab 1: Overview, Location Search, Profile & Scorecard */}
         {activeTab === 'overview' && (
@@ -420,6 +449,9 @@ export default function Home() {
             <DiurnalForecastTimeline
               hourlyForecast={metrics?.hourlyForecast}
               cityName={selectedCity.name}
+              selectedValidAtUtc={selectedTemporalPoint?.validAtUtc}
+              onSelectTimePoint={(pt) => setSelectedTemporalPoint(pt)}
+              onSnapToNow={() => setSelectedTemporalPoint(null)}
             />
 
             {/* 2. Meteorological Wind Vector & Smoke Transport Gauge with Animated Particle Stream */}
@@ -692,12 +724,19 @@ export default function Home() {
           </p>
 
           <p className="text-[11px] text-stone-500 dark:text-zinc-500 max-w-2xl mx-auto leading-relaxed">
-            Mathematical calculations based on CPCB/EPA AQI breakpoints, Berkeley Earth particulate toxicology (22 µg/m³ ≈ 1 cig/day), and Corsi-Rosenthal Box fluid dynamics. Designed for community risk mitigation and routine shifting; not intended as a substitute for emergency clinical care during acute respiratory distress.
+            Mathematical calculations based on CPCB/EPA AQI breakpoints, WHO 2021 Global Air Quality Guidelines, and Corsi-Rosenthal Box fluid dynamics. Designed for community risk mitigation and routine shifting; not intended as a substitute for emergency clinical care during acute respiratory distress.
           </p>
         </div>
       </footer>
 
       {/* Modals */}
+      <FirstVisitLocationModal
+        isOpen={isFirstVisitModalOpen}
+        onClose={() => setIsFirstVisitModalOpen(false)}
+        onSelectCity={(loc) => {
+          setSelectedCity(loc);
+        }}
+      />
       <SettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}

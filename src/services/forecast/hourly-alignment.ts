@@ -351,6 +351,7 @@ export function toHourlyAtmosphericPoints(
     time: h.validAtUtc,
     hour: h.localHour,
     pm25: h.pm25,
+    pm10: h.pm10,
     usAqi: h.usAqi,
     boundaryLayerHeight: h.boundaryLayerHeight,
     temperature: h.temperature,

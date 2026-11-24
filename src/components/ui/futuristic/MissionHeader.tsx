@@ -81,7 +81,7 @@ export function MissionHeader({
             />
           ) : (
             <FuturisticBadge
-              label="SATELLITE/MODEL CONSENSUS"
+              label={stationName || 'SATELLITE/MODEL CONSENSUS'}
               variant="cyan"
               pulse
             />
