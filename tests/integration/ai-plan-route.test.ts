@@ -231,6 +231,81 @@ describe('Server-Side AI Plan API Route (/api/ai/plan)', () => {
     expect(data.code).toBe('VALIDATION_ERROR');
   });
 
+  it('validates fallback decisionContext construction against malformed forecast timestamps, bad weather bounds, and invalid metadata', async () => {
+    const { validateDecisionContext } = await import('@/services/ai/decision-context');
+
+    // Out-of-order/bad forecast timestamp in fallback path (no decisionContext provided) must fail validation
+    const badForecastReq = new NextRequest('http://localhost:3000/api/ai/plan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        city: 'Delhi-NCR',
+        coordinates: { lat: 28.6139, lng: 77.209 },
+        timezone: 'Asia/Kolkata',
+        schedule: {
+          id: 'sched-fb',
+          name: 'Workday',
+          activities: [
+            {
+              id: 'a1',
+              name: 'Walk',
+              startTime: '07:00',
+              endTime: '08:00',
+              intensity: 'moderate',
+              environment: 'outdoor',
+            },
+          ],
+        },
+        hourlyForecast: [
+          { time: '2026-11-24T14:00:00Z', pm25: 40 },
+          { time: '2026-11-24T14:00:00Z', pm25: 50 }, // duplicate timestamp
+        ],
+      }),
+    });
+    const badForecastRes = await POST(badForecastReq);
+    expect(badForecastRes.status).toBe(400);
+    expect((await badForecastRes.json()).code).toBe('VALIDATION_ERROR');
+
+    // Invalid weather bounds in legacy fallback payload must be rejected by fallback validation
+    const badWeatherReq = new NextRequest('http://localhost:3000/api/ai/plan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        city: 'Delhi-NCR',
+        metrics: { ...sampleMetrics, humidity: 250 },
+        profile: sampleProfile,
+      }),
+    });
+    const badWeatherRes = await POST(badWeatherReq);
+    expect(badWeatherRes.status).toBe(400);
+    expect((await badWeatherRes.json()).code).toBe('VALIDATION_ERROR');
+
+    // Legitimate partial fallback context with UTC forecast + Asia/Kolkata timezone passes validateDecisionContext cleanly
+    const goodUtcIstReq = new NextRequest('http://localhost:3000/api/ai/plan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        city: 'Bengaluru',
+        coordinates: { lat: 12.9716, lng: 77.5946 },
+        timezone: 'Asia/Kolkata',
+        metrics: { ...sampleMetrics, pm25: 110, usAqi: 185 },
+        hourlyForecast: [
+          { time: '2026-11-24T07:00', validAtUtc: '2026-11-24T01:30:00Z', pm25: 120, boundaryLayerHeight: 150 },
+          { time: '2026-11-24T14:00', validAtUtc: '2026-11-24T08:30:00Z', pm25: 42, boundaryLayerHeight: 1450 },
+        ],
+        profile: sampleProfile,
+      }),
+    });
+    const goodUtcIstRes = await POST(goodUtcIstReq);
+    expect(goodUtcIstRes.status).toBe(200);
+    const goodData = await goodUtcIstRes.json();
+    expect(validateDecisionContext(goodData.decisionContext).isValid).toBe(true);
+    const outdoorRec = goodData.structuredExplanation.actionableRecommendations.find(
+      (r: any) => r.category === 'outdoor_activity'
+    );
+    expect(outdoorRec.applicableWindow).toBe('14:00 - 15:00');
+  });
+
   it('preserves deterministic exposure numbers, discloses hybrid summary attribution, and keeps raw medical details private', async () => {
     const originalEnv = process.env.GEMINI_API_KEY;
     const fetchCalls: Array<{ url: string; body: string }> = [];

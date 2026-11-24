@@ -30,104 +30,223 @@ interface ForecastEvidenceSummary {
   blhPeakHour: string | null;
 }
 
-function formatHourLabel(timeStr: string): string {
-  const hhmmMatch = timeStr.match(/T(\d{2}:\d{2})/);
-  if (hhmmMatch) return hhmmMatch[1];
-  const parsed = new Date(timeStr);
-  if (!Number.isNaN(parsed.getTime())) {
-    return `${String(parsed.getUTCHours()).padStart(2, '0')}:00`;
-  }
-  return timeStr;
+interface ResolvedForecastClock {
+  hour: number | null;
+  minute: number | null;
+  label: string;
+  rangeLabel: string | null;
+  isLocalTimeKnown: boolean;
 }
 
-function getHourNumber(timeStr: string): number | null {
-  const hhmmMatch = timeStr.match(/T(\d{2}):\d{2}/);
-  if (hhmmMatch) return parseInt(hhmmMatch[1], 10);
-  const parsed = new Date(timeStr);
-  return Number.isNaN(parsed.getTime()) ? null : parsed.getUTCHours();
+function isUsableIanaTimezone(tz: unknown): tz is string {
+  if (typeof tz !== 'string' || tz.trim().length === 0) return false;
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: tz.trim() });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function resolveForecastClock(
+  timeStr: string,
+  cityTimezone?: string | null,
+  entryTimezone?: string | null
+): ResolvedForecastClock {
+  const offsetMatch = timeStr.trim().match(/(Z|[+-](\d{2}):?(\d{2}))$/i);
+  const effectiveCityTz = isUsableIanaTimezone(cityTimezone) ? cityTimezone.trim() : null;
+  const effectiveEntryTz =
+    isUsableIanaTimezone(entryTimezone) &&
+    entryTimezone.trim().toUpperCase() !== 'UTC' &&
+    entryTimezone.trim().toUpperCase() !== 'GMT'
+      ? entryTimezone.trim()
+      : null;
+  const targetTz = effectiveCityTz ?? effectiveEntryTz;
+
+  if (offsetMatch) {
+    const parsed = new Date(timeStr);
+    if (!Number.isNaN(parsed.getTime())) {
+      if (targetTz) {
+        const parts = new Intl.DateTimeFormat('en-GB', {
+          timeZone: targetTz,
+          hour: '2-digit',
+          minute: '2-digit',
+          hourCycle: 'h23',
+        }).formatToParts(parsed);
+        const hRaw = parseInt(parts.find((p) => p.type === 'hour')?.value ?? '0', 10) % 24;
+        const mRaw = parseInt(parts.find((p) => p.type === 'minute')?.value ?? '0', 10);
+        const hStr = String(hRaw).padStart(2, '0');
+        const mStr = String(mRaw).padStart(2, '0');
+        const endHStr = String((hRaw + 1) % 24).padStart(2, '0');
+        return {
+          hour: hRaw,
+          minute: mRaw,
+          label: `${hStr}:${mStr}`,
+          rangeLabel: `${hStr}:${mStr} - ${endHStr}:${mStr}`,
+          isLocalTimeKnown: true,
+        };
+      }
+
+      const rawIsoWall = timeStr.match(/T(\d{2}):(\d{2})/);
+      const isZeroOffset =
+        offsetMatch[1].toUpperCase() === 'Z' ||
+        (offsetMatch[2] === '00' && offsetMatch[3] === '00');
+      if (!isZeroOffset && rawIsoWall) {
+        // Explicit non-UTC offset encodes local wall clock directly
+        const hRaw = parseInt(rawIsoWall[1], 10);
+        const mRaw = parseInt(rawIsoWall[2], 10);
+        const endHStr = String((hRaw + 1) % 24).padStart(2, '0');
+        return {
+          hour: hRaw,
+          minute: mRaw,
+          label: `${rawIsoWall[1]}:${rawIsoWall[2]}`,
+          rangeLabel: `${rawIsoWall[1]}:${rawIsoWall[2]} - ${endHStr}:${rawIsoWall[2]}`,
+          isLocalTimeKnown: true,
+        };
+      }
+
+      // Bare UTC timestamp without a target local timezone: preserve UTC explicitly, do not guess local solar hour
+      const utcH = String(parsed.getUTCHours()).padStart(2, '0');
+      const utcM = String(parsed.getUTCMinutes()).padStart(2, '0');
+      return {
+        hour: null,
+        minute: parsed.getUTCMinutes(),
+        label: `${utcH}:${utcM} UTC`,
+        rangeLabel: null,
+        isLocalTimeKnown: false,
+      };
+    }
+  }
+
+  // Naive ISO local wall-clock timestamp (YYYY-MM-DDTHH:mm)
+  const naiveIso = timeStr.trim().match(/^\d{4}-\d{2}-\d{2}T(\d{2}):(\d{2})/);
+  if (naiveIso) {
+    const hRaw = parseInt(naiveIso[1], 10);
+    const mRaw = parseInt(naiveIso[2], 10);
+    const endHStr = String((hRaw + 1) % 24).padStart(2, '0');
+    return {
+      hour: hRaw,
+      minute: mRaw,
+      label: `${naiveIso[1]}:${naiveIso[2]}`,
+      rangeLabel: `${naiveIso[1]}:${naiveIso[2]} - ${endHStr}:${naiveIso[2]}`,
+      isLocalTimeKnown: true,
+    };
+  }
+
+  const parsedFallback = new Date(timeStr);
+  if (!Number.isNaN(parsedFallback.getTime())) {
+    const utcH = String(parsedFallback.getUTCHours()).padStart(2, '0');
+    const utcM = String(parsedFallback.getUTCMinutes()).padStart(2, '0');
+    return {
+      hour: null,
+      minute: parsedFallback.getUTCMinutes(),
+      label: `${utcH}:${utcM} UTC`,
+      rangeLabel: null,
+      isLocalTimeKnown: false,
+    };
+  }
+
+  return {
+    hour: null,
+    minute: null,
+    label: timeStr,
+    rangeLabel: null,
+    isLocalTimeKnown: false,
+  };
 }
 
 function analyzeForecastEvidence(context: EnvironmentalDecisionContext): ForecastEvidenceSummary {
   const entries = context.hourlyForecast ?? [];
-  const validPmPoints = entries.filter(
-    (pt): pt is typeof pt & { pm25: number } =>
-      typeof pt.pm25 === 'number' && Number.isFinite(pt.pm25)
+  const cityTz = context.city.timezone;
+  const resolvedEntries = entries.map((pt) => ({
+    pt,
+    clock: resolveForecastClock(pt.time, cityTz, pt.timezone),
+  }));
+
+  const validPmEntries = resolvedEntries.filter(
+    (entry): entry is { pt: typeof entry.pt & { pm25: number }; clock: ResolvedForecastClock } =>
+      typeof entry.pt.pm25 === 'number' && Number.isFinite(entry.pt.pm25)
   );
 
-  const validBlhPoints = entries.filter(
-    (pt): pt is typeof pt & { boundaryLayerHeight: number } =>
-      typeof pt.boundaryLayerHeight === 'number' && Number.isFinite(pt.boundaryLayerHeight)
+  const validBlhEntries = resolvedEntries.filter(
+    (entry): entry is {
+      pt: typeof entry.pt & { boundaryLayerHeight: number };
+      clock: ResolvedForecastClock;
+    } =>
+      typeof entry.pt.boundaryLayerHeight === 'number' &&
+      Number.isFinite(entry.pt.boundaryLayerHeight)
   );
 
   let cleanestPoint: ForecastEvidenceSummary['cleanestPoint'] = null;
   let peakPoint: ForecastEvidenceSummary['peakPoint'] = null;
 
-  if (validPmPoints.length > 0) {
-    const minPt = validPmPoints.reduce((best, cur) => (cur.pm25 < best.pm25 ? cur : best));
-    const maxPt = validPmPoints.reduce((worst, cur) => (cur.pm25 > worst.pm25 ? cur : worst));
+  if (validPmEntries.length > 0) {
+    const minEntry = validPmEntries.reduce((best, cur) =>
+      cur.pt.pm25 < best.pt.pm25 ? cur : best
+    );
+    const maxEntry = validPmEntries.reduce((worst, cur) =>
+      cur.pt.pm25 > worst.pt.pm25 ? cur : worst
+    );
     cleanestPoint = {
-      hourLabel: formatHourLabel(minPt.time),
-      pm25: minPt.pm25,
+      hourLabel: minEntry.clock.label,
+      pm25: minEntry.pt.pm25,
       boundaryLayerHeight:
-        typeof minPt.boundaryLayerHeight === 'number' && Number.isFinite(minPt.boundaryLayerHeight)
-          ? minPt.boundaryLayerHeight
+        typeof minEntry.pt.boundaryLayerHeight === 'number' &&
+        Number.isFinite(minEntry.pt.boundaryLayerHeight)
+          ? minEntry.pt.boundaryLayerHeight
           : null,
     };
     peakPoint = {
-      hourLabel: formatHourLabel(maxPt.time),
-      pm25: maxPt.pm25,
+      hourLabel: maxEntry.clock.label,
+      pm25: maxEntry.pt.pm25,
     };
   }
 
-  const afternoonPoints = validPmPoints.filter((pt) => {
-    const h = getHourNumber(pt.time);
-    return h !== null && h >= 12 && h <= 16;
-  });
-  const morningPoints = validPmPoints.filter((pt) => {
-    const h = getHourNumber(pt.time);
-    return h !== null && h >= 5 && h <= 10;
-  });
+  const afternoonEntries = validPmEntries.filter(
+    (e) => e.clock.isLocalTimeKnown && e.clock.hour !== null && e.clock.hour >= 12 && e.clock.hour <= 16
+  );
+  const morningEntries = validPmEntries.filter(
+    (e) => e.clock.isLocalTimeKnown && e.clock.hour !== null && e.clock.hour >= 5 && e.clock.hour <= 10
+  );
 
   let hasAfternoonCleanerWindow = false;
   let afternoonCleanerRange: string | null = null;
   let afternoonCleanerPm25: number | null = null;
 
-  if (afternoonPoints.length > 0) {
-    const bestAfternoon = afternoonPoints.reduce((best, cur) => (cur.pm25 < best.pm25 ? cur : best));
+  if (afternoonEntries.length > 0) {
+    const bestAfternoon = afternoonEntries.reduce((best, cur) =>
+      cur.pt.pm25 < best.pt.pm25 ? cur : best
+    );
     const referenceHigh =
-      morningPoints.length > 0
-        ? Math.max(...morningPoints.map((p) => p.pm25))
-        : context.currentPollutants.pm25 ?? peakPoint?.pm25 ?? null;
+      morningEntries.length > 0
+        ? Math.max(...morningEntries.map((e) => e.pt.pm25))
+        : context.currentPollutants.pm25 ?? null;
 
-    if (referenceHigh !== null && bestAfternoon.pm25 < referenceHigh) {
+    if (referenceHigh !== null && bestAfternoon.pt.pm25 < referenceHigh) {
       hasAfternoonCleanerWindow = true;
-      afternoonCleanerPm25 = bestAfternoon.pm25;
-      const startHour = getHourNumber(bestAfternoon.time);
-      afternoonCleanerRange =
-        startHour !== null
-          ? `${String(startHour).padStart(2, '0')}:00 - ${String((startHour + 1) % 24).padStart(2, '0')}:00`
-          : formatHourLabel(bestAfternoon.time);
+      afternoonCleanerPm25 = bestAfternoon.pt.pm25;
+      afternoonCleanerRange = bestAfternoon.clock.rangeLabel ?? bestAfternoon.clock.label;
     }
   }
 
   let blhPeakValue: number | null = null;
   let blhPeakHour: string | null = null;
-  if (validBlhPoints.length > 0) {
-    const maxBlh = validBlhPoints.reduce((best, cur) =>
-      cur.boundaryLayerHeight > best.boundaryLayerHeight ? cur : best
+  if (validBlhEntries.length > 0) {
+    const maxBlh = validBlhEntries.reduce((best, cur) =>
+      cur.pt.boundaryLayerHeight > best.pt.boundaryLayerHeight ? cur : best
     );
-    blhPeakValue = maxBlh.boundaryLayerHeight;
-    blhPeakHour = formatHourLabel(maxBlh.time);
+    blhPeakValue = maxBlh.pt.boundaryLayerHeight;
+    blhPeakHour = maxBlh.clock.label;
   }
 
   return {
-    hasForecastPm25: validPmPoints.length > 0,
+    hasForecastPm25: validPmEntries.length > 0,
     cleanestPoint,
     peakPoint,
     hasAfternoonCleanerWindow,
     afternoonCleanerRange,
     afternoonCleanerPm25,
-    hasBlhData: validBlhPoints.length > 0,
+    hasBlhData: validBlhEntries.length > 0,
     blhPeakValue,
     blhPeakHour,
   };

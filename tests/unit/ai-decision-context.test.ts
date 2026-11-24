@@ -193,13 +193,14 @@ describe('Environmental Decision Context & Structured AI Assistant (Phase 2)', (
     expect(serialized).not.toContain('08:00 - 10:30');
   });
 
-  it('cites validated afternoon cleaner window and BLH only when hourlyForecast actually contains them', () => {
+  it('cites validated afternoon cleaner window and BLH only when hourlyForecast actually contains them in city timezone', () => {
+    // In Asia/Kolkata (UTC+5:30): 01:30Z = 07:00 IST morning, 08:30Z = 14:00 IST afternoon
     const withForecast: EnvironmentalDecisionContext = {
       ...validContext,
       currentPollutants: { pm25: 110, pm10: 160, aqi: 260, aqiStandard: 'cpcb' },
       hourlyForecast: [
-        { time: '2026-11-24T07:00:00Z', pm25: 120, aqi: 280, boundaryLayerHeight: 150 },
-        { time: '2026-11-24T14:00:00Z', pm25: 42, aqi: 70, boundaryLayerHeight: 1450 },
+        { time: '2026-11-24T01:30:00Z', pm25: 120, aqi: 280, boundaryLayerHeight: 150 },
+        { time: '2026-11-24T08:30:00Z', pm25: 42, aqi: 70, boundaryLayerHeight: 1450 },
       ],
     };
 
@@ -209,6 +210,37 @@ describe('Environmental Decision Context & Structured AI Assistant (Phase 2)', (
     expect(outdoorRec!.applicableWindow).toBe('14:00 - 15:00');
     expect(outdoorRec!.supportingData).toContain('42 µg/m³');
     expect(outdoorRec!.supportingData).toContain('1450 m');
+
+    // 14:00Z is 19:30 IST (evening), not afternoon; must NOT label 14:00Z as 14:00 - 15:00 afternoon in Asia/Kolkata
+    const eveningInIst: EnvironmentalDecisionContext = {
+      ...validContext,
+      currentPollutants: { pm25: 110, pm10: 160, aqi: 260, aqiStandard: 'cpcb' },
+      hourlyForecast: [
+        { time: '2026-11-24T01:30:00Z', pm25: 120, aqi: 280 },
+        { time: '2026-11-24T14:00:00Z', pm25: 42, aqi: 70 },
+      ],
+    };
+    const eveningExplanation = generateDeterministicStructuredExplanation(eveningInIst);
+    const eveningRec = eveningExplanation.actionableRecommendations.find((r) => r.category === 'outdoor_activity');
+    expect(eveningRec).toBeDefined();
+    expect(eveningRec!.applicableWindow).toBe('Around 19:30');
+    expect(JSON.stringify(eveningExplanation)).not.toContain('14:00 - 15:00');
+
+    // Bare UTC forecast with missing timezone must keep UTC label and must not assume local afternoon
+    const utcNoTimezone: EnvironmentalDecisionContext = {
+      ...validContext,
+      city: { ...validContext.city, timezone: null },
+      currentPollutants: { pm25: 110, pm10: 160, aqi: 260, aqiStandard: 'cpcb' },
+      hourlyForecast: [
+        { time: '2026-11-24T07:00:00Z', pm25: 120, aqi: 280 },
+        { time: '2026-11-24T14:00:00Z', pm25: 42, aqi: 70 },
+      ],
+    };
+    const utcExplanation = generateDeterministicStructuredExplanation(utcNoTimezone);
+    const utcRec = utcExplanation.actionableRecommendations.find((r) => r.category === 'outdoor_activity');
+    expect(utcRec).toBeDefined();
+    expect(utcRec!.applicableWindow).toBe('Around 14:00 UTC');
+    expect(JSON.stringify(utcExplanation)).not.toContain('14:00 - 15:00');
   });
 
   it('rejects NaN, unsupported units, contradictory unknown sources, duplicate/unordered forecast, invalid schedule, and raw medical keys', () => {

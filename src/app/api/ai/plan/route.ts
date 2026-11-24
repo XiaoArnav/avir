@@ -262,6 +262,17 @@ export async function POST(req: NextRequest) {
       decisionContext = normalizeValidatedDecisionContext(rawBody.decisionContext, sensitivity);
     } else {
       decisionContext = buildFallbackDecisionContext(rawBody, sensitivity);
+      const fallbackValidation = validateDecisionContext(decisionContext);
+      if (!fallbackValidation.isValid) {
+        return NextResponse.json(
+          {
+            error: `Validation failed: ${fallbackValidation.errors.join('; ')}`,
+            code: 'VALIDATION_ERROR',
+            errors: fallbackValidation.errors,
+          },
+          { status: 400 }
+        );
+      }
     }
 
     // Always generate baseline deterministic structured explanation
@@ -579,7 +590,7 @@ function classifySourceProvenance(rawBody: any): {
         : undefined;
 
   const rawDist =
-    typeof rawBody.source?.distanceKm === 'number' && Number.isFinite(rawBody.source.distanceKm)
+    rawBody.source?.distanceKm !== undefined && rawBody.source?.distanceKm !== null
       ? rawBody.source.distanceKm
       : sourceType === 'physical_monitor' &&
           typeof rawBody.metrics?.groundStation?.distanceKm === 'number' &&
@@ -603,34 +614,30 @@ function buildFallbackDecisionContext(rawBody: any, sensitivity: any): Environme
       : 'Unspecified Location';
 
   const { latitude, longitude } = extractVerifiedCoordinates(rawBody);
-  const country =
-    typeof rawBody.country === 'string' && rawBody.country.trim()
-      ? sanitizeTextLabel(rawBody.country, 'Unspecified Country')
-      : null;
 
-  const candidateTimezone =
-    rawBody.timezone ?? rawBody.schedule?.timezone ?? rawBody.metrics?.timezone;
-  const timezone = isValidTimeZone(candidateTimezone) ? candidateTimezone.trim() : null;
+  const explicitTimezone = rawBody.timezone ?? rawBody.schedule?.timezone;
+  const fallbackTimezone = rawBody.metrics?.timezone;
+  const timezone =
+    explicitTimezone !== undefined && explicitTimezone !== null && explicitTimezone !== ''
+      ? (isValidTimeZone(explicitTimezone) ? explicitTimezone.trim() : explicitTimezone)
+      : isValidTimeZone(fallbackTimezone)
+        ? fallbackTimezone.trim()
+        : null;
 
   const sourceInfo = classifySourceProvenance(rawBody);
 
-  const rawObsTime =
-    rawBody.source?.observationTime ??
+  const explicitObsTime = rawBody.source?.observationTime;
+  const fallbackObsTime =
     rawBody.metrics?.timestamp ??
     (sourceInfo.sourceType === 'physical_monitor' ? rawBody.metrics?.groundStation?.observedAt : undefined);
   const observationTime =
-    typeof rawObsTime === 'string' &&
-    rawObsTime.trim().length > 0 &&
-    !Number.isNaN(Date.parse(rawObsTime))
-      ? rawObsTime.trim()
-      : null;
-
-  const freshnessHours =
-    typeof rawBody.source?.freshnessHours === 'number' &&
-    Number.isFinite(rawBody.source.freshnessHours) &&
-    rawBody.source.freshnessHours >= 0
-      ? rawBody.source.freshnessHours
-      : null;
+    explicitObsTime !== undefined && explicitObsTime !== null
+      ? (typeof explicitObsTime === 'string' ? explicitObsTime.trim() : explicitObsTime)
+      : typeof fallbackObsTime === 'string' &&
+          fallbackObsTime.trim().length > 0 &&
+          !Number.isNaN(Date.parse(fallbackObsTime))
+        ? fallbackObsTime.trim()
+        : null;
 
   // Resolve PM2.5, PM10, AQI and AQI Standard without cross-labeling EPA AQI as CPCB or mixing providers
   const sourceUnavailable = Boolean(rawBody.selectedSourceUnavailable);
@@ -712,37 +719,73 @@ function buildFallbackDecisionContext(rawBody: any, sensitivity: any): Environme
     category = 'Unavailable';
   }
 
-  const normalizedForecast = Array.isArray(rawBody.hourlyForecast)
+  const rawForecastList = Array.isArray(rawBody.hourlyForecast)
     ? rawBody.hourlyForecast
-        .filter((pt: any) => pt && typeof pt === 'object' && typeof (pt.validAtUtc || pt.timestamp || pt.time) === 'string')
-        .map((pt: any) => ({
-          time: pt.validAtUtc || pt.timestamp || pt.time,
-          pm25:
-            typeof (pt.pm25UgM3 ?? pt.pm25) === 'number' && Number.isFinite(pt.pm25UgM3 ?? pt.pm25)
-              ? (pt.pm25UgM3 ?? pt.pm25)
-              : null,
-          aqi:
-            typeof (pt.aqi ?? pt.usAqi) === 'number' && Number.isFinite(pt.aqi ?? pt.usAqi)
-              ? (pt.aqi ?? pt.usAqi)
-              : null,
-          windSpeedKmh:
-            typeof (pt.windSpeedKmh ?? pt.windSpeed) === 'number' &&
-            Number.isFinite(pt.windSpeedKmh ?? pt.windSpeed)
-              ? (pt.windSpeedKmh ?? pt.windSpeed)
-              : null,
-          boundaryLayerHeight:
-            typeof pt.boundaryLayerHeight === 'number' && Number.isFinite(pt.boundaryLayerHeight)
-              ? pt.boundaryLayerHeight
-              : null,
-        }))
-    : undefined;
+    : Array.isArray(rawBody.metrics?.hourlyForecast)
+      ? rawBody.metrics.hourlyForecast
+      : null;
+
+  const normalizedForecast = rawForecastList
+    ? rawForecastList.map((pt: any) => {
+        if (!pt || typeof pt !== 'object' || Array.isArray(pt)) return pt;
+        const resolvedTime = pt.validAtUtc ?? pt.timestamp ?? pt.time;
+        const entry: Record<string, any> = {
+          time: resolvedTime,
+          pm25: pt.pm25UgM3 !== undefined ? pt.pm25UgM3 : (pt.pm25 ?? null),
+          aqi: pt.aqi !== undefined ? pt.aqi : (pt.usAqi ?? null),
+          windSpeedKmh: pt.windSpeedKmh !== undefined ? pt.windSpeedKmh : (pt.windSpeed ?? null),
+          boundaryLayerHeight: pt.boundaryLayerHeight ?? null,
+        };
+        if (pt.units !== undefined) entry.units = pt.units;
+        if (typeof pt.timezone === 'string' && pt.timezone.trim()) {
+          entry.timezone = pt.timezone.trim();
+        }
+        return entry;
+      })
+    : rawBody.hourlyForecast;
+
+  const sanitizedCountry =
+    rawBody.country === undefined || rawBody.country === null
+      ? null
+      : typeof rawBody.country === 'string' && rawBody.country.trim()
+        ? sanitizeTextLabel(rawBody.country, 'Unspecified Country')
+        : rawBody.country;
+
+  const rawFreshness = rawBody.source?.freshnessHours;
+  const freshness =
+    rawFreshness !== undefined && rawFreshness !== null ? rawFreshness : null;
+
+  const sanitizedTemp =
+    typeof rawBody.metrics?.temperature === 'number' &&
+    Number.isFinite(rawBody.metrics.temperature) &&
+    rawBody.metrics.temperature >= -80 &&
+    rawBody.metrics.temperature <= 70
+      ? rawBody.metrics.temperature
+      : rawBody.metrics?.temperature !== undefined && rawBody.metrics?.temperature !== null
+        ? rawBody.metrics.temperature
+        : null;
+
+  const sanitizedHumidity =
+    rawBody.metrics?.humidity !== undefined && rawBody.metrics?.humidity !== null
+      ? rawBody.metrics.humidity
+      : null;
+
+  const sanitizedWindSpeed =
+    rawBody.metrics?.windSpeed !== undefined && rawBody.metrics?.windSpeed !== null
+      ? rawBody.metrics.windSpeed
+      : null;
+
+  const sanitizedWindDirection =
+    rawBody.metrics?.windDirection !== undefined && rawBody.metrics?.windDirection !== null
+      ? rawBody.metrics.windDirection
+      : null;
 
   return {
     city: {
       name: cityName,
       latitude,
       longitude,
-      country,
+      country: sanitizedCountry,
       timezone,
     },
     source: {
@@ -750,7 +793,7 @@ function buildFallbackDecisionContext(rawBody: any, sensitivity: any): Environme
       sourceType: sourceInfo.sourceType,
       isModel: sourceInfo.isModel,
       observationTime,
-      freshnessHours,
+      freshnessHours: freshness,
       stationName: sourceInfo.stationName,
       distanceKm: sourceInfo.distanceKm,
     },
@@ -762,27 +805,15 @@ function buildFallbackDecisionContext(rawBody: any, sensitivity: any): Environme
       category,
     },
     weather: {
-      temperatureC:
-        typeof rawBody.metrics?.temperature === 'number' && Number.isFinite(rawBody.metrics.temperature)
-          ? rawBody.metrics.temperature
-          : null,
-      relativeHumidity:
-        typeof rawBody.metrics?.humidity === 'number' && Number.isFinite(rawBody.metrics.humidity)
-          ? rawBody.metrics.humidity
-          : null,
-      windSpeedKmh:
-        typeof rawBody.metrics?.windSpeed === 'number' && Number.isFinite(rawBody.metrics.windSpeed)
-          ? rawBody.metrics.windSpeed
-          : null,
-      windDirectionDeg:
-        typeof rawBody.metrics?.windDirection === 'number' && Number.isFinite(rawBody.metrics.windDirection)
-          ? rawBody.metrics.windDirection
-          : null,
+      temperatureC: sanitizedTemp,
+      relativeHumidity: sanitizedHumidity,
+      windSpeedKmh: sanitizedWindSpeed,
+      windDirectionDeg: sanitizedWindDirection,
     },
     userContext: {
       generalizedSensitivity: sensitivity,
-      commuteMode: rawBody.commuteMode || 'mixed',
-      indoorAirPurification: rawBody.indoorAirPurification || 'unknown',
+      commuteMode: rawBody.commuteMode ?? 'mixed',
+      indoorAirPurification: rawBody.indoorAirPurification ?? 'unknown',
     },
     schedule: rawBody.schedule,
     hourlyForecast: normalizedForecast,

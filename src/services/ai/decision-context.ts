@@ -102,6 +102,7 @@ export interface EnvironmentalDecisionContext {
     windSpeedKmh?: number | null;
     boundaryLayerHeight?: number | null;
     units?: 'µg/m³' | 'ug/m3';
+    timezone?: string | null;
   }>;
 }
 
@@ -658,6 +659,21 @@ export function validateDecisionContext(context: unknown): ValidationResult {
           errors.push(`Forecast entry at index ${i} must be a plain object.`);
           break;
         }
+        const unexpectedForecast = hasUnknownKeys(pt, [
+          'time',
+          'pm25',
+          'aqi',
+          'windSpeedKmh',
+          'boundaryLayerHeight',
+          'units',
+          'timezone',
+        ]);
+        if (unexpectedForecast.length > 0) {
+          errors.push(
+            `Unexpected hourlyForecast fields at index ${i}: ${unexpectedForecast.join(', ')}.`
+          );
+          break;
+        }
 
         if (typeof pt.time !== 'string' || pt.time.trim().length === 0) {
           errors.push(`Forecast entry at index ${i} must include a valid timestamp string.`);
@@ -706,6 +722,17 @@ export function validateDecisionContext(context: unknown): ValidationResult {
         if (pt.units !== undefined && pt.units !== null && !VALID_PM_UNITS.includes(pt.units)) {
           errors.push(`Forecast entry at index ${i} has unsupported units "${pt.units}".`);
           break;
+        }
+        if (pt.timezone !== undefined && pt.timezone !== null) {
+          if (
+            typeof pt.timezone !== 'string' ||
+            pt.timezone.trim().length === 0 ||
+            pt.timezone.length > 100 ||
+            !isValidTimeZone(pt.timezone.trim())
+          ) {
+            errors.push(`Forecast entry at index ${i} has invalid timezone "${pt.timezone}".`);
+            break;
+          }
         }
       }
     }
