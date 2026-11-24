@@ -12,11 +12,12 @@ import {
 } from 'lucide-react';
 import { GeocodedLocation, PREDEFINED_INDIAN_CITIES } from '@/services/telemetry-service';
 import { WORLD_METROS } from '@/services/world-telemetry-service';
+import { LocationSelectionSource } from '@/domain/types';
 
 export interface FirstVisitLocationModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSelectCity: (location: GeocodedLocation) => void;
+  onSelectCity: (location: GeocodedLocation, source?: LocationSelectionSource) => void;
   onOpenSearchPicker?: () => void;
 }
 
@@ -82,12 +83,13 @@ export function FirstVisitLocationModal({
 
           setGeoStatus('success');
           try {
+            // Respect user privacy: Do NOT automatically persist raw GPS coordinates across sessions.
+            // Mark onboarding as complete; ephemeral GPS stays session-scoped in memory.
             localStorage.setItem('avir_location_onboarded_v1', 'true');
-            localStorage.setItem('avir_selected_city_v1', JSON.stringify(detectedLocation));
           } catch {}
 
           setTimeout(() => {
-            onSelectCity(detectedLocation);
+            onSelectCity(detectedLocation, 'ephemeral_gps');
             onClose();
           }, 400);
         } catch (err: any) {
@@ -247,7 +249,7 @@ export function FirstVisitLocationModal({
                       localStorage.setItem('avir_location_onboarded_v1', 'true');
                       localStorage.setItem('avir_selected_city_v1', JSON.stringify(city));
                     } catch {}
-                    onSelectCity(city);
+                    onSelectCity(city, 'manual_predefined');
                     onClose();
                   }}
                   className="px-2.5 py-1 rounded-lg text-xs font-medium bg-white/10 hover:bg-sky-500 hover:text-black transition-colors cursor-pointer"
@@ -272,7 +274,7 @@ export function FirstVisitLocationModal({
                       localStorage.setItem('avir_location_onboarded_v1', 'true');
                       localStorage.setItem('avir_selected_city_v1', JSON.stringify(loc));
                     } catch {}
-                    onSelectCity(loc);
+                    onSelectCity(loc, 'manual_predefined');
                     onClose();
                   }}
                   className="px-2.5 py-1 rounded-lg text-xs font-medium bg-sky-950/60 border border-sky-500/20 text-sky-200 hover:bg-sky-500 hover:text-black transition-colors cursor-pointer"

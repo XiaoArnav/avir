@@ -33,10 +33,11 @@ describe('GET /api/geo/reverse (Reverse Geocoding Endpoint)', () => {
     expect(res.status).toBe(200);
 
     const json = await res.json();
-    expect(json.name).toBe('Delhi-NCR');
+    expect(json.name).toBe('Approx. near Delhi-NCR');
     expect(json.country).toBe('India');
     expect(json.source).toBe('spatial_index');
     expect(typeof json.id).toBe('number');
+    expect(res.headers.get('Cache-Control')).toBe('private, no-cache, no-store, must-revalidate');
   });
 
   it('resolves coordinates via upstream Nominatim response', async () => {

@@ -32,6 +32,7 @@ import {
   UserVulnerabilityProfile,
   RecommendationPlan,
   HourlyAtmosphericPoint,
+  LocationSelectionSource,
 } from '@/domain/types';
 import { getAQICategory } from '@/domain/air-math';
 import {
@@ -211,14 +212,23 @@ export default function Home() {
     };
   }, [selectedCity]);
 
-  // Handle city selection with clean transition to avoid race condition
-  const handleCitySelect = (loc: GeocodedLocation) => {
+  // Handle city selection with clean transition and strict privacy-conscious persistence
+  const handleCitySelect = (
+    loc: GeocodedLocation,
+    source: LocationSelectionSource = 'manual_predefined'
+  ) => {
     if (loc.id === selectedCity.id && loc.name === selectedCity.name) return;
-    try {
-      localStorage.setItem('avir_selected_city_v1', JSON.stringify(loc));
-    } catch (e) {
-      console.warn('Failed to persist selected city:', e);
+
+    // Privacy Policy: Only persist manual selections and explicit preferences.
+    // Ephemeral GPS-detected coordinates remain in-memory for the current session only.
+    if (source === 'manual_predefined' || source === 'manual_search' || source === 'saved_preference') {
+      try {
+        localStorage.setItem('avir_selected_city_v1', JSON.stringify(loc));
+      } catch (e) {
+        console.warn('Failed to persist selected city preference:', e);
+      }
     }
+
     planGenIdRef.current += 1;
     setIsPlanGenerating(false);
     setPlannerMessage('');
