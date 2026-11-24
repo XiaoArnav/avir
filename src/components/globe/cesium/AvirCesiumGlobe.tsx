@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef, useState, useTransition } from 'react';
 import type { GeographicObservationPoint, AqiStandard } from '@/services/geo/geographic-observation-adapter';
+import { createKeylessTerrainProvider } from './cesium-terrain';
 
 export type ViewerLifecycle = 'idle' | 'initializing' | 'ready' | 'failed' | 'destroyed';
 
@@ -23,6 +24,7 @@ export interface AvirCesiumGlobeProps {
   // Dynamic controls & lifecycle signals
   isAutoRotating?: boolean;
   cameraAction?: CameraAction | null;
+  isTerrainEnabled?: boolean;
   onReady?: () => void;
   onFallbackToThree?: (reason: string) => void;
 }
@@ -39,12 +41,14 @@ export function AvirCesiumGlobe({
   className = '',
   isAutoRotating = true,
   cameraAction = null,
+  isTerrainEnabled = false,
   onReady,
   onFallbackToThree,
 }: AvirCesiumGlobeProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [lifecycle, setLifecycle] = useState<ViewerLifecycle>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [terrainAttribution, setTerrainAttribution] = useState<string | null>(null);
 
   // Mutable refs to prevent stale closures inside Cesium asynchronous callbacks and event listeners
   const viewerRef = useRef<{
@@ -424,6 +428,27 @@ export function AvirCesiumGlobe({
     );
   }, [themeMode, lifecycle]);
 
+  // Dynamically load Re:Earth keyless 3D elevation terrain or fall back to ellipsoid
+  useEffect(() => {
+    if (lifecycle !== 'ready' || !viewerRef.current) return;
+    const { viewer, Cesium } = viewerRef.current;
+    if (viewer.isDestroyed()) return;
+
+    if (isTerrainEnabled) {
+      createKeylessTerrainProvider(Cesium).then((res) => {
+        if (!viewer.isDestroyed() && res.provider) {
+          viewer.terrainProvider = res.provider;
+          setTerrainAttribution(res.attribution);
+        }
+      });
+    } else {
+      if (!viewer.isDestroyed()) {
+        viewer.terrainProvider = new Cesium.EllipsoidTerrainProvider();
+        setTerrainAttribution(null);
+      }
+    }
+  }, [isTerrainEnabled, lifecycle]);
+
   if (lifecycle === 'failed') {
     return (
       <div className={`w-full h-full flex flex-col items-center justify-center bg-black/80 text-rose-300 p-6 ${className}`}>
@@ -447,6 +472,7 @@ export function AvirCesiumGlobe({
       {/* Honest Provider Attribution Badge */}
       <div className="absolute bottom-1 left-2 z-10 pointer-events-none text-[9px] text-slate-400/70 telemetry-mono">
         Imagery: Tiles © Esri, Maxar, Earthstar Geographics | © OpenStreetMap | CesiumJS
+        {terrainAttribution ? ` | ${terrainAttribution}` : ''}
       </div>
     </div>
   );
