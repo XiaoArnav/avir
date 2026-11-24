@@ -3,6 +3,7 @@
 import React, { useState, useMemo } from 'react';
 import {
   AtmosphericMetrics,
+  HourlyAtmosphericPoint,
 } from '@/domain/types';
 import { GeocodedLocation, PREDEFINED_INDIAN_CITIES } from '@/services/telemetry-service';
 import {
@@ -23,12 +24,15 @@ export interface EarthCommandCenterProps {
   currentCity: GeocodedLocation;
   metrics: AtmosphericMetrics | null;
   isLoading: boolean;
+  selectedTemporalPoint?: HourlyAtmosphericPoint | null;
+  themeMode?: 'dark' | 'light';
   onSelectCity: (location: GeocodedLocation) => void;
   onRefreshTelemetry: () => void;
   onOpenExplainer: () => void;
   onOpenShare: () => void;
   onOpenMultiSource: () => void;
   onOpenDailyPlan: () => void;
+  onSnapToNow?: () => void;
   className?: string;
   initialDetailsOpen?: boolean;
 }
@@ -52,12 +56,15 @@ export function EarthCommandCenter({
   currentCity,
   metrics,
   isLoading,
+  selectedTemporalPoint,
+  themeMode = 'dark',
   onSelectCity,
   onRefreshTelemetry,
   onOpenExplainer,
   onOpenShare,
   onOpenMultiSource,
   onOpenDailyPlan,
+  onSnapToNow,
   className = '',
   initialDetailsOpen = false,
 }: EarthCommandCenterProps) {
@@ -71,6 +78,10 @@ export function EarthCommandCenter({
     if (!metrics?.hourlyForecast || metrics.hourlyForecast.length === 0) return null;
     return metrics.hourlyForecast.find((h) => h.hour === liveHour) ?? null;
   }, [metrics?.hourlyForecast, liveHour]);
+
+  // Active time point: explicitly selected point or default live point
+  const isForecastSelected = Boolean(selectedTemporalPoint?.isForecast);
+  const activeTimePoint = selectedTemporalPoint ?? hourlyPoint;
 
   // Build reactive geographic observation points from current telemetry & world registries
   const points = useMemo(() => {
@@ -109,8 +120,13 @@ export function EarthCommandCenter({
     if (matched) {
       onSelectCity(matched);
     } else {
+      // Deterministic integer ID from coordinates & name hash
+      const latHash = Math.abs(Math.round(point.latitude * 1000));
+      const lonHash = Math.abs(Math.round(point.longitude * 1000));
+      const deterministicId = latHash * 10000 + (lonHash % 10000);
+
       onSelectCity({
-        id: Math.floor(Math.random() * 100000),
+        id: deterministicId,
         name: point.name,
         country: point.country,
         countryCode: point.countryCode,
@@ -121,13 +137,30 @@ export function EarthCommandCenter({
   };
 
   // Strict Scientific Standard Separation:
-  // CPCB NAQI and US EPA AQI values preserved without cross-contamination
+  // CPCB NAQI and US EPA AQI values preserved without cross-contamination.
+  // Data reflects the active dashboard city (currentCity), never an inspected marker of another city!
   const aqiValue = useMemo(() => {
-    if (standard === 'cpcb') {
-      return activeGlobePoint?.cpcbAqi ?? null;
+    if (isForecastSelected && activeTimePoint) {
+      if (standard === 'epa') {
+        return activeTimePoint.usAqi ?? null;
+      }
+      // CPCB NAQI does not publish official statutory forecasts.
+      // If modeled PM2.5/PM10 forecast exists, calculate indicative sub-index honestly:
+      if (activeTimePoint.pm25 !== null && activeTimePoint.pm25 !== undefined) {
+        const cpcbRes = calculateComprehensiveCpcbNaqi({
+          pm25: activeTimePoint.pm25,
+          pm10: activeTimePoint.pm10 ?? null,
+        });
+        return cpcbRes.aqi;
+      }
+      return null;
     }
-    return activeGlobePoint?.usAqi ?? metrics?.usAqi ?? null;
-  }, [standard, activeGlobePoint, metrics]);
+
+    if (standard === 'cpcb') {
+      return metrics?.cpcbAqi ?? null;
+    }
+    return metrics?.usAqi ?? null;
+  }, [isForecastSelected, activeTimePoint, standard, metrics]);
 
   const hasOfficialGround = Boolean(
     metrics?.groundStation &&
@@ -139,30 +172,34 @@ export function EarthCommandCenter({
   // Truthful Provenance & Source Labeling (Part 1.3)
   const sourceInfo = useMemo(() => {
     return resolveTruthfulSourceLabel({
-      isForecast: false,
+      isForecast: isForecastSelected,
       hasOfficialGround,
       groundStationProvider: metrics?.groundStation?.provider,
       isCached: metrics?.cacheMetadata?.isCached,
       isLive: metrics?.isLive,
       status: metrics?.status,
     });
-  }, [hasOfficialGround, metrics]);
+  }, [isForecastSelected, hasOfficialGround, metrics]);
 
   // Honest freshness state: never display "Live" when timestamp is absent
   const relativeFreshness = useMemo(() => {
+    if (isForecastSelected && activeTimePoint) {
+      const timeStr = activeTimePoint.localDisplayTime || `${activeTimePoint.hour.toString().padStart(2, '0')}:00`;
+      return `Forecast for ${timeStr}`;
+    }
     if (!metrics?.timestamp) return 'Awaiting Telemetry';
     return metrics.isLive
       ? (formatTimeAgo(metrics.timestamp) || 'Just now')
       : `Cached (${formatTimeAgo(metrics.timestamp) || 'Recent'})`;
-  }, [metrics]);
+  }, [isForecastSelected, activeTimePoint, metrics]);
 
   // Scientific Thermal Inversion calculation for the active hour
   const isHourlyInversion = useMemo(() => {
-    if (hourlyPoint) {
-      return isThermalInversion(hourlyPoint.boundaryLayerHeight, hourlyPoint.hour);
+    if (activeTimePoint?.boundaryLayerHeight !== null && activeTimePoint?.boundaryLayerHeight !== undefined) {
+      return isThermalInversion(activeTimePoint.boundaryLayerHeight, activeTimePoint.hour);
     }
     return Boolean(metrics?.isThermalInversionActive);
-  }, [hourlyPoint, metrics?.isThermalInversionActive]);
+  }, [activeTimePoint, metrics?.isThermalInversionActive]);
 
   // Authoritative statutory CAQM GRAP stage resolution with NCR jurisdiction enforcement
   const grapStage = useMemo(() => {
@@ -230,16 +267,30 @@ export function EarthCommandCenter({
       className={`relative w-full rounded-3xl overflow-hidden border border-stone-200/90 dark:border-sky-500/25 bg-stone-900/95 dark:bg-[#030712] shadow-2xl transition-all ${className}`}
     >
       {/* 1. Aerospace Mission Control Top Banner */}
-      <MissionHeader
-        cityName={currentCity.name}
-        latitude={currentCity.latitude}
-        longitude={currentCity.longitude}
-        elevationMeters={elevation}
-        stationName={sourceInfo.label}
-        hasOfficialGround={hasOfficialGround}
-        standard={standard}
-        onToggleStandard={toggleStandard}
-      />
+      <div className="relative">
+        <MissionHeader
+          cityName={currentCity.name}
+          latitude={currentCity.latitude}
+          longitude={currentCity.longitude}
+          elevationMeters={elevation}
+          stationName={isForecastSelected ? `${sourceInfo.label} [DIURNAL FORECAST: ${activeTimePoint?.localDisplayTime || `${activeTimePoint?.hour}:00`}]` : sourceInfo.label}
+          hasOfficialGround={hasOfficialGround}
+          standard={standard}
+          onToggleStandard={toggleStandard}
+        />
+        {isForecastSelected && onSnapToNow && (
+          <div className="absolute right-4 top-1/2 -translate-y-1/2 z-20 hidden md:block">
+            <button
+              type="button"
+              onClick={onSnapToNow}
+              className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 border border-emerald-500/30 transition-colors cursor-pointer"
+              title="Snap back to current live observation hour"
+            >
+              SNAP TO NOW
+            </button>
+          </div>
+        )}
+      </div>
 
       {/* 2. Panoramic Atmospheric Earth Command Center (70-80% globe-first viewport) */}
       <div className="relative w-full min-h-[600px] lg:min-h-[720px] overflow-hidden flex flex-col justify-between">
@@ -247,13 +298,14 @@ export function EarthCommandCenter({
         <div className="absolute inset-0 w-full h-full z-0">
           <AvirGlobe
             points={points}
-            selectedPointId={activeGlobePoint?.id}
+            selectedPointId={selectedGlobePointId || activeGlobePoint?.id}
             activeCityName={currentCity.name}
             onSelectPoint={handleGlobeSelectPoint}
             onSetActiveCity={handleGlobeSetActiveCity}
             standard={standard}
             onToggleStandard={toggleStandard}
-            validAtUtc={metrics?.timestamp || hourlyPoint?.validAtUtc}
+            themeMode={themeMode}
+            validAtUtc={activeTimePoint?.validAtUtc || metrics?.timestamp}
             className="w-full h-full !rounded-none !border-none !shadow-none !bg-transparent"
           />
         </div>
@@ -269,7 +321,7 @@ export function EarthCommandCenter({
               aqiValue={aqiValue}
               categoryLabel={categoryInfo.label}
               categoryColor={categoryInfo.color}
-              primaryPollutant={activeGlobePoint?.primaryPollutant || 'PM2.5'}
+              primaryPollutant={metrics?.primaryPollutant || 'PM2.5'}
               standard={standard}
               onToggleStandard={toggleStandard}
               provenanceLabel={sourceInfo.shortLabel}
@@ -288,6 +340,7 @@ export function EarthCommandCenter({
           onClose={() => setIsDetailsOpen(false)}
           city={currentCity}
           metrics={metrics}
+          selectedTemporalPoint={activeTimePoint}
           standard={standard}
           onToggleStandard={toggleStandard}
           onOpenDailyPlan={onOpenDailyPlan}

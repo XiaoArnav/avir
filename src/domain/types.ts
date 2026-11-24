@@ -211,6 +211,21 @@ export interface HourlyAtmosphericPoint {
 }
 
 // ---------------------------------------------------------------------------
+// Canonical Temporal State for Absolute Timestamp Synchronization
+// ---------------------------------------------------------------------------
+
+export type TemporalSelectionMode = 'now' | 'interval';
+
+export interface CanonicalTemporalState {
+  mode: TemporalSelectionMode;
+  validAtUtc: string | null; // ISO 8601 UTC timestamp or null for live 'now'
+  targetHour: number;        // 0-23 in target city's wall-clock time
+  displayTime: string;       // e.g. "14:00" or "NOW"
+  isForecast: boolean;
+  sourceType: 'observation' | 'forecast' | 'analysis';
+}
+
+// ---------------------------------------------------------------------------
 // Canonical Environmental Multi-Source & Provenance Model (Step 3/24)
 // ---------------------------------------------------------------------------
 

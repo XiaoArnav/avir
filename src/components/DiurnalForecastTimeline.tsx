@@ -12,6 +12,9 @@ interface DiurnalForecastTimelineProps {
   hourlyForecast?: HourlyAtmosphericPoint[];
   currentHour?: number;
   cityName: string;
+  selectedValidAtUtc?: string | null;
+  onSelectTimePoint?: (point: HourlyAtmosphericPoint) => void;
+  onSnapToNow?: () => void;
 }
 
 export type ForecastMetricMode = 'pm25' | 'usAqi';
@@ -20,11 +23,25 @@ export const DiurnalForecastTimeline: React.FC<DiurnalForecastTimelineProps> = (
   hourlyForecast = [],
   currentHour = new Date().getHours(),
   cityName,
+  selectedValidAtUtc,
+  onSelectTimePoint,
+  onSnapToNow,
 }) => {
   const shouldReduceMotion = useReducedMotion();
 
+  // Compute canonical initial selection key safely across SSR and hydration
+  const initialKey = useMemo(() => {
+    if (!hourlyForecast || hourlyForecast.length === 0) return '';
+    if (selectedValidAtUtc) {
+      const match = hourlyForecast.find((p) => p.validAtUtc === selectedValidAtUtc);
+      if (match) return match.validAtUtc || match.time || String(match.hour);
+    }
+    const defaultPt = hourlyForecast.find((p) => p.hour === currentHour) || hourlyForecast[0];
+    return defaultPt.validAtUtc || defaultPt.time || String(defaultPt.hour);
+  }, [hourlyForecast, currentHour, selectedValidAtUtc]);
+
   // Use unique timestamp key (validAtUtc or time) for stable cross-date identity
-  const [selectedKey, setSelectedKey] = useState<string>('');
+  const [selectedKey, setSelectedKey] = useState<string>(initialKey);
   const [metricMode, setMetricMode] = useState<ForecastMetricMode>('pm25');
   const [showDataTable, setShowDataTable] = useState(false);
 
@@ -129,16 +146,24 @@ export const DiurnalForecastTimeline: React.FC<DiurnalForecastTimelineProps> = (
     return result;
   }, [validPoints, minVal, range, chartWidth, chartHeight, paddingX, paddingY]);
 
-  // Keep selected point in sync when forecast or city changes
+  // Keep selected point in sync when forecast, selectedValidAtUtc, or city changes
   useEffect(() => {
     if (hourlyForecast && hourlyForecast.length > 0) {
+      if (selectedValidAtUtc) {
+        const found = hourlyForecast.find((p) => p.validAtUtc === selectedValidAtUtc);
+        if (found) {
+          const key = found.validAtUtc || found.time || String(found.hour);
+          setSelectedKey(key);
+          return;
+        }
+      }
       const defaultPt = hourlyForecast.find((p) => p.hour === currentHour) || hourlyForecast[0];
       const key = defaultPt.validAtUtc || defaultPt.time || String(defaultPt.hour);
       setSelectedKey(key);
     } else {
       setSelectedKey('');
     }
-  }, [hourlyForecast, currentHour, cityName]);
+  }, [hourlyForecast, currentHour, cityName, selectedValidAtUtc]);
 
   if (!hourlyForecast || hourlyForecast.length === 0) {
     return (
@@ -180,6 +205,7 @@ export const DiurnalForecastTimeline: React.FC<DiurnalForecastTimelineProps> = (
     if (match) {
       const key = match.validAtUtc || match.time || String(match.hour);
       setSelectedKey(key);
+      onSelectTimePoint?.(match);
     }
   };
 
@@ -189,6 +215,7 @@ export const DiurnalForecastTimeline: React.FC<DiurnalForecastTimelineProps> = (
       const key = nowPt.validAtUtc || nowPt.time || String(nowPt.hour);
       setSelectedKey(key);
     }
+    onSnapToNow?.();
   };
 
   return (
@@ -437,7 +464,10 @@ export const DiurnalForecastTimeline: React.FC<DiurnalForecastTimelineProps> = (
                     stroke={seg.isForecast ? '#0284c7' : '#10b981'}
                     strokeWidth={isSelected ? 2.5 : 1.5}
                     className="cursor-pointer transition-all hover:scale-125"
-                    onClick={() => setSelectedKey(pt.key)}
+                    onClick={() => {
+                      setSelectedKey(pt.key);
+                      onSelectTimePoint?.(pt.point);
+                    }}
                   >
                     <title>
                       {`${pt.point.localDisplayTime || `${pt.point.hour}:00`}: ${pt.val} ${metricMode === 'pm25' ? 'µg/m³' : 'AQI'} (${seg.isForecast ? 'Forecast' : 'Observation'})`}

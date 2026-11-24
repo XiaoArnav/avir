@@ -91,6 +91,29 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               Keys remain strictly local to your browser session. Never transmitted to third-party databases.
             </p>
           </div>
+
+          <div className="pt-2 border-t border-stone-200 dark:border-zinc-800">
+            <span className="block font-semibold text-ink dark:text-zinc-200 mb-1">
+              Location &amp; Privacy Controls
+            </span>
+            <p className="text-[10px] text-stone-500 dark:text-zinc-500 mb-2">
+              Clear your locally stored city preference and coordinate cache to reset to first-visit defaults.
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                try {
+                  localStorage.removeItem('avir_selected_city_v1');
+                  localStorage.removeItem('avir_location_onboarded_v1');
+                  alert('Location preferences cleared. Refreshing page...');
+                  window.location.reload();
+                } catch {}
+              }}
+              className="px-3 py-1.5 text-[11px] font-semibold rounded-lg bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 hover:bg-rose-500/20 transition-colors cursor-pointer"
+            >
+              Reset Location &amp; Privacy State
+            </button>
+          </div>
         </div>
 
         <div className="flex justify-end gap-2 pt-2 border-t border-stone-200 dark:border-zinc-800">

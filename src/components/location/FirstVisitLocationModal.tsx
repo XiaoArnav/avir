@@ -47,43 +47,38 @@ export function FirstVisitLocationModal({
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
         try {
-          const lat = Number(pos.coords.latitude.toFixed(4));
-          const lon = Number(pos.coords.longitude.toFixed(4));
+          const lat = Number(pos.coords.latitude.toFixed(3));
+          const lon = Number(pos.coords.longitude.toFixed(3));
 
-          // Attempt fast reverse geocoding via Open-Meteo reverse geocoding endpoint
-          let cityName = 'Local Area';
-          let admin1 = undefined;
-          let country = 'Detected Location';
-          let countryCode = 'LOC';
-
-          try {
-            const res = await fetch(
-              `https://geocoding-api.open-meteo.com/v1/search?name=${lat},${lon}&count=1&language=en&format=json`
-            );
-            if (res.ok) {
-              const data = await res.json();
-              if (data?.results?.[0]) {
-                const r = data.results[0];
-                cityName = r.name || cityName;
-                admin1 = r.admin1;
-                country = r.country || country;
-                countryCode = r.country_code || countryCode;
-              }
-            }
-          } catch {
-            // Reverse geocoding failure falls back gracefully to detected coordinates
-            cityName = `Near ${lat >= 0 ? `${lat}°N` : `${Math.abs(lat)}°S`}, ${lon >= 0 ? `${lon}°E` : `${Math.abs(lon)}°W`}`;
-          }
-
-          const detectedLocation: GeocodedLocation = {
-            id: Math.floor(Math.random() * 900000) + 100000,
-            name: cityName,
-            admin1,
-            country,
-            countryCode,
+          // Call secure, cached reverse geocoding API route
+          let detectedLocation: GeocodedLocation = {
+            id: Math.abs(Math.round(lat * 1000) * 10000 + (Math.round(lon * 1000) % 10000)),
+            name: `Near ${lat >= 0 ? `${lat.toFixed(2)}°N` : `${Math.abs(lat).toFixed(2)}°S`}, ${lon >= 0 ? `${lon.toFixed(2)}°E` : `${Math.abs(lon).toFixed(2)}°W`}`,
+            country: 'Detected Location',
+            countryCode: 'IN',
             latitude: lat,
             longitude: lon,
           };
+
+          try {
+            const res = await fetch(`/api/geo/reverse?lat=${lat}&lon=${lon}`);
+            if (res.ok) {
+              const data = await res.json();
+              if (data?.name) {
+                detectedLocation = {
+                  id: data.id ?? detectedLocation.id,
+                  name: data.name,
+                  admin1: data.admin1,
+                  country: data.country ?? detectedLocation.country,
+                  countryCode: data.countryCode ?? detectedLocation.countryCode,
+                  latitude: data.latitude ?? lat,
+                  longitude: data.longitude ?? lon,
+                };
+              }
+            }
+          } catch {
+            // Falls back to coarse coordinates gracefully
+          }
 
           setGeoStatus('success');
           try {

@@ -15,7 +15,7 @@ import {
   CheckCircle2,
   AlertTriangle,
 } from 'lucide-react';
-import { AtmosphericMetrics } from '@/domain/types';
+import { AtmosphericMetrics, HourlyAtmosphericPoint } from '@/domain/types';
 import { GeocodedLocation } from '@/services/telemetry-service';
 import { AqiStandard } from '@/services/geo/geographic-observation-adapter';
 import { TelemetryReadout } from '@/components/ui/futuristic';
@@ -25,6 +25,7 @@ export interface EnvironmentalDetailsDrawerProps {
   onClose: () => void;
   city: GeocodedLocation;
   metrics: AtmosphericMetrics | null;
+  selectedTemporalPoint?: HourlyAtmosphericPoint | null;
   standard: AqiStandard;
   onToggleStandard: () => void;
   onOpenDailyPlan?: () => void;
@@ -44,6 +45,7 @@ export function EnvironmentalDetailsDrawer({
   onClose,
   city,
   metrics,
+  selectedTemporalPoint,
   standard,
   onToggleStandard,
   onOpenDailyPlan,

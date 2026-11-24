@@ -31,6 +31,7 @@ import {
   AtmosphericMetrics,
   UserVulnerabilityProfile,
   RecommendationPlan,
+  HourlyAtmosphericPoint,
 } from '@/domain/types';
 import { getAQICategory } from '@/domain/air-math';
 import {
@@ -56,6 +57,7 @@ const WorldDataExplorer = dynamic(() => import('@/components/WorldDataExplorer')
 export default function Home() {
   const [selectedCity, setSelectedCity] = useState<GeocodedLocation>(PREDEFINED_INDIAN_CITIES[0]);
   const [metrics, setMetrics] = useState<AtmosphericMetrics | null>(null);
+  const [selectedTemporalPoint, setSelectedTemporalPoint] = useState<HourlyAtmosphericPoint | null>(null);
   const [isTelemetryLoading, setIsTelemetryLoading] = useState(true);
   const [isPlanGenerating, setIsPlanGenerating] = useState(false);
   const [plannerMessage, setPlannerMessage] = useState('');
@@ -221,6 +223,7 @@ export default function Home() {
     setIsPlanGenerating(false);
     setPlannerMessage('');
     setIsTelemetryLoading(true);
+    setSelectedTemporalPoint(null); // Reset temporal scrubber to live observation on city change
     setMetrics(null); // Clear stale city metrics immediately
     setPlan(null); // Clear stale previous city plan immediately
     setDeterministicPlan(null);
@@ -385,12 +388,15 @@ export default function Home() {
           currentCity={selectedCity}
           metrics={metrics}
           isLoading={isTelemetryLoading}
+          selectedTemporalPoint={selectedTemporalPoint}
+          themeMode={isDarkMode ? 'dark' : 'light'}
           onSelectCity={handleCitySelect}
           onRefreshTelemetry={refreshTelemetry}
           onOpenExplainer={() => setIsExplainerOpen(true)}
           onOpenShare={() => setIsShareModalOpen(true)}
           onOpenMultiSource={() => setIsMultiSourceModalOpen(true)}
           onOpenDailyPlan={() => setActiveTab('routine')}
+          onSnapToNow={() => setSelectedTemporalPoint(null)}
         />
 
         {/* Action-First Quick Health & Activity Decision Guide */}
@@ -433,6 +439,9 @@ export default function Home() {
             <DiurnalForecastTimeline
               hourlyForecast={metrics?.hourlyForecast}
               cityName={selectedCity.name}
+              selectedValidAtUtc={selectedTemporalPoint?.validAtUtc}
+              onSelectTimePoint={(pt) => setSelectedTemporalPoint(pt)}
+              onSnapToNow={() => setSelectedTemporalPoint(null)}
             />
 
             {/* 2. Meteorological Wind Vector & Smoke Transport Gauge with Animated Particle Stream */}
