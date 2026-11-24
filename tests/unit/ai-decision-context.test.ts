@@ -151,4 +151,134 @@ describe('Environmental Decision Context & Structured AI Assistant (Phase 2)', (
     expect(explanation.safetyLimitations.length).toBeGreaterThanOrEqual(2);
     expect(explanation.safetyLimitations.some((s) => s.includes('not personal medical diagnoses'))).toBe(true);
   });
+
+  it('keeps missing PM2.5 honest without labeling it moderate pollution', () => {
+    const missingPmContext: EnvironmentalDecisionContext = {
+      ...validContext,
+      city: { name: 'Reykjavik', latitude: null, longitude: null, country: null, timezone: null },
+      source: { provider: 'Unknown Source', sourceType: 'unknown', isModel: null, freshnessHours: null },
+      currentPollutants: { pm25: null, pm10: null, aqi: null, aqiStandard: 'unavailable', category: 'Unavailable' },
+    };
+
+    expect(validateDecisionContext(missingPmContext).isValid).toBe(true);
+    const explanation = generateDeterministicStructuredExplanation(missingPmContext);
+    const serialized = JSON.stringify(explanation).toLowerCase();
+
+    expect(explanation.situationSummary).toContain('cannot be determined');
+    expect(serialized).not.toContain('moderate µg/m³');
+    expect(serialized).not.toContain('epa naqi');
+    expect(serialized).not.toContain('1 hour(s) ago');
+    expect(serialized).not.toContain('physical ground monitor');
+    expect(serialized).not.toContain('atmospheric model estimate');
+    expect(explanation.evidenceReferences.some((r) => r.includes('Unverified'))).toBe(true);
+    expect(explanation.evidenceReferences.some((r) => r.includes('Unavailable'))).toBe(true);
+  });
+
+  it('does not invent afternoon windows, BLH peaks, or unsupported percentages when forecast is missing', () => {
+    const elevatedNoForecast: EnvironmentalDecisionContext = {
+      ...validContext,
+      currentPollutants: { pm25: 135, pm10: 190, aqi: 295, aqiStandard: 'cpcb' },
+      hourlyForecast: undefined,
+    };
+
+    const explanation = generateDeterministicStructuredExplanation(elevatedNoForecast);
+    const serialized = JSON.stringify(explanation);
+
+    expect(serialized).not.toContain('12:00 - 16:00');
+    expect(serialized).not.toContain('12:00–16:00');
+    expect(serialized).not.toContain('40–80%');
+    expect(serialized).not.toContain('50–70%');
+    expect(serialized).not.toContain('historically lowest');
+    expect(serialized).not.toContain('Forecast boundary layer height peaks');
+    expect(serialized).not.toContain('08:00 - 10:30');
+  });
+
+  it('cites validated afternoon cleaner window and BLH only when hourlyForecast actually contains them', () => {
+    const withForecast: EnvironmentalDecisionContext = {
+      ...validContext,
+      currentPollutants: { pm25: 110, pm10: 160, aqi: 260, aqiStandard: 'cpcb' },
+      hourlyForecast: [
+        { time: '2026-11-24T07:00:00Z', pm25: 120, aqi: 280, boundaryLayerHeight: 150 },
+        { time: '2026-11-24T14:00:00Z', pm25: 42, aqi: 70, boundaryLayerHeight: 1450 },
+      ],
+    };
+
+    const explanation = generateDeterministicStructuredExplanation(withForecast);
+    const outdoorRec = explanation.actionableRecommendations.find((r) => r.category === 'outdoor_activity');
+    expect(outdoorRec).toBeDefined();
+    expect(outdoorRec!.applicableWindow).toBe('14:00 - 15:00');
+    expect(outdoorRec!.supportingData).toContain('42 µg/m³');
+    expect(outdoorRec!.supportingData).toContain('1450 m');
+  });
+
+  it('rejects NaN, unsupported units, contradictory unknown sources, duplicate/unordered forecast, invalid schedule, and raw medical keys', () => {
+    expect(
+      validateDecisionContext({
+        ...validContext,
+        currentPollutants: { ...validContext.currentPollutants, pm25: Number.NaN },
+      }).isValid
+    ).toBe(false);
+
+    expect(
+      validateDecisionContext({
+        ...validContext,
+        currentPollutants: { ...validContext.currentPollutants, pm25Unit: 'ppm' as any },
+      }).isValid
+    ).toBe(false);
+
+    expect(
+      validateDecisionContext({
+        ...validContext,
+        source: { provider: 'Unverified Sensor', sourceType: 'unknown', isModel: false },
+      }).isValid
+    ).toBe(false);
+
+    expect(
+      validateDecisionContext({
+        ...validContext,
+        hourlyForecast: [
+          { time: '2026-11-24T10:00:00Z', pm25: 50 },
+          { time: '2026-11-24T10:00:00Z', pm25: 60 },
+        ],
+      }).isValid
+    ).toBe(false);
+
+    expect(
+      validateDecisionContext({
+        ...validContext,
+        hourlyForecast: [
+          { time: '2026-11-24T12:00:00Z', pm25: 50 },
+          { time: '2026-11-24T10:00:00Z', pm25: 60 },
+        ],
+      }).isValid
+    ).toBe(false);
+
+    expect(
+      validateDecisionContext({
+        ...validContext,
+        hourlyForecast: [{ time: 'not-a-timestamp', pm25: 50 }],
+      }).isValid
+    ).toBe(false);
+
+    expect(
+      validateDecisionContext({
+        ...validContext,
+        schedule: {
+          activities: [
+            { id: '1', name: 'Bad', startTime: '25:99', endTime: '08:00', locationType: 'outdoor' },
+          ],
+        },
+      }).isValid
+    ).toBe(false);
+
+    expect(
+      validateDecisionContext({
+        ...validContext,
+        userContext: { ...validContext.userContext, hasAsthmaOrRespiratory: true } as any,
+      }).isValid
+    ).toBe(false);
+
+    expect(validateDecisionContext([] as any).isValid).toBe(false);
+    expect(validateDecisionContext({ ...validContext, weather: 'sunny' as any }).isValid).toBe(false);
+  });
 });
