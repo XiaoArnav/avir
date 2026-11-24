@@ -147,7 +147,12 @@ export function EarthCommandCenter({
   }, [standard, activeGlobePoint, selectedHour, liveHour, hourlyPoint, metrics]);
 
   const aqiDisplay = aqiValue !== null && aqiValue !== undefined ? Math.round(aqiValue) : '--';
-  const hasGround = Boolean(metrics?.groundStation?.stationName);
+  const hasOfficialGround = Boolean(
+    metrics?.groundStation &&
+    metrics.groundStation.pm25 !== null &&
+    metrics.groundStation.stationState !== 'registry_only' &&
+    metrics.groundStation.stationState !== 'measurement_unavailable'
+  );
 
   // Active PM2.5 accounting for scrubbed hour
   const activePm25 = useMemo(() => {
@@ -249,7 +254,7 @@ export function EarthCommandCenter({
         longitude={currentCity.longitude}
         elevationMeters={elevation}
         stationName={metrics?.groundStation?.stationName}
-        hasOfficialGround={hasGround}
+        hasOfficialGround={hasOfficialGround}
         standard={standard}
         onToggleStandard={toggleStandard}
       />
@@ -279,12 +284,14 @@ export function EarthCommandCenter({
               elevation="raised"
               brackets
               glow
-              title={`OBSERVATION STATION // ${currentCity.name.toUpperCase()}`}
+              title={`OBSERVATION // ${currentCity.name.toUpperCase()}`}
               badge={
-                hasGround ? (
+                hasOfficialGround ? (
                   <FuturisticBadge label="CPCB GROUND" variant="emerald" pulse />
+                ) : metrics?.groundStation?.stationName ? (
+                  <FuturisticBadge label="MODEL TELEMETRY" variant="neutral" />
                 ) : (
-                  <FuturisticBadge label="SATELLITE CONSENSUS" variant="cyan" pulse />
+                  <FuturisticBadge label="MODEL (CAMS)" variant="cyan" pulse />
                 )
               }
               headerAction={
@@ -328,7 +335,7 @@ export function EarthCommandCenter({
                 </div>
 
                 <div className="flex items-center justify-between text-[11px] pt-2 border-t border-stone-200/50 dark:border-sky-500/10 text-ink-muted dark:text-slate-400">
-                  <span>Primary: <strong className="text-ink-primary dark:text-white">PM2.5</strong></span>
+                  <span>Primary: <strong className="text-ink-primary dark:text-white">{activeGlobePoint?.primaryPollutant || 'PM2.5'}</strong></span>
                   <span className="telemetry-mono text-ink-faint dark:text-sky-300/60">
                     {relativeFreshness}
                   </span>
@@ -345,7 +352,7 @@ export function EarthCommandCenter({
                         WHO 24h Cap
                       </span>
                       <span className="font-bold text-ink-primary dark:text-white telemetry-mono">
-                        ≈ {whoMultiple}× Guideline
+                        ≈ {whoMultiple}× Cap
                       </span>
                     </div>
                   </div>
@@ -358,7 +365,7 @@ export function EarthCommandCenter({
                         Statutory GRAP
                       </span>
                       <span className="font-bold text-ink-primary dark:text-white telemetry-mono truncate block max-w-[125px]" title={grapStage.label}>
-                        {grapStage.label}
+                        {grapStage.isJurisdiction ? grapStage.label : 'Non-NCR Region'}
                       </span>
                     </div>
                   </div>
@@ -371,14 +378,14 @@ export function EarthCommandCenter({
                   label="PM2.5"
                   value={activePm25}
                   unit="µg/m³"
-                  provenance={hasGround ? 'official' : 'modeled'}
+                  provenance={hasOfficialGround ? 'official' : 'modeled'}
                   categoryLabel={categoryInfo.label}
                 />
                 <TelemetryReadout
                   label="PM10"
                   value={metrics?.pm10}
                   unit="µg/m³"
-                  provenance={hasGround ? 'official' : 'modeled'}
+                  provenance={hasOfficialGround ? 'official' : 'modeled'}
                 />
                 <TelemetryReadout
                   label="WIND SPEED"

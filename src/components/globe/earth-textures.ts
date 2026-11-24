@@ -379,23 +379,18 @@ export function createAtmosphericEarthTexture(): THREE.CanvasTexture {
       }
       path2D.closePath();
 
-      // Outer Continental Shelf Glow (Subtle Aqua Haze)
-      ctx.strokeStyle = 'rgba(14, 165, 233, 0.20)';
-      ctx.lineWidth = 8;
-      ctx.stroke(path2D);
-
-      ctx.strokeStyle = 'rgba(56, 189, 248, 0.12)';
+      // Outer Continental Shelf Glow (Natural Oceanic Coastal Shelf)
+      ctx.strokeStyle = 'rgba(14, 165, 233, 0.08)';
       ctx.lineWidth = 4;
       ctx.stroke(path2D);
 
-      // Continent Landmass Base (Deep satellite obsidian-moss)
-      ctx.fillStyle = '#0a1d17';
+      // Continent Landmass Base (Natural dark satellite earth)
+      ctx.fillStyle = '#0f241d';
       ctx.fill(path2D);
 
-      // Inner Shoreline Trace
-      ctx.strokeStyle = 'rgba(56, 189, 248, 0.35)';
-      ctx.lineWidth = 1.5;
-      ctx.stroke(path2D);
+      // Subtle topography relief shading
+      ctx.fillStyle = 'rgba(16, 44, 34, 0.45)';
+      ctx.fill(path2D);
     });
 
     // 4. Arid Plateaus & Highlands (Warm Ochre / Desert Shading)
@@ -454,24 +449,24 @@ export function createAtmosphericEarthTexture(): THREE.CanvasTexture {
       ctx.fill();
     });
 
-    // 7. Atmospheric Cirrus & Cloud Swirls (Soft, refined transparency)
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.06)';
-    const cloudBands = [
-      { y: height * 0.48, h: height * 0.07, period: 140 },
-      { y: height * 0.28, h: height * 0.05, period: 200 },
-      { y: height * 0.68, h: height * 0.05, period: 180 },
+    // 7. Atmospheric Cirrus & Cloud Swirls (Soft organic wisps, zero horizontal banding)
+    const cloudVortices = [
+      { cx: width * 0.25, cy: height * 0.45, r: 80, a: 0.05 },
+      { cx: width * 0.55, cy: height * 0.52, r: 110, a: 0.06 },
+      { cx: width * 0.78, cy: height * 0.48, r: 90, a: 0.04 },
+      { cx: width * 0.35, cy: height * 0.30, r: 70, a: 0.04 },
+      { cx: width * 0.65, cy: height * 0.28, r: 85, a: 0.05 },
+      { cx: width * 0.45, cy: height * 0.65, r: 95, a: 0.04 },
     ];
 
-    cloudBands.forEach((band) => {
+    cloudVortices.forEach((vortex) => {
+      const grad = ctx.createRadialGradient(vortex.cx, vortex.cy, 5, vortex.cx, vortex.cy, vortex.r);
+      grad.addColorStop(0, `rgba(255, 255, 255, ${vortex.a})`);
+      grad.addColorStop(0.5, `rgba(240, 248, 255, ${vortex.a * 0.5})`);
+      grad.addColorStop(1, 'transparent');
+      ctx.fillStyle = grad;
       ctx.beginPath();
-      for (let x = 0; x <= width; x += 30) {
-        const offset = Math.sin(x / band.period) * 14 + Math.cos(x / 45) * 6;
-        if (x === 0) ctx.moveTo(x, band.y + offset);
-        else ctx.lineTo(x, band.y + offset);
-      }
-      ctx.lineTo(width, band.y + band.h);
-      ctx.lineTo(0, band.y + band.h);
-      ctx.closePath();
+      ctx.arc(vortex.cx, vortex.cy, vortex.r, 0, Math.PI * 2);
       ctx.fill();
     });
   }
@@ -486,7 +481,7 @@ export function createAtmosphericEarthTexture(): THREE.CanvasTexture {
 
 /**
  * Creates Rayleigh Scattering Atmospheric Rim Shader Material
- * Renders an ethereal, glowing atmospheric limb just like viewing Earth from orbit.
+ * Renders an ethereal, glowing atmospheric limb with smooth exponential falloff.
  */
 export function createAtmosphericRimShaderMaterial(): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
@@ -505,8 +500,9 @@ export function createAtmosphericRimShaderMaterial(): THREE.ShaderMaterial {
       varying vec3 vEye;
       void main() {
         float rim = 1.0 - max(0.0, dot(vNormal, vEye));
-        float atmosphere = pow(rim, 3.8) * 1.3;
-        vec3 skyColor = mix(vec3(0.04, 0.45, 0.95), vec3(0.20, 0.85, 0.98), rim);
+        // Soft exponential falloff for real atmospheric limb (eliminates harsh neon ring)
+        float atmosphere = pow(rim, 5.5) * 0.45;
+        vec3 skyColor = mix(vec3(0.01, 0.18, 0.55), vec3(0.08, 0.48, 0.85), rim);
         gl_FragColor = vec4(skyColor, atmosphere);
       }
     `,

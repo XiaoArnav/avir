@@ -96,12 +96,12 @@ export function AvirGlobe({
         </div>
       )}
 
-      {/* Floating City Card Inspector */}
-      {selectedPoint && (
+      {/* Floating City Card Inspector (only displayed when inspecting another city on the globe) */}
+      {selectedPoint && activeCityName?.toLowerCase() !== selectedPoint.name.toLowerCase() && (
         <div className="absolute top-4 right-4 sm:top-6 sm:right-6 z-20">
           <GlobeCityCard
             point={selectedPoint}
-            isActiveCity={activeCityName?.toLowerCase() === selectedPoint.name.toLowerCase()}
+            isActiveCity={false}
             onSelectAsActiveCity={(pt) => {
               if (onSetActiveCity) onSetActiveCity(pt);
             }}
@@ -111,7 +111,7 @@ export function AvirGlobe({
       )}
 
       {/* Floating Bottom Globe Controls */}
-      <div className="absolute bottom-4 right-4 z-20">
+      <div className="absolute bottom-28 right-4 sm:bottom-32 sm:right-6 z-20">
         <GlobeControls
           is3D={is3D}
           onToggle3D={() => setIs3D((prev) => !prev)}

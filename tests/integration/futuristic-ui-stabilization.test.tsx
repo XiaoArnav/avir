@@ -19,6 +19,10 @@ describe('Avir — Futuristic UI Stabilization & Scientific Integrity Tests', ()
         status: 'success',
         isLive: true,
         timestamp: '2026-11-24T10:00:00Z',
+        retrievedAt: '2026-11-24T10:00:00Z',
+        timezone: 'Asia/Kolkata',
+        boundaryLayerHeight: 800,
+        isThermalInversionActive: false,
         provenance: 'modeled_forecast',
       };
 
@@ -52,6 +56,10 @@ describe('Avir — Futuristic UI Stabilization & Scientific Integrity Tests', ()
         status: 'success',
         isLive: true,
         timestamp: '2026-11-24T10:00:00Z',
+        retrievedAt: '2026-11-24T10:00:00Z',
+        timezone: 'Asia/Kolkata',
+        boundaryLayerHeight: 800,
+        isThermalInversionActive: false,
         provenance: 'modeled_forecast',
       };
 

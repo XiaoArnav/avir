@@ -122,29 +122,29 @@ export function AvirGlobeCanvas({
     const earthTex = createAtmosphericEarthTexture();
     const earthMat = new THREE.MeshPhongMaterial({
       map: earthTex,
-      bumpScale: 0.06,
-      specular: new THREE.Color(0x38bdf8),
-      shininess: 24,
+      bumpScale: 0.02,
+      specular: new THREE.Color(0x0c4a6e),
+      shininess: 8,
     });
     const earthMesh = new THREE.Mesh(earthGeo, earthMat);
     globeGroup.add(earthMesh);
 
-    // 6. Atmospheric Rayleigh Outer Rim Glow Shell
-    const atmosGeo = new THREE.SphereGeometry(earthRadius * 1.045, 64, 64);
+    // 6. Atmospheric Rayleigh Outer Rim Glow Shell (closely hugs the planet surface)
+    const atmosGeo = new THREE.SphereGeometry(earthRadius * 1.012, 64, 64);
     const atmosMat = createAtmosphericRimShaderMaterial();
     const atmosMesh = new THREE.Mesh(atmosGeo, atmosMat);
     globeGroup.add(atmosMesh);
 
     // 7. Dynamic Diurnal Sunlight System
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.75);
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.65);
     scene.add(ambientLight);
 
-    const sunLight = new THREE.DirectionalLight(0xe0f2fe, 1.4);
+    const sunLight = new THREE.DirectionalLight(0xfff8ee, 1.2);
     const initialSunAngle = ((selectedHour - 12) / 24) * Math.PI * 2;
-    sunLight.position.set(Math.sin(initialSunAngle) * 350, 120, Math.cos(initialSunAngle) * 350);
+    sunLight.position.set(Math.sin(initialSunAngle) * 350, 100, Math.cos(initialSunAngle) * 350);
     scene.add(sunLight);
 
-    const fillLight = new THREE.DirectionalLight(0x0284c7, 0.35);
+    const fillLight = new THREE.DirectionalLight(0x0284c7, 0.25);
     fillLight.position.set(-180, -60, -100);
     scene.add(fillLight);
 
@@ -343,17 +343,17 @@ export function AvirGlobeCanvas({
         ? Math.max(14, 8 + (Math.min(aqiVal, 500) / 500) * 26)
         : Math.max(6, 4 + (Math.min(aqiVal, 500) / 500) * 18);
 
-      // 1. Refined Slim 3D Light Cylinder
+      // 1. Refined Slim 3D Light Cylinder (delicate fiber-optic beam)
       const cylGeo = new THREE.CylinderGeometry(
+        isSelected ? 0.22 : 0.15,
         isSelected ? 0.45 : 0.3,
-        isSelected ? 0.9 : 0.6,
         pillarHeight,
-        10
+        8
       );
       const cylMat = new THREE.MeshBasicMaterial({
         color: markerColor,
         transparent: true,
-        opacity: isSelected ? 0.85 : 0.55,
+        opacity: isSelected ? 0.85 : 0.5,
         blending: THREE.AdditiveBlending,
       });
       const cylMesh = new THREE.Mesh(cylGeo, cylMat);
@@ -364,8 +364,8 @@ export function AvirGlobeCanvas({
       cylMesh.userData = { point };
       inst.markersGroup.add(cylMesh);
 
-      // 2. Beacon Point Flare at Pillar Top
-      const headGeo = new THREE.SphereGeometry(isSelected ? 1.6 : 1.0, 12, 12);
+      // 2. Beacon Point Flare at Pillar Top (crisp glowing apex point)
+      const headGeo = new THREE.SphereGeometry(isSelected ? 0.9 : 0.6, 10, 10);
       const headMat = new THREE.MeshBasicMaterial({
         color: markerColor,
         transparent: true,
@@ -374,24 +374,24 @@ export function AvirGlobeCanvas({
       const headMesh = new THREE.Mesh(headGeo, headMat);
       headMesh.position
         .copy(surfacePos as THREE.Vector3)
-        .addScaledVector(normal, pillarHeight + (isSelected ? 1.0 : 0.6));
+        .addScaledVector(normal, pillarHeight + (isSelected ? 0.5 : 0.3));
       headMesh.userData = { point };
       inst.markersGroup.add(headMesh);
 
-      // 3. Surface Base Pulsing Ring on Earth
-      const ringGeo = new THREE.RingGeometry(isSelected ? 2.0 : 1.0, isSelected ? 4.5 : 2.5, 24);
+      // 3. Compact Surface Base Ring on Earth (subtle anchor point)
+      const ringGeo = new THREE.RingGeometry(isSelected ? 0.6 : 0.3, isSelected ? 1.6 : 0.9, 16);
       const ringMat = new THREE.MeshBasicMaterial({
         color: markerColor,
         side: THREE.DoubleSide,
         transparent: true,
-        opacity: 0.75,
+        opacity: 0.6,
         blending: THREE.AdditiveBlending,
       });
       const ringMesh = new THREE.Mesh(ringGeo, ringMat);
       ringMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
       ringMesh.position
         .copy(surfacePos as THREE.Vector3)
-        .addScaledVector(normal, 0.3);
+        .addScaledVector(normal, 0.2);
       ringMesh.userData = {
         point,
         isPulseRing: true,
@@ -399,21 +399,21 @@ export function AvirGlobeCanvas({
       };
       inst.markersGroup.add(ringMesh);
 
-      // 4. Highlight Targeting Halo for Selected City
+      // 4. Subtle Targeting Halo for Selected City
       if (isSelected) {
-        const outerRingGeo = new THREE.RingGeometry(5.0, 6.0, 32);
+        const outerRingGeo = new THREE.RingGeometry(2.0, 2.5, 24);
         const outerRingMat = new THREE.MeshBasicMaterial({
           color: 0x38bdf8,
           side: THREE.DoubleSide,
           transparent: true,
-          opacity: 0.85,
+          opacity: 0.75,
           blending: THREE.AdditiveBlending,
         });
         const outerRingMesh = new THREE.Mesh(outerRingGeo, outerRingMat);
         outerRingMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
         outerRingMesh.position
           .copy(surfacePos as THREE.Vector3)
-          .addScaledVector(normal, 0.4);
+          .addScaledVector(normal, 0.25);
         outerRingMesh.userData = {
           point,
           isPulseRing: true,

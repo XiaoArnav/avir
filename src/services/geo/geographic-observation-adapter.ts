@@ -129,14 +129,52 @@ export function buildGeographicObservations(options: {
     const pm10 = isSuccess ? currentMetrics.pm10 : null;
     const usAqi = isSuccess ? currentMetrics.usAqi : null;
 
-    let cpcbAqi: number | null = null;
-    if (pm25 !== null || pm10 !== null) {
-      const pollutants: { pm25?: number; pm10?: number } = {};
-      if (pm25 !== null) pollutants.pm25 = pm25;
-      if (pm10 !== null) pollutants.pm10 = pm10;
+    let cpcbAqi: number | null = currentMetrics.cpcbAqi ?? null;
+    if (cpcbAqi === null && (pm25 !== null || pm10 !== null)) {
+      const pollutants: {
+        pm25?: number | null;
+        pm10?: number | null;
+        no2?: number | null;
+        so2?: number | null;
+        co?: number | null;
+        coUnit?: string;
+        o3?: number | null;
+      } = {
+        pm25,
+        pm10,
+        no2: currentMetrics.no2 ?? null,
+        so2: currentMetrics.so2 ?? null,
+        co: currentMetrics.co ?? null,
+        coUnit: 'ug/m3',
+        o3: currentMetrics.o3 ?? null,
+      };
       const cpcbRes = calculateComprehensiveCpcbNaqi(pollutants);
       if (cpcbRes.aqi !== null) {
         cpcbAqi = cpcbRes.aqi;
+      }
+    }
+
+    // Determine accurate primary pollutant based on highest sub-index
+    let primaryPollutant = 'PM2.5';
+    if (currentMetrics.fields) {
+      const entries = Object.entries(currentMetrics.fields).filter(
+        ([, f]) => f && typeof f.subIndex === 'number' && Number.isFinite(f.subIndex)
+      );
+      if (entries.length > 0) {
+        entries.sort((a, b) => (b[1].subIndex ?? 0) - (a[1].subIndex ?? 0));
+        const topField = entries[0][0];
+        primaryPollutant =
+          topField === 'o3'
+            ? 'Ozone'
+            : topField === 'no2'
+            ? 'NO2'
+            : topField === 'so2'
+            ? 'SO2'
+            : topField === 'co'
+            ? 'CO'
+            : topField === 'pm10'
+            ? 'PM10'
+            : 'PM2.5';
       }
     }
 
@@ -161,7 +199,7 @@ export function buildGeographicObservations(options: {
       category: cat.category,
       categoryLabel: cat.label,
       categoryColor: cat.color,
-      primaryPollutant: 'PM2.5',
+      primaryPollutant,
       provenance: currentMetrics.provenance,
       source: currentMetrics.isLive ? 'Live Atmospheric Feed' : 'Cached Observation',
       timestamp: currentMetrics.timestamp,
