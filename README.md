@@ -11,8 +11,8 @@ Avir is an open-source atmospheric intelligence platform that combines interacti
 [![CI Release Gate](https://github.com/XiaoArnav/avir/actions/workflows/ci.yml/badge.svg)](https://github.com/XiaoArnav/avir/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-10b981.svg)](LICENSE)
 [![Next.js 15](https://img.shields.io/badge/Next.js-15-000000.svg?logo=nextdotjs&logoColor=white)](https://nextjs.org/)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.7-3178c6.svg?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![CesiumJS](https://img.shields.io/badge/3D_Globe-CesiumJS_%2B_Three.js-06b6d4.svg)](https://cesium.com/)
+[![TypeScript 5.7](https://img.shields.io/badge/TypeScript-5.7-3178c6.svg?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![CesiumJS + Three.js](https://img.shields.io/badge/CesiumJS_%2B_Three.js-06b6d4.svg)](https://cesium.com/)
 
 **[Launch Live Demo](https://avir-blue.vercel.app)** · **[Try Avir in 30 Seconds](#try-avir-in-30-seconds)** · **[Explore Source Code](https://github.com/XiaoArnav/avir)** · **[API Reference](#api-reference)**
 
@@ -144,16 +144,16 @@ Avir clearly separates its runtime AI service from the tools used during enginee
 
 All Route Handlers live in `src/app/api/` and execute server-side with strict validation:
 
-| Method & Route | Purpose & Upstream Source | Validation, Caching & Limits |
-| :--- | :--- | :--- |
-| `POST /api/ai/plan` | Deterministic routine optimization + optional **Gemini 2.5 Flash** qualitative summary | Sliding-window IP rate limit, `100 KB` max JSON body, prompt-injection sanitization, numeric-fabrication & medical-claim output guardrails (`plan-validator.ts`), deterministic fallback |
-| `GET /api/environment/fires` | **NASA FIRMS** active thermal anomalies for `?lat=&lng=&radiusKm=` (`1–1,000`, default `500`) | Strict finite-float & coordinate bounds, `30 req/min` rate limiter, 30 min cache, keyless `VIIRS_NOAA20_C2_24H` regional CSV archive or optional `FIRMS_MAP_KEY` Area API |
-| `GET /api/environment/wind` | Regional 3×3 & active-city 10 m wind vectors from Open-Meteo (`best_match`) | Coordinate/hour/ISO UTC validation, coordinate snap guard (`≤ 1.0°`), 30 min cache |
-| `GET /api/environment/wind/global` | Global Wind V2 JSON manifest (`schemaVersion: 2`) for `?model=gfs\|ifs&overlay=&validAtUtc=` | Cycle matching via `cycleAtOrBefore` (`-24h` to `+384h` GFS / `+360h` IFS), bounded LRU cache, subscriber-isolated aborts |
-| `GET /api/environment/wind/global/grid` | Float32 binary wind grid (`application/octet-stream`) for `?model=&overlay=&date=&hour=&step=` | Synoptic cycle & step validation, GRIB2 decoded on server, `Cache-Control: public, s-maxage=3600, stale-while-revalidate=7200` |
-| `GET /api/geo/reverse` | Reverse geocoding for `?lat=&lon=` via **OpenStreetMap Nominatim** with fallback | Coordinates rounded to **3 decimals (`~110 m` privacy)**, 24h in-memory cache |
-| `GET /api/telemetry/cpcb` | Proxy for India OGD **CPCB / CAAQMS** real-time ground observations (`data.gov.in`) | Server-only `DATA_GOV_IN_API_KEY`, strict IST (`UTC+05:30`) date/time parser |
-| `GET /api/telemetry/sources` | Proxy for **OpenAQ v3** physical monitoring stations within `1–25 km` | Server-only `OPENAQ_API_KEY`, preserves native measurement timestamps |
+| Endpoint | Purpose, Validation & Caching |
+| :--- | :--- |
+| **`POST`** `/api/ai/plan` | Deterministic routine optimization + optional **Gemini 2.5 Flash** summary. IP rate limiter, `100 KB` max JSON body, prompt-injection sanitization, output fabrication/medical guardrails (`plan-validator.ts`), deterministic fallback. |
+| **`GET`** `/api/environment/fires` | **NASA FIRMS** active thermal anomalies near `lat`, `lng`, `radiusKm` (`1–1,000`, default `500`). Strict float/bounds checks, `30 req/min` limiter, 30 min cache, keyless `VIIRS_NOAA20_C2_24H` regional CSV archive or optional `FIRMS_MAP_KEY`. |
+| **`GET`** `/api/environment/wind` | Regional 3×3 & active-city 10 m wind vectors from Open-Meteo (`best_match`) for `lat`, `lng`, `hour`, `validTimeUtc`. Coordinate/UTC validation, `≤ 1.0°` snap guard, 30 min cache. |
+| **`GET`** `/api/environment/wind/global` | Global Wind V2 JSON manifest (`schemaVersion: 2`) for `model` (`gfs` or `ifs`), `overlay`, `validAtUtc`. Selects cycle via `cycleAtOrBefore` (`-24h` to `+384h` GFS / `+360h` IFS), bounded LRU cache, subscriber-isolated aborts. |
+| **`GET`** `/api/environment/wind/global/grid` | Float32 binary wind grid (`application/octet-stream`) for `model`, `overlay`, `date`, `hour`, `step`. Synoptic cycle/step validation, server GRIB2 decoding, `s-maxage=3600` / `stale-while-revalidate=7200`. |
+| **`GET`** `/api/geo/reverse` | Reverse geocoding for `lat`, `lon` via **OpenStreetMap Nominatim** with predefined fallback. Rounds coordinates to **3 decimals (`~110 m` privacy)**, 24h in-memory cache. |
+| **`GET`** `/api/telemetry/cpcb` | Server proxy for India OGD **CPCB / CAAQMS** ground observations (`data.gov.in`). Server-only `DATA_GOV_IN_API_KEY`, strict IST (`UTC+05:30`) parser. |
+| **`GET`** `/api/telemetry/sources` | Server proxy for **OpenAQ v3** monitoring stations within `1–25 km`. Server-only `OPENAQ_API_KEY`, preserves native measurement timestamps. |
 
 ---
 
