@@ -6,15 +6,17 @@
  *   - VIIRS_NOAA21_CorrectedReflectance_TrueColor (NOAA-21 VIIRS corrected top-of-atmosphere true color, GIBS 250m grid / 375m-750m native)
  *   - HLS_S30_Nadir_BRDF_Adjusted_Reflectance (Sentinel-2A/B/C MSI NBAR surface reflectance, 30m grid)
  * - Worldview Snapshots (WVS) URL generation with strict EPSG:4326 geographic & calendar validation
- * - Explicit availability tracking ('candidate' | 'verified_available' | 'unavailable' | 'unverified')
- * - Scientific disclaimer distinguishing optical surface reflectance from ground-level PM2.5/PM10/AQI
+ * - Honest availability separation between global GIBS temporal metadata, regional coverage verification,
+ *   actual verified acquisition dates, unverified availability, and confirmed unavailability
+ * - Scientific disclaimer distinguishing optical imagery from ground-level PM2.5/PM10/AQI
  */
 
 export type ImageryProductId = 'VIIRS' | 'HLS_S30';
 
 export type ImageryAvailabilityState =
   | 'candidate'
-  | 'verified_available'
+  | 'global_date_listed'
+  | 'verified_regional'
   | 'unavailable'
   | 'unverified';
 
@@ -77,15 +79,17 @@ export interface GeographicBoundingBox {
 export interface ImageryDateEntry {
   date: string; // Requested / candidate UTC date (YYYY-MM-DD)
   availability: ImageryAvailabilityState;
+  globalDateListed: boolean;
+  regionalCoverageVerified: boolean;
   productId: ImageryProductId;
-  verifiedObservationDate: string | null;
-  source: 'calendar_candidate' | 'nasa_gibs_wmts_domains' | 'nasa_gibs_capabilities';
+  verifiedObservationDate: string | null; // Populated ONLY when an actual regional/granule acquisition is verified
+  source: 'calendar_candidate' | 'nasa_gibs_describe_domains' | 'nasa_gibs_capabilities';
   note: string;
 }
 
 export interface SatelliteImageSlot {
   date: string; // Originally requested YYYY-MM-DD UTC
-  verifiedAcquisitionDate: string | null; // Verified date only if confirmed by NASA GIBS metadata
+  verifiedAcquisitionDate: string | null; // Populated ONLY when regional acquisition is genuinely verified (never by DescribeDomains)
   availability: ImageryAvailabilityState;
   availabilityNote: string;
   productId: ImageryProductId;

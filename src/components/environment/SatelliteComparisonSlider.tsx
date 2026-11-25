@@ -72,13 +72,16 @@ export function formatAvailabilityBadge(
   if (loadStatus === 'loading') {
     return { label: 'LOADING', toneClass: 'text-sky-300 border-sky-500/40 bg-slate-900/80' };
   }
-  if (availability === 'verified_available') {
-    return { label: 'GIBS METADATA VERIFIED', toneClass: 'text-emerald-300 border-emerald-500/40 bg-emerald-950/70' };
+  if (availability === 'verified_regional') {
+    return { label: 'REGIONAL COVERAGE VERIFIED', toneClass: 'text-emerald-300 border-emerald-500/40 bg-emerald-950/70' };
+  }
+  if (availability === 'global_date_listed') {
+    return { label: 'GLOBAL LAYER DATE LISTED', toneClass: 'text-sky-300 border-sky-500/40 bg-sky-950/70' };
   }
   if (availability === 'candidate') {
-    return { label: 'CANDIDATE (UNVERIFIED)', toneClass: 'text-amber-300 border-amber-500/40 bg-amber-950/70' };
+    return { label: 'CANDIDATE DATE (UNVERIFIED)', toneClass: 'text-amber-300 border-amber-500/40 bg-amber-950/70' };
   }
-  return { label: 'COVERAGE UNVERIFIED', toneClass: 'text-amber-300 border-amber-500/40 bg-amber-950/70' };
+  return { label: 'AVAILABILITY UNKNOWN', toneClass: 'text-amber-300 border-amber-500/40 bg-amber-950/70' };
 }
 
 export function resolveComparisonBannerState(
@@ -104,14 +107,28 @@ export function resolveComparisonBannerState(
   }
 
   if (bothLoaded) {
-    const bothVerified =
-      slotA.availability === 'verified_available' && slotB.availability === 'verified_available';
+    if (slotA.availability === 'verified_regional' && slotB.availability === 'verified_regional') {
+      return {
+        hasFailure: false,
+        bothLoaded: true,
+        message: 'Both NASA GIBS regional observations loaded and verified (cloud cover not excluded).',
+      };
+    }
+    if (
+      (slotA.availability === 'global_date_listed' || slotA.availability === 'verified_regional') &&
+      (slotB.availability === 'global_date_listed' || slotB.availability === 'verified_regional')
+    ) {
+      return {
+        hasFailure: false,
+        bothLoaded: true,
+        message:
+          'Snapshots loaded (global layer dates listed in NASA GIBS; local swath coverage and acquisition dates over this city remain unverified).',
+      };
+    }
     return {
       hasFailure: false,
       bothLoaded: true,
-      message: bothVerified
-        ? 'Both NASA GIBS snapshots loaded (metadata availability verified; cloud cover not excluded).'
-        : 'Snapshots loaded; GIBS spatial/swath availability for exact dates remains unverified.',
+      message: 'Snapshots loaded; regional GIBS availability and city acquisition dates remain unverified.',
     };
   }
 
@@ -406,8 +423,8 @@ export function SatelliteComparisonSlider({
           <span>
             A: {slotA.resolutionDescription} • {slotA.measurementType}
             {slotA.verifiedAcquisitionDate
-              ? ` • Verified: ${slotA.verifiedAcquisitionDate}`
-              : ' • Verified date: None'}
+              ? ` • Verified acquisition: ${slotA.verifiedAcquisitionDate}`
+              : ' • Actual acquisition date: Unverified'}
           </span>
           <span>{combinedAttribution}</span>
         </div>
@@ -415,8 +432,8 @@ export function SatelliteComparisonSlider({
           <span>
             B: {slotB.resolutionDescription} • {slotB.measurementType}
             {slotB.verifiedAcquisitionDate
-              ? ` • Verified: ${slotB.verifiedAcquisitionDate}`
-              : ' • Verified date: None'}
+              ? ` • Verified acquisition: ${slotB.verifiedAcquisitionDate}`
+              : ' • Actual acquisition date: Unverified'}
           </span>
         </div>
         <div className="text-[9px] text-slate-400 leading-relaxed italic mt-1">

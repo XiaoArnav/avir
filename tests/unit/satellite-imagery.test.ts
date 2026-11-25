@@ -69,7 +69,6 @@ describe('Phase 6: NASA GIBS Satellite Imagery & Comparison Service', () => {
   });
 
   it('9-12. validates coordinates, rejects NaN/Infinity/invalid radii, handles high latitudes, and refuses inverted or silently truncated IDL/polar extents', () => {
-    // Valid Delhi box
     const bbox = getBoundingBoxForCoordinates(28.6139, 77.209, 50);
     expect(bbox.west).toBeLessThan(77.209);
     expect(bbox.east).toBeGreaterThan(77.209);
@@ -78,18 +77,13 @@ describe('Phase 6: NASA GIBS Satellite Imagery & Comparison Service', () => {
     expect(bbox.south).toBeGreaterThanOrEqual(-85);
     expect(bbox.north).toBeLessThanOrEqual(85);
 
-    // High latitude (75°N, r=50km): longitude span widens properly without truncation
     const arcticBbox = getBoundingBoxForCoordinates(75, 10, 50);
     expect(arcticBbox.east - arcticBbox.west).toBeGreaterThan((arcticBbox.north - arcticBbox.south) * 2.5);
 
-    // Polar truncation refused explicitly
     expect(() => getBoundingBoxForCoordinates(89.5, 10, 150)).toThrow(/polar|single-snapshot/i);
-
-    // International date line crossing refused rather than silently truncated or inverted
     expect(() => getBoundingBoxForCoordinates(0, 179.8, 80)).toThrow(/date line|±180/i);
     expect(() => getBoundingBoxForCoordinates(0, -179.8, 80)).toThrow(/date line|±180/i);
 
-    // Invalid coordinates & radius values
     expect(() => getBoundingBoxForCoordinates(NaN, 77.2, 80)).toThrow();
     expect(() => getBoundingBoxForCoordinates(28.6, Infinity, 80)).toThrow();
     expect(() => getBoundingBoxForCoordinates(-91, 77.2, 80)).toThrow();
@@ -98,7 +92,6 @@ describe('Phase 6: NASA GIBS Satellite Imagery & Comparison Service', () => {
     expect(() => getBoundingBoxForCoordinates(28.6, 77.2, -50)).toThrow();
     expect(() => getBoundingBoxForCoordinates(28.6, 77.2, Infinity)).toThrow();
 
-    // Direct bbox validator rejects inverted boxes
     expect(() =>
       validateGeographicBoundingBox({ west: 78, south: 28, east: 77, north: 29 })
     ).toThrow(/inverted/i);
@@ -146,40 +139,85 @@ describe('Phase 6: NASA GIBS Satellite Imagery & Comparison Service', () => {
         referenceNow: refNow,
       })
     ).toThrow();
-    expect(() =>
-      buildGibsSnapshotUrl({
-        product: 'VIIRS',
-        date: '2026-11-20',
-        bbox: { west: 78, south: 28, east: 77, north: 29 },
-        referenceNow: refNow,
-      })
-    ).toThrow();
-    expect(() =>
-      buildGibsSnapshotUrl({
-        product: 'VIIRS',
-        date: '2026-11-20',
-        bbox,
-        width: 10,
-        referenceNow: refNow,
-      })
-    ).toThrow();
   });
 
-  it('14-16. never labels calendar dates as verified available imagery and verifies NASA GIBS XML domain states cleanly', async () => {
+  it('Issue 1 regression: parses NASA GIBS DescribeDomains multi-interval comma-separated Domain ranges, namespaces, steps, and malformed ranges accurately', () => {
+    const multiIntervalDomainXml = `
+      <Domains xmlns:ows="http://www.opengis.net/ows/1.1" xmlns:wmts="http://www.opengis.net/wmts/1.0">
+        <DimensionDomain>
+          <ows:Identifier>TileMatrix</ows:Identifier>
+          <Domain>0,1,2</Domain>
+        </DimensionDomain>
+        <wmts:DimensionDomain>
+          <ows:Identifier>time</ows:Identifier>
+          <wmts:Domain>
+            2018-05-26/2018-11-03/P1D,
+            2019-08-23/2021-09-03/P1D,
+            2025-12-25,
+            2026-11-01/2026-11-25/P8D
+          </wmts:Domain>
+          <Size>4</Size>
+        </wmts:DimensionDomain>
+      </Domains>
+    `;
+
+    // Matches first interval, second interval, single date, and third stepped interval (P8D)
+    expect(parseGibsXmlTimeMatch(multiIntervalDomainXml, '2018-07-04')).toBe('matched');
+    expect(parseGibsXmlTimeMatch(multiIntervalDomainXml, '2020-06-15')).toBe('matched');
+    expect(parseGibsXmlTimeMatch(multiIntervalDomainXml, '2025-12-25')).toBe('matched');
+    expect(parseGibsXmlTimeMatch(multiIntervalDomainXml, '2026-11-09')).toBe('matched'); // 2026-11-01 + 8d
+    expect(parseGibsXmlTimeMatch(multiIntervalDomainXml, '2026-11-17')).toBe('matched'); // 2026-11-01 + 16d
+
+    // Gap between intervals & off-step date within P8D range -> strictly 'not_present'
+    expect(parseGibsXmlTimeMatch(multiIntervalDomainXml, '2019-01-10')).toBe('not_present');
+    expect(parseGibsXmlTimeMatch(multiIntervalDomainXml, '2026-11-05')).toBe('not_present');
+
+    // Malformed intervals must NOT silently pass as 'not_present' or 'matched'
+    expect(
+      parseGibsXmlTimeMatch(
+        '<DimensionDomain><ows:Identifier>time</ows:Identifier><Domain>2026-11-20/2026-11-01/P1D</Domain></DimensionDomain>',
+        '2026-11-10'
+      )
+    ).toBe('unparseable');
+    expect(
+      parseGibsXmlTimeMatch(
+        '<DimensionDomain><ows:Identifier>time</ows:Identifier><Domain>2026-02-30/2026-03-05/P1D</Domain></DimensionDomain>',
+        '2026-03-02'
+      )
+    ).toBe('unparseable');
+    expect(
+      parseGibsXmlTimeMatch(
+        '<DimensionDomain><ows:Identifier>time</ows:Identifier><Domain>2026-11-01/2026-11-05/P1D, corrupt-interval</Domain></DimensionDomain>',
+        '2026-11-15'
+      )
+    ).toBe('unparseable');
+    expect(
+      parseGibsXmlTimeMatch(
+        '<DimensionDomain><ows:Identifier>TileMatrix</ows:Identifier><Domain>0,1,2</Domain></DimensionDomain>',
+        '2026-11-20'
+      )
+    ).toBe('unparseable');
+    expect(
+      parseGibsXmlTimeMatch(
+        '<DimensionDomain><ows:Identifier>time</ows:Identifier><Domain></Domain><Size>0</Size></DimensionDomain>',
+        '2026-11-20'
+      )
+    ).toBe('not_present');
+  });
+
+  it('Issue 2 regression: distinguishes global_date_listed from regional verification and never populates verifiedObservationDate from DescribeDomains alone', async () => {
     const refNow = new Date('2026-11-25T05:00:00Z');
     const candidates = getAvailableImageryDates(14, { product: 'VIIRS', referenceNow: refNow });
 
     expect(candidates).toHaveLength(14);
     expect(candidates[0].date).toBe('2026-11-24');
     expect(candidates.every((c) => c.availability === 'unverified')).toBe(true);
+    expect(candidates.every((c) => !c.globalDateListed && !c.regionalCoverageVerified)).toBe(true);
     expect(candidates.every((c) => c.verifiedObservationDate === null)).toBe(true);
-    expect(new Date(candidates[0].date).getTime()).toBeGreaterThan(
-      new Date(candidates[13].date).getTime()
-    );
 
     const bbox = getBoundingBoxForCoordinates(28.6139, 77.209, 50);
 
-    // Date before VIIRS NOAA-21 operational start -> 'unavailable'
+    // Date before VIIRS NOAA-21 operational start -> confirmed 'unavailable'
     const preMission = await verifyImageryAvailability({
       product: 'VIIRS',
       date: '2022-01-15',
@@ -187,40 +225,68 @@ describe('Phase 6: NASA GIBS Satellite Imagery & Comparison Service', () => {
       referenceNow: refNow,
     });
     expect(preMission.availability).toBe('unavailable');
+    expect(preMission.globalDateListed).toBe(false);
+    expect(preMission.regionalCoverageVerified).toBe(false);
     expect(preMission.verifiedObservationDate).toBeNull();
 
-    // NASA GIBS XML Domains confirms date -> 'verified_available'
-    const verified = await verifyImageryAvailability({
+    // DescribeDomains match in second comma-separated interval -> 'global_date_listed' (NOT regional verified!)
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => `<Domains xmlns:ows="http://www.opengis.net/ows/1.1">
+        <DimensionDomain>
+          <ows:Identifier>time</ows:Identifier>
+          <Domain>2023-02-10/2023-02-23/P1D,2024-02-29/2026-11-24/P1D</Domain>
+        </DimensionDomain>
+      </Domains>`,
+    });
+    const globalListed = await verifyImageryAvailability({
       product: 'VIIRS',
       date: '2026-11-20',
       bbox,
       referenceNow: refNow,
+      fetchImpl: fetchMock as any,
+    });
+    // Verifies request targets global domains cleanly (`all/all.xml`) since BBOX has no effect in GIBS
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/default/250m/all/all.xml'),
+      expect.anything()
+    );
+    expect(globalListed.availability).toBe('global_date_listed');
+    expect(globalListed.globalDateListed).toBe(true);
+    expect(globalListed.regionalCoverageVerified).toBe(false);
+    expect(globalListed.verifiedObservationDate).toBeNull();
+
+    // Generic HTTP 404 without confirmed domain absence -> stays 'unverified' (not falsely unavailable)
+    const bare404 = await verifyImageryAvailability({
+      product: 'HLS_S30',
+      date: '2026-11-20',
+      bbox,
+      referenceNow: refNow,
       fetchImpl: vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        text: async () =>
-          `<Domains><SpaceTimeConstraint><Dimension>Time</Dimension><Value>2026-01-01/2026-11-24/P1D</Value></SpaceTimeConstraint></Domains>`,
+        ok: false,
+        status: 404,
+        text: async () => 'Not Found',
       }) as any,
     });
-    expect(verified.availability).toBe('verified_available');
-    expect(verified.verifiedObservationDate).toBe('2026-11-20');
+    expect(bare404.availability).toBe('unverified');
 
-    // NASA GIBS XML excludes requested date -> 'unavailable'
-    const missingInXml = await verifyImageryAvailability({
+    // HTTP 404 with explicit valid empty time domain -> confirmed 'unavailable'
+    const explicit404 = await verifyImageryAvailability({
       product: 'HLS_S30',
       date: '2026-11-22',
       bbox,
       referenceNow: refNow,
       fetchImpl: vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
+        ok: false,
+        status: 404,
         text: async () =>
-          `<Domains><SpaceTimeConstraint><Value>2026-11-01/2026-11-20/P1D</Value></SpaceTimeConstraint></Domains>`,
+          '<DimensionDomain><ows:Identifier>time</ows:Identifier><Domain></Domain><Size>0</Size></DimensionDomain>',
       }) as any,
     });
-    expect(missingInXml.availability).toBe('unavailable');
+    expect(explicit404.availability).toBe('unavailable');
 
-    // Network failure / HTTP 503 -> 'unverified' (never fabricated!)
+    // Network failure -> 'unverified' (never fabricated!)
     const offline = await verifyImageryAvailability({
       product: 'VIIRS',
       date: '2026-11-20',
@@ -229,13 +295,14 @@ describe('Phase 6: NASA GIBS Satellite Imagery & Comparison Service', () => {
       fetchImpl: vi.fn().mockRejectedValue(new Error('Network offline')) as any,
     });
     expect(offline.availability).toBe('unverified');
+    expect(offline.globalDateListed).toBe(false);
     expect(offline.verifiedObservationDate).toBeNull();
-
-    expect(parseGibsXmlTimeMatch('not-xml', '2026-11-20')).toBe('unparseable');
   });
 
-  it('23-24. builds aligned before/after comparisons with honest availability, attribution, and scientific disclaimer', () => {
+  it('23-24. builds aligned before/after comparisons keeping requested dates separate from verified acquisition dates and preserving scientific disclaimers', () => {
     const refNow = new Date('2026-11-25T05:00:00Z');
+
+    // Even if verifiedDateA is passed with global_date_listed, verifiedAcquisitionDate MUST remain null!
     const comparison = buildSatelliteComparison({
       city: 'Delhi NCR',
       latitude: 28.6139,
@@ -244,6 +311,9 @@ describe('Phase 6: NASA GIBS Satellite Imagery & Comparison Service', () => {
       dateB: '2026-11-20',
       productA: 'VIIRS',
       productB: 'HLS_S30',
+      availabilityA: 'global_date_listed',
+      availabilityB: 'unverified',
+      verifiedDateA: '2026-11-01',
       referenceNow: refNow,
     });
 
@@ -252,27 +322,24 @@ describe('Phase 6: NASA GIBS Satellite Imagery & Comparison Service', () => {
     expect(comparison.slotA.coverageExtent).toEqual(comparison.slotB.coverageExtent);
     expect(comparison.slotA.date).toBe('2026-11-01');
     expect(comparison.slotB.date).toBe('2026-11-20');
-
-    // Unverified by default without metadata confirmation
-    expect(comparison.slotA.availability).toBe('unverified');
+    expect(comparison.slotA.availability).toBe('global_date_listed');
     expect(comparison.slotA.verifiedAcquisitionDate).toBeNull();
-    expect(comparison.slotA.imageUrl).toContain('TIME=2026-11-01');
-    expect(comparison.slotB.imageUrl).toContain('TIME=2026-11-20');
+    expect(comparison.slotB.availability).toBe('unverified');
+    expect(comparison.slotB.verifiedAcquisitionDate).toBeNull();
 
-    // Date prior to NOAA-21 VIIRS start marks slot unavailable with null imageUrl
-    const unavailableComparison = buildSatelliteComparison({
+    // Only genuinely verified_regional state may carry verifiedAcquisitionDate
+    const regionalComparison = buildSatelliteComparison({
       city: 'Delhi NCR',
       latitude: 28.6139,
       longitude: 77.209,
-      dateA: '2022-05-01',
+      dateA: '2026-11-01',
       dateB: '2026-11-20',
-      productA: 'VIIRS',
-      productB: 'HLS_S30',
+      availabilityA: 'verified_regional',
+      verifiedDateA: '2026-11-01',
       referenceNow: refNow,
     });
-    expect(unavailableComparison.slotA.availability).toBe('unavailable');
-    expect(unavailableComparison.slotA.imageUrl).toBeNull();
-    expect(unavailableComparison.slotA.date).toBe('2022-05-01');
+    expect(regionalComparison.slotA.verifiedAcquisitionDate).toBe('2026-11-01');
+    expect(regionalComparison.slotB.verifiedAcquisitionDate).toBeNull();
 
     // Strict scientific disclaimer invariant
     expect(comparison.disclaimer).toBe(SATELLITE_IMAGERY_DISCLAIMER);

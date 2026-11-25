@@ -1,8 +1,9 @@
 /**
  * NASA GIBS Satellite Imagery Service (Phase 6)
  *
- * Manages candidate date generation, official NASA GIBS metadata verification,
- * and before/after imagery comparison assembly without fabricating satellite availability.
+ * Manages candidate date generation, official NASA GIBS DescribeDomains temporal parsing,
+ * and before/after imagery comparison assembly without falsely equating global layer temporal
+ * availability with verified regional swath coverage or verified acquisition dates.
  */
 
 import {
@@ -21,51 +22,221 @@ import {
 } from '@/domain/imagery-types';
 
 const GIBS_DOMAIN_TIMEOUT_MS = 6000;
+const ISO_DATE_OR_DATETIME_REGEX =
+  /^(\d{4}-\d{2}-\d{2})(?:T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?)?$/;
+
+type ParsedStep =
+  | { unit: 'D'; count: number }
+  | { unit: 'W'; count: number }
+  | { unit: 'M'; count: number }
+  | { unit: 'Y'; count: number };
+
+function parseStrictIsoDateToken(token: string): string | null {
+  const match = token.trim().match(ISO_DATE_OR_DATETIME_REGEX);
+  if (!match) return null;
+  try {
+    return validateImageryDate(match[1], { allowFuture: true });
+  } catch {
+    return null;
+  }
+}
+
+function parseIsoDurationStep(stepRaw: string): ParsedStep | null {
+  const trimmed = stepRaw.trim();
+  const dayMatch = trimmed.match(/^P(\d+)D$/i);
+  if (dayMatch) {
+    const count = Number(dayMatch[1]);
+    return count >= 1 ? { unit: 'D', count } : null;
+  }
+
+  const weekMatch = trimmed.match(/^P(\d+)W$/i);
+  if (weekMatch) {
+    const count = Number(weekMatch[1]);
+    return count >= 1 ? { unit: 'W', count } : null;
+  }
+
+  const monthMatch = trimmed.match(/^P(\d+)M$/i);
+  if (monthMatch) {
+    const count = Number(monthMatch[1]);
+    return count >= 1 ? { unit: 'M', count } : null;
+  }
+
+  const yearMatch = trimmed.match(/^P(\d+)Y$/i);
+  if (yearMatch) {
+    const count = Number(yearMatch[1]);
+    return count >= 1 ? { unit: 'Y', count } : null;
+  }
+
+  const hourMatch = trimmed.match(/^PT(\d+)H$/i);
+  if (hourMatch) {
+    const hours = Number(hourMatch[1]);
+    if (hours < 1) return null;
+    if (hours <= 24) return { unit: 'D', count: 1 };
+    return hours % 24 === 0 ? { unit: 'D', count: hours / 24 } : null;
+  }
+
+  const minuteMatch = trimmed.match(/^PT(\d+)M$/i);
+  if (minuteMatch) {
+    const mins = Number(minuteMatch[1]);
+    return mins >= 1 ? { unit: 'D', count: 1 } : null;
+  }
+
+  return null;
+}
+
+function toUtcEpochDay(dateStr: string): number {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return Math.floor(Date.UTC(y, m - 1, d) / 86_400_000);
+}
+
+function doesTargetMatchSteppedRange(
+  startDate: string,
+  endDate: string,
+  step: ParsedStep,
+  targetDate: string
+): boolean {
+  if (targetDate < startDate || targetDate > endDate) {
+    return false;
+  }
+
+  if (step.unit === 'D') {
+    if (step.count === 1) return true;
+    const diffDays = toUtcEpochDay(targetDate) - toUtcEpochDay(startDate);
+    return diffDays >= 0 && diffDays % step.count === 0;
+  }
+
+  if (step.unit === 'W') {
+    const diffDays = toUtcEpochDay(targetDate) - toUtcEpochDay(startDate);
+    return diffDays >= 0 && diffDays % (step.count * 7) === 0;
+  }
+
+  const [sy, sm, sd] = startDate.split('-').map(Number);
+  const [ty, tm, td] = targetDate.split('-').map(Number);
+
+  if (step.unit === 'M') {
+    const monthsDiff = (ty - sy) * 12 + (tm - sm);
+    return monthsDiff >= 0 && monthsDiff % step.count === 0 && td === sd;
+  }
+
+  const yearsDiff = ty - sy;
+  return yearsDiff >= 0 && yearsDiff % step.count === 0 && tm === sm && td === sd;
+}
+
+function extractXmlTagBodies(xmlText: string, tagName: string): string[] {
+  const regex = new RegExp(
+    `<(?:[A-Za-z_][\\w.-]*:)?${tagName}\\b[^>]*>([\\s\\S]*?)<\\/(?:[A-Za-z_][\\w.-]*:)?${tagName}>`,
+    'gi'
+  );
+  return Array.from(xmlText.matchAll(regex)).map((m) => m[1]);
+}
 
 /**
- * Parses NASA GIBS WMTS `Domains` / `WMTSCapabilities` ISO-8601 time `<Value>` intervals
- * (`YYYY-MM-DD/YYYY-MM-DD/P1D` or `YYYY-MM-DD`) and checks whether `targetDate` lies inside them.
+ * Parses NASA GIBS `DescribeDomains` / `WMTSCapabilities` ISO-8601 temporal domains,
+ * supporting comma-separated multi-intervals inside `<Domain>`, namespaced XML elements,
+ * single dates, and step intervals (`/P1D`, `/P8D`, `/P1M`, `/P1Y`, etc.).
  */
-export function parseGibsXmlTimeMatch(xmlText: string, targetDate: string): 'matched' | 'not_present' | 'unparseable' {
-  if (!xmlText || typeof xmlText !== 'string') return 'unparseable';
-  if (!xmlText.includes('<')) return 'unparseable';
+export function parseGibsXmlTimeMatch(
+  xmlText: string,
+  targetDate: string
+): 'matched' | 'not_present' | 'unparseable' {
+  if (!xmlText || typeof xmlText !== 'string' || !xmlText.includes('<')) {
+    return 'unparseable';
+  }
 
-  const valueMatches = Array.from(xmlText.matchAll(/<Value>\s*([^<]+?)\s*<\/Value>/gi)).map((m) =>
-    m[1].trim()
-  );
-  const domainMatches = Array.from(xmlText.matchAll(/<Domain>\s*([^<]+?)\s*<\/Domain>/gi)).map((m) =>
-    m[1].trim()
-  );
-  const allTokens = [...valueMatches, ...domainMatches];
+  try {
+    validateImageryDate(targetDate, { allowFuture: true });
+  } catch {
+    return 'unparseable';
+  }
 
-  if (allTokens.length === 0) {
-    // Explicit empty GIBS domain response with valid Domain wrapper means zero temporal entries for extent
-    if (/<Domains\b|<SpaceTimeConstraint\b/i.test(xmlText)) {
+  const dimensionDomains = extractXmlTagBodies(xmlText, 'DimensionDomain');
+  const rawDomainTokens: string[] = [];
+  let hasExplicitEmptyTimeDomain = false;
+
+  if (dimensionDomains.length > 0) {
+    let foundTimeBlock = false;
+    for (const block of dimensionDomains) {
+      const identifiers = extractXmlTagBodies(block, 'Identifier').map((id) =>
+        id.trim().toLowerCase()
+      );
+      if (!identifiers.includes('time')) {
+        continue;
+      }
+      foundTimeBlock = true;
+      const blockDomains = extractXmlTagBodies(block, 'Domain');
+      const blockValues = extractXmlTagBodies(block, 'Value');
+      const sizeBodies = extractXmlTagBodies(block, 'Size').map((s) => s.trim());
+
+      const extracted = [...blockDomains, ...blockValues];
+      if (extracted.every((item) => item.trim() === '') && (sizeBodies.includes('0') || blockDomains.length > 0)) {
+        hasExplicitEmptyTimeDomain = true;
+      }
+      rawDomainTokens.push(...extracted);
+    }
+
+    if (!foundTimeBlock) {
+      return 'unparseable';
+    }
+  } else {
+    rawDomainTokens.push(
+      ...extractXmlTagBodies(xmlText, 'Domain'),
+      ...extractXmlTagBodies(xmlText, 'Value')
+    );
+  }
+
+  const intervalTokens = rawDomainTokens
+    .flatMap((chunk) => chunk.split(','))
+    .map((token) => token.trim())
+    .filter((token) => token.length > 0);
+
+  if (intervalTokens.length === 0) {
+    if (
+      hasExplicitEmptyTimeDomain ||
+      /<(?:[A-Za-z_][\w.-]*:)?SpaceTimeConstraint\b/i.test(xmlText)
+    ) {
       return 'not_present';
     }
     return 'unparseable';
   }
 
-  for (const token of allTokens) {
+  let validEntryCount = 0;
+  let malformedEntryCount = 0;
+
+  for (const token of intervalTokens) {
     if (token.includes('/')) {
       const parts = token.split('/');
-      const start = parts[0]?.slice(0, 10);
-      const end = parts[1]?.slice(0, 10);
-      if (
-        start &&
-        end &&
-        /^\d{4}-\d{2}-\d{2}$/.test(start) &&
-        /^\d{4}-\d{2}-\d{2}$/.test(end) &&
-        targetDate >= start &&
-        targetDate <= end
-      ) {
+      if (parts.length < 2 || parts.length > 3) {
+        malformedEntryCount += 1;
+        continue;
+      }
+      const start = parseStrictIsoDateToken(parts[0]);
+      const end = parseStrictIsoDateToken(parts[1]);
+      const step = parts.length === 3 ? parseIsoDurationStep(parts[2]) : ({ unit: 'D', count: 1 } as ParsedStep);
+
+      if (!start || !end || !step || start > end) {
+        malformedEntryCount += 1;
+        continue;
+      }
+
+      validEntryCount += 1;
+      if (doesTargetMatchSteppedRange(start, end, step, targetDate)) {
         return 'matched';
       }
-    } else if (/^\d{4}-\d{2}-\d{2}$/.test(token.slice(0, 10))) {
-      if (token.slice(0, 10) === targetDate) {
+    } else {
+      const singleDate = parseStrictIsoDateToken(token);
+      if (!singleDate) {
+        malformedEntryCount += 1;
+        continue;
+      }
+      validEntryCount += 1;
+      if (singleDate === targetDate) {
         return 'matched';
       }
     }
+  }
+
+  if (malformedEntryCount > 0 || validEntryCount === 0) {
+    return 'unparseable';
   }
 
   return 'not_present';
@@ -73,7 +244,7 @@ export function parseGibsXmlTimeMatch(xmlText: string, targetDate: string): 'mat
 
 /**
  * Generates recent candidate UTC calendar dates in descending order.
- * Generated calendar dates NEVER claim verified imagery availability (`availability: 'unverified'`).
+ * Generated calendar dates NEVER claim verified imagery availability.
  */
 export function getAvailableImageryDates(
   maxDaysBack: number = 30,
@@ -100,12 +271,14 @@ export function getAvailableImageryDates(
     entries.push({
       date: iso,
       availability: isBeforeStart ? 'unavailable' : 'unverified',
+      globalDateListed: false,
+      regionalCoverageVerified: false,
       productId: productDef.id,
       verifiedObservationDate: null,
       source: 'calendar_candidate',
       note: isBeforeStart
         ? `Date precedes NASA GIBS operational start (${productDef.temporalCoverageStart}) for ${productDef.gibsLayer}.`
-        : 'Calendar candidate date only; NASA GIBS spatial/swath availability for this location is unverified.',
+        : 'Calendar candidate date only; global metadata and local swath coverage remain unverified.',
     });
   }
 
@@ -113,59 +286,74 @@ export function getAvailableImageryDates(
 }
 
 /**
- * Verifies satellite imagery availability against official NASA GIBS WMTS Domain metadata
- * for a given product, UTC date, and bounding box. Never fabricates verified availability on network failure.
+ * Checks official NASA GIBS WMTS DescribeDomains metadata for GLOBAL layer temporal availability.
+ *
+ * IMPORTANT: NASA GIBS documents that DescribeDomains BBOX has no effect on returned temporal domains.
+ * Therefore a match yields `availability: 'global_date_listed'` with `regionalCoverageVerified: false`
+ * and `verifiedObservationDate: null` — never claiming local/city satellite acquisition verification.
  */
 export async function verifyImageryAvailability(params: {
   product: ImageryProductId | string;
   date: string;
-  bbox: GeographicBoundingBox;
+  bbox?: GeographicBoundingBox;
   fetchImpl?: typeof fetch;
   referenceNow?: Date;
 }): Promise<ImageryDateEntry> {
   const { product, date, bbox, fetchImpl = fetch, referenceNow } = params;
   const prod = resolveImageryProduct(product);
   const validDate = validateImageryDate(date, { referenceNow });
-  const validBbox = validateGeographicBoundingBox(bbox);
+  if (bbox !== undefined) {
+    validateGeographicBoundingBox(bbox);
+  }
 
   if (validDate < prod.temporalCoverageStart) {
     return {
       date: validDate,
       availability: 'unavailable',
+      globalDateListed: false,
+      regionalCoverageVerified: false,
       productId: prod.id,
       verifiedObservationDate: null,
       source: 'nasa_gibs_capabilities',
-      note: `Requested date ${validDate} precedes ${prod.gibsLayer} GIBS coverage start (${prod.temporalCoverageStart}).`,
+      note: `Requested date ${validDate} precedes ${prod.gibsLayer} GIBS operational coverage start (${prod.temporalCoverageStart}).`,
     };
   }
 
-  const bboxParam = `${validBbox.south.toFixed(4)},${validBbox.west.toFixed(4)},${validBbox.north.toFixed(4)},${validBbox.east.toFixed(4)}`;
-  const domainsUrl = `https://gibs.earthdata.nasa.gov/wmts/epsg4326/best/1.0.0/${encodeURIComponent(prod.gibsLayer)}/default/${encodeURIComponent(prod.gibsTileMatrixSet)}/${bboxParam}/all.xml`;
+  // Per NASA GIBS docs, DescribeDomains BBOX parameter has no effect on returned layer temporal domains.
+  const domainsUrl = `https://gibs.earthdata.nasa.gov/wmts/epsg4326/best/1.0.0/${encodeURIComponent(prod.gibsLayer)}/default/${encodeURIComponent(prod.gibsTileMatrixSet)}/all/all.xml`;
 
   try {
     const res = await fetchImpl(domainsUrl, {
       signal: AbortSignal.timeout(GIBS_DOMAIN_TIMEOUT_MS),
     });
 
-    if (res.status === 404) {
-      return {
-        date: validDate,
-        availability: 'unavailable',
-        productId: prod.id,
-        verifiedObservationDate: null,
-        source: 'nasa_gibs_wmts_domains',
-        note: `NASA GIBS domain metadata reported no data coverage for ${prod.gibsLayer} on ${validDate}.`,
-      };
-    }
-
     if (!res.ok) {
+      // Check explicitly whether an HTTP 404 body contains a valid parsed empty temporal domain before assuming unavailable
+      if (res.status === 404 && typeof res.text === 'function') {
+        const bodyText = await res.text().catch(() => '');
+        if (parseGibsXmlTimeMatch(bodyText, validDate) === 'not_present') {
+          return {
+            date: validDate,
+            availability: 'unavailable',
+            globalDateListed: false,
+            regionalCoverageVerified: false,
+            productId: prod.id,
+            verifiedObservationDate: null,
+            source: 'nasa_gibs_describe_domains',
+            note: `NASA GIBS DescribeDomains confirmed no global temporal entry for ${prod.gibsLayer} on ${validDate}.`,
+          };
+        }
+      }
+
       return {
         date: validDate,
         availability: 'unverified',
+        globalDateListed: false,
+        regionalCoverageVerified: false,
         productId: prod.id,
         verifiedObservationDate: null,
-        source: 'nasa_gibs_wmts_domains',
-        note: `NASA GIBS metadata verification unavailable (HTTP ${res.status}); imagery coverage for ${validDate} remains unverified.`,
+        source: 'nasa_gibs_describe_domains',
+        note: `NASA GIBS DescribeDomains returned HTTP ${res.status}; availability for ${validDate} remains unverified.`,
       };
     }
 
@@ -175,11 +363,13 @@ export async function verifyImageryAvailability(params: {
     if (matchStatus === 'matched') {
       return {
         date: validDate,
-        availability: 'verified_available',
+        availability: 'global_date_listed',
+        globalDateListed: true,
+        regionalCoverageVerified: false,
         productId: prod.id,
-        verifiedObservationDate: validDate,
-        source: 'nasa_gibs_wmts_domains',
-        note: `Confirmed in NASA GIBS WMTS domain metadata for ${prod.gibsLayer} on ${validDate}. Cloud cover may still obscure the surface.`,
+        verifiedObservationDate: null,
+        source: 'nasa_gibs_describe_domains',
+        note: `Global layer date ${validDate} is listed in NASA GIBS DescribeDomains for ${prod.gibsLayer}. Local swath coverage, cloud cover, and city acquisition time are unverified.`,
       };
     }
 
@@ -187,29 +377,35 @@ export async function verifyImageryAvailability(params: {
       return {
         date: validDate,
         availability: 'unavailable',
+        globalDateListed: false,
+        regionalCoverageVerified: false,
         productId: prod.id,
         verifiedObservationDate: null,
-        source: 'nasa_gibs_wmts_domains',
-        note: `No NASA GIBS temporal coverage found for ${prod.gibsLayer} in this region on ${validDate}.`,
+        source: 'nasa_gibs_describe_domains',
+        note: `Requested date ${validDate} is absent from NASA GIBS DescribeDomains global temporal intervals for ${prod.gibsLayer}.`,
       };
     }
 
     return {
       date: validDate,
       availability: 'unverified',
+      globalDateListed: false,
+      regionalCoverageVerified: false,
       productId: prod.id,
       verifiedObservationDate: null,
-      source: 'nasa_gibs_wmts_domains',
-      note: 'NASA GIBS domain metadata could not be reliably parsed; coverage remains unverified.',
+      source: 'nasa_gibs_describe_domains',
+      note: 'NASA GIBS DescribeDomains XML could not be reliably parsed; availability remains unverified.',
     };
   } catch {
     return {
       date: validDate,
       availability: 'unverified',
+      globalDateListed: false,
+      regionalCoverageVerified: false,
       productId: prod.id,
       verifiedObservationDate: null,
-      source: 'nasa_gibs_wmts_domains',
-      note: `Unable to reach NASA GIBS domain metadata; availability for ${validDate} is unverified.`,
+      source: 'nasa_gibs_describe_domains',
+      note: `Unable to reach NASA GIBS DescribeDomains metadata; availability for ${validDate} remains unverified.`,
     };
   }
 }
@@ -251,20 +447,23 @@ function buildValidatedImageSlot(params: {
           referenceNow,
         });
 
+  // Actual acquisition date is NEVER inferred from candidate generation or global DescribeDomains metadata
   const resolvedVerifiedDate =
-    availability === 'verified_available'
-      ? verifiedAcquisitionDate ?? validDate
+    availability === 'verified_regional' && verifiedAcquisitionDate
+      ? validateImageryDate(verifiedAcquisitionDate, { referenceNow })
       : null;
 
   const availabilityNote =
     availabilityNoteOverride ??
     (isBeforeOperationalStart
-      ? `Requested date ${validDate} precedes ${prod.gibsLayer} start date (${prod.temporalCoverageStart}).`
-      : availability === 'verified_available'
-        ? `Confirmed by NASA GIBS metadata for ${validDate}.`
-        : availability === 'unavailable'
-          ? `Satellite imagery unavailable for ${validDate}.`
-          : `Requested snapshot URL constructed for ${validDate}; regional GIBS availability unverified.`);
+      ? `Requested date ${validDate} precedes ${prod.gibsLayer} operational start (${prod.temporalCoverageStart}).`
+      : availability === 'verified_regional'
+        ? `Regional coverage verified for requested date ${validDate}.`
+        : availability === 'global_date_listed'
+          ? `Global layer date ${validDate} is listed by NASA GIBS; regional swath coverage and acquisition date over this city remain unverified.`
+          : availability === 'unavailable'
+            ? `Satellite imagery unavailable for ${validDate}.`
+            : `Requested snapshot URL constructed for ${validDate}; imagery availability over this city is unverified.`);
 
   return {
     date: validDate,
