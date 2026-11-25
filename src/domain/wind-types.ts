@@ -1,12 +1,23 @@
 /**
- * Global Wind-Flow & Atmospheric Intelligence Domain Types (Phase 3)
+ * Global Wind-Flow & Atmospheric Intelligence Domain Types (V2)
  *
  * Defines canonical data contracts and atmospheric physics conversions for:
- * - 10-meter wind vectors (U eastward, V northward in m/s)
+ * - City-level 10m wind vectors (`WindForecastResponse`)
+ * - Global 10m wind-vector fields (`GlobalWindManifest`, `GlobalWindSnapshot`)
+ *   from NOAA GFS and ECMWF IFS open-data GRIB2 feeds
  * - Meteorological wind direction (0-360 degrees from North)
- * - Qualitative surface wind ventilation indicators (never confused with full dispersion modeling)
- * - Time-synchronized UTC forecast provenances and explicit unavailability states
+ * - Surface wind ventilation indicators and location inspection readings
  */
+
+export type GlobalWindModelId = 'gfs' | 'ifs';
+export type GlobalWindOverlayKind = 'none' | 'speed' | 'temperature' | 'pressure';
+export type WindSpeedUnit = 'km/h' | 'm/s' | 'mph';
+export type GlobalWindFreshnessStatus =
+  | 'current'
+  | 'forecast'
+  | 'historical'
+  | 'stale'
+  | 'unavailable';
 
 export interface WindVectorPoint {
   latitude: number;
@@ -47,6 +58,7 @@ export interface WindForecastResponse {
   validTimeUtc: string | null;
   selectedHour: number;
   timeResolutionMode: 'utc_hour' | 'utc_instant';
+  freshness?: GlobalWindFreshnessStatus;
   attribution: string;
   units: {
     speed: 'km/h';
@@ -60,6 +72,97 @@ export interface WindForecastResponse {
   ventilationIndicatorScope: 'wind_speed_only' | 'wind_and_blh' | 'unavailable';
   ventilationDescription: string;
   uncertaintyDisclosure: string;
+}
+
+export interface GlobalWindGridBounds {
+  west: number;
+  south: number;
+  east: number;
+  north: number;
+}
+
+export interface GlobalWindGridGeometry {
+  width: number;
+  height: number;
+  lo1: number;
+  la1: number;
+  dx: number;
+  dy: number;
+  bounds: GlobalWindGridBounds;
+  resolutionDeg: number;
+  nativeResolutionDeg: number;
+}
+
+export interface GlobalWindScalarMetadata {
+  kind: 'temperature' | 'pressure';
+  units: '°C' | 'hPa';
+  level: string;
+  min: number;
+  max: number;
+}
+
+export interface GlobalWindCycleInfo {
+  date: string; // YYYYMMDD
+  hour: number; // 0, 6, 12, 18
+  forecastHour: number;
+}
+
+export interface GlobalWindManifest {
+  schemaVersion: 2;
+  model: GlobalWindModelId;
+  modelName: string;
+  provider: string;
+  initTimeUtc: string | null;
+  validTimeUtc: string | null;
+  forecastHour: number | null;
+  retrievedAtUtc: string | null;
+  grid: GlobalWindGridGeometry;
+  level: '10 m above ground';
+  units: 'm/s';
+  overlay: GlobalWindOverlayKind;
+  scalar?: GlobalWindScalarMetadata | null;
+  scalarError?: string | null;
+  status: WindForecastStatus;
+  freshness: GlobalWindFreshnessStatus;
+  ageMinutes: number | null;
+  isAvailable: boolean;
+  isCached: boolean;
+  isStale: boolean;
+  unavailableReason?: string | null;
+  attribution: string;
+  license: string;
+  cycle: GlobalWindCycleInfo | null;
+  gridUrl: string | null;
+}
+
+export interface GlobalWindSnapshot {
+  manifest: GlobalWindManifest;
+  u: Float32Array;
+  v: Float32Array;
+  scalarValues?: Float32Array | null;
+}
+
+export interface WindInspectionReading {
+  latitude: number;
+  longitude: number;
+  u: number;
+  v: number;
+  speedMs: number;
+  speedDisplay: number;
+  speedUnits: WindSpeedUnit;
+  fromDirectionDeg: number | null;
+  toDirectionDeg: number | null;
+  compassPoint: string;
+  isCalm: boolean;
+  scalarKind: GlobalWindOverlayKind;
+  scalarValue: number | null;
+  scalarUnits: string | null;
+  model: GlobalWindModelId;
+  modelName: string;
+  initTimeUtc: string | null;
+  validTimeUtc: string | null;
+  freshness: GlobalWindFreshnessStatus;
+  disclaimer: string;
 }
 
 /**

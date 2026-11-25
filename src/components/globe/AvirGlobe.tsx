@@ -16,7 +16,18 @@ import {
 import { GlobeCityCard } from './GlobeCityCard';
 import { AccessibleEarthFallback } from './AccessibleEarthFallback';
 import type { CameraAction, CesiumTerrainLoadState } from './cesium/AvirCesiumGlobe';
-import type { WindForecastResponse, WindVectorPoint } from '@/domain/wind-types';
+import type {
+  GlobalWindManifest,
+  GlobalWindModelId,
+  GlobalWindOverlayKind,
+  GlobalWindSnapshot,
+  WindForecastResponse,
+  WindInspectionReading,
+  WindSpeedUnit,
+  WindVectorPoint,
+} from '@/domain/wind-types';
+import { convertWindSpeed, inspectWindAtPoint, sampleWindVector, toWindGridView } from '@/domain/wind-field';
+import { fetchClientGlobalWindSnapshot } from '@/services/environment/global-wind-client';
 import type { FirmsHotspot, FirmsStatusResponse } from '@/domain/firms-types';
 import type { SatelliteComparisonPair } from '@/domain/imagery-types';
 import {
@@ -184,6 +195,45 @@ export function mapFirmsStatusToLayerInfo(res: FirmsStatusResponse): Environment
         detail: res.message || 'NASA FIRMS telemetry unavailable',
       };
   }
+}
+
+export function mapGlobalWindSnapshotToLayerInfo(
+  snapshot: GlobalWindSnapshot,
+  target: ActiveCityEnvironmentTarget | null,
+  speedUnit: WindSpeedUnit = 'km/h'
+): EnvironmentalLayerStatusInfo {
+  const m = snapshot.manifest;
+  if (!m.isAvailable || snapshot.u.length === 0 || snapshot.v.length === 0) {
+    return {
+      state: 'unavailable',
+      detail: m.unavailableReason || 'Global wind forecast unavailable',
+    };
+  }
+
+  let speedPrefix = '';
+  if (target && isValidGeographicCoordinate(target.latitude, target.longitude)) {
+    const gridView = toWindGridView(snapshot);
+    if (gridView) {
+      const sample = sampleWindVector(gridView, target.longitude, target.latitude);
+      if (sample.valid) {
+        const displayVal = convertWindSpeed(sample.speedMs, speedUnit);
+        speedPrefix = `~${Math.round(displayVal)} ${speedUnit} • `;
+      }
+    }
+  }
+
+  const modelShort = m.model === 'ifs' ? 'ECMWF IFS' : 'NOAA GFS';
+  if (m.status === 'stale_cached' || m.isStale) {
+    return {
+      state: 'stale',
+      detail: `${speedPrefix}Cached ${modelShort} 1° grid`,
+    };
+  }
+
+  return {
+    state: 'live',
+    detail: `${speedPrefix}${modelShort} 1° forecast`,
+  };
 }
 
 export function mapWindStatusToLayerInfo(res: WindForecastResponse): EnvironmentalLayerStatusInfo {
@@ -444,6 +494,14 @@ export function AvirGlobe({
 
   // Real runtime data & honest per-layer availability status
   const [windVectors, setWindVectors] = useState<WindVectorPoint[]>([]);
+  const [windSnapshot, setWindSnapshot] = useState<GlobalWindSnapshot | null>(null);
+  const [windManifest, setWindManifest] = useState<GlobalWindManifest | null>(null);
+  const [windModel, setWindModel] = useState<GlobalWindModelId>('gfs');
+  const [windOverlay, setWindOverlay] = useState<GlobalWindOverlayKind>('none');
+  const [windPaused, setWindPaused] = useState<boolean>(false);
+  const [windSpeedUnit, setWindSpeedUnit] = useState<WindSpeedUnit>('km/h');
+  const [inspectedWindCoords, setInspectedWindCoords] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState<boolean>(false);
   const [windInfo, setWindInfo] = useState<EnvironmentalLayerStatusInfo>({ state: 'off' });
 
   const [fireHotspots, setFireHotspots] = useState<FirmsHotspot[]>([]);
@@ -478,7 +536,7 @@ export function AvirGlobe({
     if (layer === 'terrain' && (!is3D || engineMode !== 'cesium')) {
       return;
     }
-    if (layer === 'wind' && (!is3D || engineMode !== 'three')) {
+    if (layer === 'wind' && !is3D) {
       return;
     }
     if (layer === 'fires' && !is3D) {
@@ -494,58 +552,90 @@ export function AvirGlobe({
     onToggleLayer?.(layer);
   };
 
-  // 1. Live Wind Vectors Connection (/api/environment/wind) — Three.js mode
+  // Observe user reduced-motion preference safely
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return;
+    const media = window.matchMedia('(prefers-reduced-motion: reduce)');
+    setPrefersReducedMotion(media.matches);
+    const onChange = () => setPrefersReducedMotion(media.matches);
+    media.addEventListener?.('change', onChange);
+    return () => media.removeEventListener?.('change', onChange);
+  }, []);
+
+  // 1. Global GFS/IFS Wind Field Connection — shared across BOTH CesiumJS & Three.js
+  // Switching Cesium <-> Three.js intentionally preserves windModel, windSnapshot, and state without re-downloading.
   useEffect(() => {
     const reqId = ++windReqIdRef.current;
 
-    if (!is3D || engineMode !== 'three') {
+    if (!is3D) {
       setWindVectors([]);
+      setWindSnapshot(null);
+      setWindManifest(null);
+      setInspectedWindCoords(null);
       setWindInfo({
         state: 'unsupported',
-        detail: is3D ? 'Three.js Engine Only' : 'Available in 3D Three.js Mode',
+        detail: 'Available in 3D Globe Mode',
       });
       return;
     }
 
     if (!activeLayers.wind) {
       setWindVectors([]);
-      setWindInfo({ state: 'off', detail: '10m GFS / Open-Meteo' });
-      return;
-    }
-
-    if (!activeCityTarget) {
-      setWindVectors([]);
-      setWindInfo({ state: 'unavailable', detail: 'Active city coordinates unavailable' });
+      setWindSnapshot(null);
+      setWindManifest(null);
+      setInspectedWindCoords(null);
+      setWindInfo({ state: 'off', detail: '10m GFS / ECMWF IFS Streamlines' });
       return;
     }
 
     const controller = new AbortController();
-    setWindInfo({ state: 'loading', detail: 'Fetching GFS wind vectors...' });
+    const modelLabel = windModel === 'ifs' ? 'ECMWF IFS' : 'NOAA GFS';
+    setWindInfo({ state: 'loading', detail: `Fetching ${modelLabel} global wind grid...` });
 
-    void fetchActiveCityWindLayer({
-      target: activeCityTarget,
+    void fetchClientGlobalWindSnapshot({
+      model: windModel,
+      overlay: windOverlay,
       validAtUtc,
-      selectedHour,
       signal: controller.signal,
     }).then((result) => {
       if (result.aborted || controller.signal.aborted || reqId !== windReqIdRef.current) return;
-      setWindInfo(result.info);
-      setWindVectors(result.data);
+
+      setWindManifest(result.manifest);
+      if (result.snapshot) {
+        setWindSnapshot(result.snapshot);
+        setWindInfo(mapGlobalWindSnapshotToLayerInfo(result.snapshot, activeCityTarget, windSpeedUnit));
+      } else {
+        setWindSnapshot(null);
+        setWindInfo({
+          state: 'unavailable',
+          detail: result.error || result.manifest?.unavailableReason || 'Global wind forecast unavailable',
+        });
+      }
     });
 
     return () => {
       controller.abort();
     };
-  }, [
-    is3D,
-    engineMode,
-    activeLayers.wind,
-    activeCityTarget?.name,
-    activeCityTarget?.latitude,
-    activeCityTarget?.longitude,
-    validAtUtc,
-    selectedHour,
-  ]);
+  }, [is3D, activeLayers.wind, windModel, windOverlay, validAtUtc]);
+
+  // Recompute status speed display if active city or unit changes without refetching grid
+  useEffect(() => {
+    if (!is3D || !activeLayers.wind || !windSnapshot) return;
+    setWindInfo(mapGlobalWindSnapshotToLayerInfo(windSnapshot, activeCityTarget, windSpeedUnit));
+  }, [is3D, activeLayers.wind, windSnapshot, activeCityTarget?.latitude, activeCityTarget?.longitude, windSpeedUnit]);
+
+  const windInspection: WindInspectionReading | null = useMemo(() => {
+    if (!activeLayers.wind || !windSnapshot || !inspectedWindCoords) return null;
+    return inspectWindAtPoint(
+      windSnapshot,
+      inspectedWindCoords.latitude,
+      inspectedWindCoords.longitude,
+      {
+        speedUnits: windSpeedUnit,
+        overlay: windOverlay,
+      }
+    );
+  }, [activeLayers.wind, windSnapshot, inspectedWindCoords, windSpeedUnit, windOverlay]);
 
   // 2. NASA FIRMS Active-Fire Hotspots Connection (/api/environment/fires) — Both Three.js & Cesium
   useEffect(() => {
@@ -808,6 +898,11 @@ export function AvirGlobe({
             isTerrainEnabled={activeLayers.terrain}
             isFiresEnabled={activeLayers.fires}
             fireHotspots={fireHotspots}
+            isWindEnabled={activeLayers.wind}
+            windSnapshot={windSnapshot}
+            windOverlay={windOverlay}
+            windPaused={windPaused}
+            onInspectWindCoords={setInspectedWindCoords}
             onTerrainStatusChange={setTerrainLoadState}
             onFallbackToThree={handleCesiumFallback}
             className="w-full h-full"
@@ -825,6 +920,10 @@ export function AvirGlobe({
             themeMode={themeMode}
             isWindEnabled={activeLayers.wind}
             windVectors={windVectors}
+            windSnapshot={windSnapshot}
+            windOverlay={windOverlay}
+            windPaused={windPaused}
+            onInspectWindCoords={setInspectedWindCoords}
             isFiresEnabled={activeLayers.fires}
             fireHotspots={fireHotspots}
             className="w-full h-full"
@@ -905,8 +1004,45 @@ export function AvirGlobe({
         </div>
       )}
 
+      {/* Floating Clicked/Inspected Global Wind Readout (when active outside popup) */}
+      {activeLayers.wind && windInspection && (
+        <aside
+          aria-label="Global wind point inspection"
+          data-testid="globe-wind-inspection-badge"
+          className="hidden sm:flex absolute bottom-36 left-3 sm:left-6 z-20 max-w-xs flex-col gap-0.5 rounded-xl bg-slate-950/90 backdrop-blur-md border border-sky-500/35 px-3 py-2 text-[10px] text-slate-200 telemetry-mono shadow-xl"
+        >
+          <div className="flex items-center justify-between gap-3">
+            <span className="font-bold text-sky-300">
+              WIND @ {Math.abs(windInspection.latitude).toFixed(2)}°{windInspection.latitude < 0 ? 'S' : 'N'},{' '}
+              {Math.abs(windInspection.longitude).toFixed(2)}°{windInspection.longitude < 0 ? 'W' : 'E'}
+            </span>
+            <button
+              type="button"
+              aria-label="Dismiss wind point inspection"
+              onClick={() => setInspectedWindCoords(null)}
+              className="text-slate-400 hover:text-white"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          </div>
+          <div>
+            <strong>{windInspection.speedDisplay} {windInspection.speedUnits}</strong>
+            {' · '}
+            {windInspection.isCalm
+              ? 'Calm'
+              : `From ${windInspection.compassPoint} (${windInspection.fromDirectionDeg}°)`}
+          </div>
+          <div className="text-[9px] text-slate-400">
+            U: {windInspection.u} m/s · V: {windInspection.v} m/s · {windInspection.model.toUpperCase()}
+            {windInspection.scalarValue !== null && windInspection.scalarUnits
+              ? ` · ${windInspection.scalarValue} ${windInspection.scalarUnits}`
+              : ''}
+          </div>
+        </aside>
+      )}
+
       {/* Floating Bottom Globe Controls */}
-      <div className="absolute bottom-16 right-4 sm:bottom-20 sm:right-6 z-20">
+      <div className="absolute bottom-16 right-4 sm:bottom-20 sm:right-6 z-30">
         <GlobeControls
           is3D={is3D}
           onToggle3D={() => setIs3D((prev) => !prev)}
@@ -922,6 +1058,28 @@ export function AvirGlobe({
           layers={activeLayers}
           layerStatus={layerStatus}
           onToggleLayer={handleToggleLayer}
+          windControls={{
+            model: windModel,
+            onChangeModel: setWindModel,
+            overlay: windOverlay,
+            onChangeOverlay: setWindOverlay,
+            paused: windPaused,
+            onTogglePause: () => setWindPaused((prev) => !prev),
+            speedUnit: windSpeedUnit,
+            onChangeSpeedUnit: setWindSpeedUnit,
+            prefersReducedMotion,
+            manifest: windManifest,
+            inspection: windInspection,
+            onInspectActiveCity: () => {
+              if (activeCityTarget && isValidGeographicCoordinate(activeCityTarget.latitude, activeCityTarget.longitude)) {
+                setInspectedWindCoords({
+                  latitude: activeCityTarget.latitude,
+                  longitude: activeCityTarget.longitude,
+                });
+              }
+            },
+            onClearInspection: () => setInspectedWindCoords(null),
+          }}
         />
       </div>
 

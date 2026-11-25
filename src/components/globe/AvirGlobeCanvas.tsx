@@ -23,7 +23,7 @@ import {
 } from './three-camera-controller';
 import { ThreeWindLayer } from './three-wind-layer';
 import { ThreeFireLayer } from './three-fire-layer';
-import type { WindVectorPoint } from '@/domain/wind-types';
+import type { GlobalWindOverlayKind, GlobalWindSnapshot, WindVectorPoint } from '@/domain/wind-types';
 import type { FirmsHotspot } from '@/domain/firms-types';
 
 export interface AvirGlobeCanvasProps {
@@ -38,6 +38,10 @@ export interface AvirGlobeCanvasProps {
   themeMode?: 'dark' | 'light';
   isWindEnabled?: boolean;
   windVectors?: WindVectorPoint[];
+  windSnapshot?: GlobalWindSnapshot | null;
+  windOverlay?: GlobalWindOverlayKind;
+  windPaused?: boolean;
+  onInspectWindCoords?: (coords: { latitude: number; longitude: number }) => void;
   isFiresEnabled?: boolean;
   fireHotspots?: FirmsHotspot[];
   className?: string;
@@ -55,6 +59,10 @@ export function AvirGlobeCanvas({
   themeMode = 'dark',
   isWindEnabled = false,
   windVectors = [],
+  windSnapshot = null,
+  windOverlay = 'none',
+  windPaused = false,
+  onInspectWindCoords,
   isFiresEnabled = false,
   fireHotspots = [],
   className = '',
@@ -78,6 +86,18 @@ export function AvirGlobeCanvas({
 
   const windVectorsRef = useRef(windVectors);
   windVectorsRef.current = windVectors;
+
+  const windSnapshotRef = useRef(windSnapshot);
+  windSnapshotRef.current = windSnapshot;
+
+  const windOverlayRef = useRef(windOverlay);
+  windOverlayRef.current = windOverlay;
+
+  const windPausedRef = useRef(windPaused);
+  windPausedRef.current = windPaused;
+
+  const onInspectWindCoordsRef = useRef(onInspectWindCoords);
+  onInspectWindCoordsRef.current = onInspectWindCoords;
 
   const isFiresEnabledRef = useRef(isFiresEnabled);
   isFiresEnabledRef.current = isFiresEnabled;
@@ -235,8 +255,18 @@ export function AvirGlobeCanvas({
     globeGroup.add(markersGroup);
 
     const windLayer = new ThreeWindLayer(globeGroup, { radius: EARTH_RADIUS + 0.35 });
+    const initialReducedMotion =
+      typeof window !== 'undefined' &&
+      window.matchMedia &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     windLayer.setVisible(isWindEnabledRef.current);
-    if (isWindEnabledRef.current && windVectorsRef.current.length > 0) {
+    if (isWindEnabledRef.current && windSnapshotRef.current?.manifest.isAvailable) {
+      windLayer.setGlobalField(windSnapshotRef.current, {
+        overlay: windOverlayRef.current,
+        paused: windPausedRef.current,
+        reducedMotion: initialReducedMotion,
+      });
+    } else if (isWindEnabledRef.current && windVectorsRef.current.length > 0) {
       windLayer.setWindVectors(windVectorsRef.current);
     }
 
@@ -402,9 +432,10 @@ export function AvirGlobeCanvas({
             }
           }
         });
-        if (isWindEnabledRef.current) {
-          windLayer.update(deltaSeconds);
-        }
+      }
+      if (isWindEnabledRef.current) {
+        windLayer.setOptions({ reducedMotion: prefersReducedMotion, paused: windPausedRef.current });
+        windLayer.update(prefersReducedMotion ? 0 : deltaSeconds, instances.cameraDistance);
       }
       if (isFiresEnabledRef.current) {
         fireLayer.update(camera.position, instances.elapsedTime);
@@ -496,18 +527,33 @@ export function AvirGlobeCanvas({
     inst.targetSunPos.set(Math.sin(sunAngle) * 350, 90, Math.cos(sunAngle) * 350);
   }, [selectedHour, validAtUtc]);
 
-  // Synchronize Three.js Wind Flow particle streamlines with validated API vectors
+  // Synchronize Three.js Wind Flow streamlines with validated global GFS/IFS snapshot (or legacy probes)
   useEffect(() => {
     const inst = instancesRef.current;
     if (!inst) return;
-    if (isWindEnabled && windVectors.length > 0) {
+    const reduced =
+      typeof window !== 'undefined' &&
+      Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches);
+
+    if (isWindEnabled && windSnapshot?.manifest.isAvailable) {
+      inst.windLayer.setVisible(true);
+      inst.windLayer.setGlobalField(windSnapshot, {
+        overlay: windOverlay,
+        paused: windPaused,
+        reducedMotion: reduced,
+        viewportWidth: containerRef.current?.clientWidth,
+      });
+    } else if (isWindEnabled && windVectors.length > 0) {
+      inst.windLayer.clearGlobalField();
       inst.windLayer.setVisible(true);
       inst.windLayer.setWindVectors(windVectors);
+      inst.windLayer.setOptions({ paused: windPaused, reducedMotion: reduced });
     } else {
       inst.windLayer.setVisible(false);
+      inst.windLayer.clearGlobalField();
       inst.windLayer.setWindVectors([]);
     }
-  }, [isWindEnabled, windVectors, webGLAvailable]);
+  }, [isWindEnabled, windSnapshot, windOverlay, windPaused, windVectors, webGLAvailable]);
 
   // Synchronize Three.js NASA FIRMS active-fire thermal anomaly markers
   useEffect(() => {
@@ -829,6 +875,24 @@ export function AvirGlobeCanvas({
       const hit = intersects[0].object;
       if (hit.userData?.point) {
         onSelectPoint(hit.userData.point);
+        return;
+      }
+    }
+
+    if (
+      intersects.length > 0 &&
+      intersects[0].object === inst.earthMesh &&
+      isWindEnabledRef.current &&
+      onInspectWindCoordsRef.current
+    ) {
+      const localPt = inst.globeGroup.worldToLocal(intersects[0].point.clone());
+      const r = localPt.length();
+      if (r > 0) {
+        const lat = (Math.asin(Math.max(-1, Math.min(1, localPt.y / r))) * 180) / Math.PI;
+        const thetaDeg = (Math.atan2(localPt.z, -localPt.x) * 180) / Math.PI;
+        const rawLng = thetaDeg - 180;
+        const longitude = ((((rawLng + 180) % 360) + 360) % 360) - 180;
+        onInspectWindCoordsRef.current({ latitude: lat, longitude });
       }
     }
   };

@@ -1,9 +1,17 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { resolveSource } from '@/services/source-control/source-resolution';
 import { SourcePreference } from '@/services/source-control/source-control-types';
 import { AtmosphericMetrics, EnvironmentalSourceRecord } from '@/domain/types';
 
 describe('Avir Source Control — Resolution Engine (Unit)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-24T12:15:00Z'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
   const mockCpcbSource: EnvironmentalSourceRecord = {
     id: 'cpcb-delhi-anand-vihar',
     providerId: 'cpcb',

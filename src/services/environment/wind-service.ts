@@ -12,6 +12,7 @@
  */
 
 import {
+  GlobalWindFreshnessStatus,
   WindForecastResponse,
   WindForecastStatus,
   WindVectorPoint,
@@ -202,7 +203,9 @@ const HOURLY_STEP_TOLERANCE_MS = 3_600_000;
 function selectTargetEpoch(
   candidateEpochs: number[],
   selectedHour: number,
-  targetValidTimeUtc?: string
+  targetValidTimeUtc?: string,
+  nowMs: number = Date.now(),
+  preferNearestToNow = false
 ): { epoch: number; alignedFromRequested: boolean } | null {
   if (candidateEpochs.length === 0) return null;
 
@@ -232,7 +235,53 @@ function selectTargetEpoch(
 
   const matches = candidateEpochs.filter((ep) => new Date(ep).getUTCHours() === selectedHour);
   if (matches.length === 0) return null;
+
+  if (preferNearestToNow && matches.length > 1) {
+    let closest = matches[0];
+    let minDiff = Math.abs(closest - nowMs);
+    for (const ep of matches) {
+      const diff = Math.abs(ep - nowMs);
+      if (diff < minDiff) {
+        minDiff = diff;
+        closest = ep;
+      }
+    }
+    return { epoch: closest, alignedFromRequested: false };
+  }
+
   return { epoch: matches[0], alignedFromRequested: false };
+}
+
+function resolveForecastFreshness(
+  targetEpochMs: number,
+  nowMs: number,
+  isStale: boolean
+): { freshness: GlobalWindFreshnessStatus; note: string } {
+  if (isStale) {
+    return {
+      freshness: 'stale',
+      note: 'Serving stale cached forecast values.',
+    };
+  }
+  const diffMin = Math.round((targetEpochMs - nowMs) / 60_000);
+  if (diffMin > 30) {
+    const leadHours = Math.round((diffMin / 60) * 10) / 10;
+    return {
+      freshness: 'forecast',
+      note: `Forecast data valid ~${leadHours}h ahead of current UTC time.`,
+    };
+  }
+  if (diffMin < -90) {
+    const ageHours = Math.round((Math.abs(diffMin) / 60) * 10) / 10;
+    return {
+      freshness: 'historical',
+      note: `Forecast valid time is ~${ageHours}h prior to current UTC time.`,
+    };
+  }
+  return {
+    freshness: 'current',
+    note: 'Current synoptic forecast window.',
+  };
 }
 
 function buildUnavailableResponse(params: {
@@ -408,7 +457,9 @@ export async function fetchWindForecast(params: {
     const targetSelection = selectTargetEpoch(
       referenceSeries.orderedEpochs,
       hour,
-      targetValidTimeUtc
+      targetValidTimeUtc,
+      nowMs,
+      params.hour === undefined
     );
     if (targetSelection === null) {
       failureStatus = 'invalid_upstream_response';
@@ -418,6 +469,7 @@ export async function fetchWindForecast(params: {
 
     const { epoch: targetEpoch, alignedFromRequested } = targetSelection;
     const resolvedValidTimeUtc = new Date(targetEpoch).toISOString();
+    const freshnessInfo = resolveForecastFreshness(targetEpoch, nowMs, false);
     const rawInit =
       typeof referenceSeries.resp?.model_run_at === 'string' &&
       !Number.isNaN(Date.parse(referenceSeries.resp.model_run_at))
@@ -488,6 +540,7 @@ export async function fetchWindForecast(params: {
       validTimeUtc: resolvedValidTimeUtc,
       selectedHour: hour,
       timeResolutionMode: targetValidTimeUtc ? 'utc_instant' : 'utc_hour',
+      freshness: freshnessInfo.freshness,
       attribution: 'Atmospheric Forecast: Open-Meteo Forecast API (10m Surface Wind)',
       units: {
         speed: 'km/h',
@@ -501,8 +554,8 @@ export async function fetchWindForecast(params: {
       ventilationIndicatorScope: scope,
       ventilationDescription: description,
       uncertaintyDisclosure: alignedFromRequested
-        ? `Aligned requested UTC instant (${targetValidTimeUtc}) to nearest available hourly Open-Meteo GFS forecast frame (${resolvedValidTimeUtc}). Open-Meteo best_match selects or blends gridded NWP models per region; grid-cell surface winds reflect synoptic flow rather than hyper-local street-canyon gusts.`
-        : 'Open-Meteo best_match selects or blends gridded NWP models per region; grid-cell surface winds reflect regional synoptic flow rather than hyper-local street-canyon gusts. Model initialization time is not exposed by the forecast endpoint.',
+        ? `Aligned requested UTC instant (${targetValidTimeUtc}) to nearest available hourly Open-Meteo GFS forecast frame (${resolvedValidTimeUtc}). ${freshnessInfo.note} Open-Meteo best_match selects or blends gridded NWP models per region; grid-cell surface winds reflect synoptic flow rather than hyper-local street-canyon gusts.`
+        : `${freshnessInfo.note} Open-Meteo best_match selects or blends gridded NWP models per region; grid-cell surface winds reflect regional synoptic flow rather than hyper-local street-canyon gusts. Model initialization time is not exposed by this endpoint.`,
     };
 
     // Only cache when active city wind is genuinely available
@@ -531,6 +584,7 @@ export async function fetchWindForecast(params: {
         isAvailable: staleEntry.data.cityWind !== null,
         isCached: true,
         isStale: true,
+        freshness: 'stale',
         cachedAtUtc: staleEntry.cachedAtUtc,
         unavailableReason: `${failureReason} Serving stale cached forecast from ${staleEntry.cachedAtUtc}.`,
       };
