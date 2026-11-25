@@ -83,6 +83,12 @@ test.describe('Avir Source Control — Multi-Provider Telemetry & User Selection
     await page.goto('/');
     await page.waitForLoadState('domcontentloaded');
 
+    // Switch off default CesiumJS to lightweight Three.js so SwiftShader WebGL shader compilation does not starve CPU during multi-step telemetry UI interactions in CI
+    const engineButton = page.getByRole('button', { name: /toggle 3d engine/i });
+    await expect(engineButton).toHaveText('CESIUM');
+    await engineButton.click();
+    await expect(engineButton).toHaveText('THREE');
+
     // Verify Data Source indicator is visible in CompactCityCard
     const dataSourceBtn = page.getByRole('button', { name: /current data source/i }).first();
     await expect(dataSourceBtn).toBeVisible({ timeout: 5000 });
@@ -101,6 +107,12 @@ test.describe('Avir Source Control — Multi-Provider Telemetry & User Selection
   test('2. Allows switching data source modes and persists selection to localStorage', async ({ page }) => {
     await page.goto('/');
     await page.waitForLoadState('domcontentloaded');
+
+    // Switch off default CesiumJS to lightweight Three.js so SwiftShader WebGL shader compilation does not starve CPU during multi-step telemetry UI interactions in CI
+    const engineButton = page.getByRole('button', { name: /toggle 3d engine/i });
+    await expect(engineButton).toHaveText('CESIUM');
+    await engineButton.click();
+    await expect(engineButton).toHaveText('THREE');
 
     // Open Source Control modal
     const dataSourceBtn = page.getByRole('button', { name: /current data source/i }).first();
@@ -123,6 +135,12 @@ test.describe('Avir Source Control — Multi-Provider Telemetry & User Selection
   test('3. Fallback toggle and reset to defaults work reliably', async ({ page }) => {
     await page.goto('/');
     await page.waitForLoadState('domcontentloaded');
+
+    // Switch off default CesiumJS to lightweight Three.js so SwiftShader WebGL shader compilation does not starve CPU during multi-step telemetry UI interactions in CI
+    const engineButton = page.getByRole('button', { name: /toggle 3d engine/i });
+    await expect(engineButton).toHaveText('CESIUM');
+    await engineButton.click();
+    await expect(engineButton).toHaveText('THREE');
 
     // Open Source Control modal
     const dataSourceBtn = page.getByRole('button', { name: /current data source/i }).first();
@@ -288,6 +306,12 @@ test.describe('Avir Source Control — Multi-Provider Telemetry & User Selection
 
     await page.goto('/');
     await page.waitForLoadState('domcontentloaded');
+
+    // Switch off default CesiumJS to lightweight Three.js so SwiftShader WebGL shader compilation does not starve CPU during multi-step telemetry UI interactions in CI
+    const engineButton = page.getByRole('button', { name: /toggle 3d engine/i });
+    await expect(engineButton).toHaveText('CESIUM');
+    await engineButton.click();
+    await expect(engineButton).toHaveText('THREE');
 
     // 1. Verify CPCB (180 µg/m³) resolved on initial load across card, calculators, & ActionDecisionCard
     await expect(page.getByText(/Anand Vihar, Delhi - DPCC/i).first()).toBeVisible({ timeout: 8000 });

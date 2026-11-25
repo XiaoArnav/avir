@@ -67,7 +67,7 @@ export function AvirGlobe({
   className = '',
 }: AvirGlobeProps) {
   const [is3D, setIs3D] = useState<boolean>(true);
-  const [engineMode, setEngineMode] = useState<'three' | 'cesium'>('three');
+  const [engineMode, setEngineMode] = useState<'three' | 'cesium'>('cesium');
   const [isAutoRotating, setIsAutoRotating] = useState<boolean>(true);
   const [cameraAction, setCameraAction] = useState<CameraAction | null>(null);
   const [fallbackNotice, setFallbackNotice] = useState<string | null>(null);
