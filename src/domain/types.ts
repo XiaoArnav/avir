@@ -266,7 +266,7 @@ export interface SourceMeasurement {
   receivedAt?: string | null;
   rawUncalibratedValue?: number | null;
   calibrationApplied?: string | null;
-  qualityFlag?: 'valid' | 'suspect' | 'calibrated' | 'raw' | 'rejected';
+  qualityFlag?: 'valid' | 'suspect' | 'calibrated' | 'raw' | 'rejected' | 'official_bulletin';
   min?: number | null;
   max?: number | null;
 }
@@ -309,7 +309,9 @@ export interface EnvironmentalSourceRecord {
     reportingLatencyMinutes?: number | null;
     isModel: boolean;
     limitations: string[];
+    isOfficialBulletin?: boolean;
   };
+  metadata?: Record<string, unknown>;
 }
 
 export type SourceComparisonStatus =
