@@ -2,6 +2,10 @@
 
 import React, { useEffect, useRef, useState, useTransition } from 'react';
 import type { GeographicObservationPoint, AqiStandard } from '@/services/geo/geographic-observation-adapter';
+import {
+  createCesiumTerrainController,
+  type CesiumTerrainController,
+} from './cesium-terrain';
 
 export type ViewerLifecycle = 'idle' | 'initializing' | 'ready' | 'failed' | 'destroyed';
 
@@ -23,6 +27,7 @@ export interface AvirCesiumGlobeProps {
   // Dynamic controls & lifecycle signals
   isAutoRotating?: boolean;
   cameraAction?: CameraAction | null;
+  isTerrainEnabled?: boolean;
   onReady?: () => void;
   onFallbackToThree?: (reason: string) => void;
 }
@@ -39,12 +44,14 @@ export function AvirCesiumGlobe({
   className = '',
   isAutoRotating = true,
   cameraAction = null,
+  isTerrainEnabled = false,
   onReady,
   onFallbackToThree,
 }: AvirCesiumGlobeProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [lifecycle, setLifecycle] = useState<ViewerLifecycle>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [terrainAttribution, setTerrainAttribution] = useState<string | null>(null);
 
   // Mutable refs to prevent stale closures inside Cesium asynchronous callbacks and event listeners
   const viewerRef = useRef<{
@@ -68,6 +75,7 @@ export function AvirCesiumGlobe({
 
   const isUserInteractingRef = useRef(false);
   const entitiesMapRef = useRef<Map<string, any>>(new Map());
+  const terrainControllerRef = useRef<CesiumTerrainController | null>(null);
 
   // Main Cesium Viewer Lifecycle Effect (Mount & StrictMode clean initialization)
   useEffect(() => {
@@ -237,6 +245,7 @@ export function AvirCesiumGlobe({
         };
 
         if (isMounted) {
+          terrainControllerRef.current = createCesiumTerrainController();
           setLifecycle('ready');
           onReady?.();
         }
@@ -255,6 +264,8 @@ export function AvirCesiumGlobe({
 
     return () => {
       isMounted = false;
+      terrainControllerRef.current?.dispose();
+      terrainControllerRef.current = null;
       setLifecycle('destroyed');
       if (viewerRef.current) {
         const { viewer, handler, removeTickListener } = viewerRef.current;
@@ -431,6 +442,28 @@ export function AvirCesiumGlobe({
     );
   }, [themeMode, lifecycle]);
 
+  // Dynamically load Re:Earth keyless 3D elevation terrain or fall back to ellipsoid
+  useEffect(() => {
+    if (lifecycle !== 'ready' || !viewerRef.current) return;
+    const { viewer, Cesium } = viewerRef.current;
+    if (viewer.isDestroyed()) return;
+
+    const controller =
+      terrainControllerRef.current ??
+      (terrainControllerRef.current = createCesiumTerrainController());
+
+    void controller.sync({
+      viewer,
+      Cesium,
+      enabled: isTerrainEnabled,
+      onAttributionChange: setTerrainAttribution,
+    });
+
+    return () => {
+      controller.cancelPending();
+    };
+  }, [isTerrainEnabled, lifecycle]);
+
   if (lifecycle === 'failed') {
     return (
       <div className={`w-full h-full flex flex-col items-center justify-center bg-black/80 text-rose-300 p-6 ${className}`}>
@@ -475,6 +508,14 @@ export function AvirCesiumGlobe({
         <div className="text-slate-300/90 text-[8.5px] sm:text-[9.5px]">
           Imagery: Tiles © Esri, Maxar, Earthstar Geographics | © OpenStreetMap contributors
         </div>
+        {terrainAttribution && (
+          <div
+            className="text-slate-300/90 text-[8.5px] sm:text-[9.5px]"
+            data-testid="cesium-terrain-attribution"
+          >
+            {terrainAttribution}
+          </div>
+        )}
       </aside>
     </div>
   );
