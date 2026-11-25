@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { fetchGlobalWindSnapshot } from '@/services/environment/global-wind-service';
+import {
+  fetchGlobalWindSnapshot,
+  WindForecastRangeError,
+} from '@/services/environment/global-wind-service';
 import type { GlobalWindModelId, GlobalWindOverlayKind } from '@/domain/wind-types';
 
 const VALID_MODELS = new Set<GlobalWindModelId>(['gfs', 'ifs']);
@@ -12,6 +15,10 @@ const VALID_OVERLAYS = new Set<GlobalWindOverlayKind>([
 
 export async function GET(req: NextRequest) {
   try {
+    if (req.signal?.aborted) {
+      return new NextResponse(null, { status: 499 });
+    }
+
     const { searchParams } = new URL(req.url);
     const modelParam = (searchParams.get('model') || 'gfs').toLowerCase() as GlobalWindModelId;
     const overlayParam = (
@@ -72,6 +79,23 @@ export async function GET(req: NextRequest) {
       },
     });
   } catch (err) {
+    if (
+      req.signal?.aborted ||
+      (err instanceof Error && err.name === 'AbortError')
+    ) {
+      return new NextResponse(null, { status: 499 });
+    }
+    if (err instanceof WindForecastRangeError) {
+      return NextResponse.json(
+        {
+          error: err.message,
+          code: err.code,
+          minValidTimeUtc: err.minValidTimeUtc,
+          maxValidTimeUtc: err.maxValidTimeUtc,
+        },
+        { status: 400 }
+      );
+    }
     console.error(
       'Global wind manifest route error:',
       err instanceof Error ? err.message : 'Unexpected error'

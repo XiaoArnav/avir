@@ -7,12 +7,20 @@ import {
   encodeGlobalWindBinaryGrid,
   fetchGlobalWindBinaryByCycle,
   fetchGlobalWindSnapshot,
+  getGlobalWindCacheStats,
+  GLOBAL_WIND_CACHE_MAX_ALIASES,
+  GLOBAL_WIND_CACHE_MAX_SNAPSHOTS,
+  GLOBAL_WIND_CACHE_MAX_STALE_MS,
+  GLOBAL_WIND_FAILURE_CACHE_MAX_ENTRIES,
   nearestGfsStep,
   nearestIfsStep,
   parseGfsIdx,
   parseIfsIndex,
+  pruneExpiredGlobalWindCache,
   selectLatestGfsCycle,
   selectLatestIfsCycle,
+  validateForecastTargetTime,
+  WindForecastRangeError,
 } from '@/services/environment/global-wind-service';
 import {
   clearGlobalWindClientCache,
@@ -592,5 +600,677 @@ describe('Phase 2: Pure-TS GRIB2 Decoder, Cycle Selection & Global Wind Proxy AP
     });
     expect(failed.snapshot).toBeNull();
     expect(failed.error).toMatch(/non-finite/i);
+  });
+});
+
+function createDynamicWindMockFetch(options?: {
+  mode?: 'gfs' | 'ifs';
+  failStatus?: number;
+  gate?: Promise<void>;
+  onSignalAbort?: () => void;
+  onStepRequest?: (stepHour: number) => void;
+}) {
+  const mode = options?.mode ?? 'gfs';
+  let idxCalls = 0;
+  let rangeCalls = 0;
+
+  const mock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    const sig = init?.signal;
+
+    if (sig?.aborted) {
+      throw new DOMException('Aborted', 'AbortError');
+    }
+
+    let abortListener: (() => void) | null = null;
+    try {
+      if (options?.gate) {
+        await new Promise<void>((resolve, reject) => {
+          if (sig?.aborted) {
+            reject(new DOMException('Aborted', 'AbortError'));
+            return;
+          }
+          abortListener = () => {
+            options.onSignalAbort?.();
+            reject(new DOMException('Aborted', 'AbortError'));
+          };
+          sig?.addEventListener('abort', abortListener, { once: true });
+          void options.gate!.then(resolve, reject);
+        });
+      } else if (options?.onSignalAbort && sig) {
+        sig.addEventListener('abort', options.onSignalAbort, { once: true });
+      }
+    } finally {
+      if (abortListener && sig) {
+        sig.removeEventListener('abort', abortListener);
+      }
+    }
+
+    if (options?.failStatus && options.failStatus >= 500) {
+      return new Response('', { status: options.failStatus });
+    }
+
+    if (mode === 'gfs') {
+      const fMatch = url.match(/\.f(\d{3})(?:\.idx)?$/);
+      const stepHour = fMatch ? Number(fMatch[1]) : 0;
+      const cycleMatch = url.match(/\/gfs\.(\d{8})\/(\d{2})\//);
+      const dateStr = cycleMatch ? cycleMatch[1] : '20261125';
+      const hourNum = cycleMatch ? Number(cycleMatch[2]) : 0;
+      const uBuf = buildSyntheticGrib2Message({
+        template: 0,
+        initYear: Number(dateStr.slice(0, 4)),
+        initMonth: Number(dateStr.slice(4, 6)),
+        initDay: Number(dateStr.slice(6, 8)),
+        initHour: hourNum,
+        forecastHours: stepHour,
+        values: Array(8).fill(5 + (stepHour % 10)),
+      });
+      const vBuf = buildSyntheticGrib2Message({
+        template: 0,
+        initYear: Number(dateStr.slice(0, 4)),
+        initMonth: Number(dateStr.slice(4, 6)),
+        initDay: Number(dateStr.slice(6, 8)),
+        initHour: hourNum,
+        forecastHours: stepHour,
+        values: Array(8).fill(2),
+      });
+
+      if (url.endsWith('.idx')) {
+        idxCalls++;
+        options?.onStepRequest?.(stepHour);
+        const idxText = [
+          `1:0:d=${dateStr}00:UGRD:10 m above ground:${stepHour} hour fcst:`,
+          `2:${uBuf.byteLength}:d=${dateStr}00:VGRD:10 m above ground:${stepHour} hour fcst:`,
+          `3:${uBuf.byteLength + vBuf.byteLength}:d=${dateStr}00:EOF:surface:${stepHour} hour fcst:`,
+        ].join('\n');
+        return new Response(idxText, { status: 200 });
+      }
+
+      rangeCalls++;
+      const rangeHeader = (init?.headers as Record<string, string>)?.Range;
+      if (rangeHeader === `bytes=0-${uBuf.byteLength - 1}`) {
+        return new Response(Buffer.from(uBuf), { status: 206 });
+      }
+      return new Response(Buffer.from(vBuf), { status: 206 });
+    }
+
+    // IFS mock
+    const fMatch = url.match(/-(\d+)h-oper-fc\.(index|grib2)$/);
+    const stepHour = fMatch ? Number(fMatch[1]) : 0;
+    const cycleMatch = url.match(/\/(\d{8})\/(\d{2})z\//);
+    const dateStr = cycleMatch ? cycleMatch[1] : '20261125';
+    const hourNum = cycleMatch ? Number(cycleMatch[2]) : 0;
+    const uBuf = buildSyntheticGrib2Message({
+      template: 0,
+      lo1Deg: 180,
+      initYear: Number(dateStr.slice(0, 4)),
+      initMonth: Number(dateStr.slice(4, 6)),
+      initDay: Number(dateStr.slice(6, 8)),
+      initHour: hourNum,
+      forecastHours: stepHour,
+      values: Array(8).fill(4 + (stepHour % 7)),
+    });
+    const vBuf = buildSyntheticGrib2Message({
+      template: 0,
+      lo1Deg: 180,
+      initYear: Number(dateStr.slice(0, 4)),
+      initMonth: Number(dateStr.slice(4, 6)),
+      initDay: Number(dateStr.slice(6, 8)),
+      initHour: hourNum,
+      forecastHours: stepHour,
+      values: Array(8).fill(-1),
+    });
+
+    if (url.endsWith('.index')) {
+      idxCalls++;
+      options?.onStepRequest?.(stepHour);
+      const body = [
+        JSON.stringify({ param: '10u', _offset: 0, _length: uBuf.byteLength }),
+        JSON.stringify({ param: '10v', _offset: uBuf.byteLength, _length: vBuf.byteLength }),
+      ].join('\n');
+      return new Response(body, { status: 200 });
+    }
+
+    rangeCalls++;
+    const rangeHeader = (init?.headers as Record<string, string>)?.Range;
+    if (rangeHeader === `bytes=0-${uBuf.byteLength - 1}`) {
+      return new Response(Buffer.from(uBuf), { status: 206 });
+    }
+    return new Response(Buffer.from(vBuf), { status: 206 });
+  });
+
+  return {
+    mock,
+    getIdxCalls: () => idxCalls,
+    getRangeCalls: () => rangeCalls,
+  };
+}
+
+describe('PR #42 Blocker 1: Shared Wind Request Cancellation Isolation', () => {
+  beforeEach(() => {
+    clearGlobalWindCache();
+    clearGlobalWindClientCache();
+    vi.restoreAllMocks();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('Test A: shares upstream work across concurrent callers and returns valid results to both', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const harness = createDynamicWindMockFetch({ gate });
+    const fixedNow = Date.UTC(2026, 10, 25, 11, 0, 0);
+
+    const p1 = fetchGlobalWindSnapshot({
+      model: 'gfs',
+      now: () => fixedNow,
+      fetchImpl: harness.mock as any,
+    });
+    const p2 = fetchGlobalWindSnapshot({
+      model: 'gfs',
+      now: () => fixedNow,
+      fetchImpl: harness.mock as any,
+    });
+
+    expect(getGlobalWindCacheStats().inflightCount).toBe(1);
+    release();
+    const [r1, r2] = await Promise.all([p1, p2]);
+
+    expect(r1.manifest.isAvailable).toBe(true);
+    expect(r2.manifest.isAvailable).toBe(true);
+    expect(r1.u[0]).toBeCloseTo(r2.u[0], 4);
+    expect(harness.getIdxCalls()).toBe(1);
+    expect(harness.getRangeCalls()).toBe(2);
+    expect(getGlobalWindCacheStats().inflightCount).toBe(0);
+    expect(getGlobalWindCacheStats().failureCount).toBe(0);
+  });
+
+  it('Test B: cancelling Client A does NOT cancel Client B or upstream work', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let upstreamAborted = false;
+    const harness = createDynamicWindMockFetch({
+      gate,
+      onSignalAbort: () => {
+        upstreamAborted = true;
+      },
+    });
+    const fixedNow = Date.UTC(2026, 10, 25, 11, 0, 0);
+
+    const acA = new AbortController();
+    const acB = new AbortController();
+
+    const pA = fetchGlobalWindSnapshot({
+      model: 'gfs',
+      now: () => fixedNow,
+      fetchImpl: harness.mock as any,
+      signal: acA.signal,
+    });
+    const pB = fetchGlobalWindSnapshot({
+      model: 'gfs',
+      now: () => fixedNow,
+      fetchImpl: harness.mock as any,
+      signal: acB.signal,
+    });
+
+    acA.abort();
+    await expect(pA).rejects.toMatchObject({ name: 'AbortError' });
+
+    // Upstream work must still be active for Client B, with zero failure backoff recorded
+    expect(upstreamAborted).toBe(false);
+    expect(getGlobalWindCacheStats().inflightCount).toBe(1);
+    expect(getGlobalWindCacheStats().failureCount).toBe(0);
+
+    release();
+    const resB = await pB;
+    expect(resB.manifest.isAvailable).toBe(true);
+    expect(resB.manifest.status).toBe('available');
+    expect(getGlobalWindCacheStats().inflightCount).toBe(0);
+    expect(getGlobalWindCacheStats().failureCount).toBe(0);
+    expect(getGlobalWindCacheStats().snapshotCount).toBe(1);
+  });
+
+  it('Test C: caller cancellation never poisons subsequent healthy requests with 60s failure backoff', async () => {
+    let releaseSlow!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      releaseSlow = resolve;
+    });
+    let upstreamAborted = false;
+    const cancelledFetch = createDynamicWindMockFetch({
+      gate,
+      onSignalAbort: () => {
+        upstreamAborted = true;
+      },
+    });
+    const fixedNow = Date.UTC(2026, 10, 25, 11, 0, 0);
+
+    const acSolo = new AbortController();
+    const soloPromise = fetchGlobalWindSnapshot({
+      model: 'gfs',
+      now: () => fixedNow,
+      fetchImpl: cancelledFetch.mock as any,
+      signal: acSolo.signal,
+    });
+
+    acSolo.abort();
+    await expect(soloPromise).rejects.toMatchObject({ name: 'AbortError' });
+    expect(upstreamAborted).toBe(true);
+    expect(getGlobalWindCacheStats().failureCount).toBe(0);
+    expect(getGlobalWindCacheStats().inflightCount).toBe(0);
+
+    // Next request 500ms later MUST NOT hit 60s cooldown
+    const healthyFetch = createDynamicWindMockFetch();
+    const recovered = await fetchGlobalWindSnapshot({
+      model: 'gfs',
+      now: () => fixedNow + 500,
+      fetchImpl: healthyFetch.mock as any,
+    });
+    expect(recovered.manifest.isAvailable).toBe(true);
+    expect(healthyFetch.getIdxCalls()).toBe(1);
+
+    // Also verify HTTP route returns 499 cleanly without poisoning availability when req.signal aborts
+    clearGlobalWindCache();
+    let routeUpstreamAborted = false;
+    vi.stubGlobal(
+      'fetch',
+      createDynamicWindMockFetch({
+        gate: new Promise(() => {}),
+        onSignalAbort: () => {
+          routeUpstreamAborted = true;
+        },
+      }).mock as any
+    );
+    const reqAc = new AbortController();
+    const routePromise = getGlobalManifest(
+      new NextRequest('http://localhost/api/environment/wind/global?model=gfs', {
+        signal: reqAc.signal,
+      })
+    );
+    await Promise.resolve();
+    reqAc.abort();
+    const abortedResp = await routePromise;
+    expect(abortedResp.status).toBe(499);
+    expect(routeUpstreamAborted).toBe(true);
+    expect(getGlobalWindCacheStats().failureCount).toBe(0);
+    expect(getGlobalWindCacheStats().inflightCount).toBe(0);
+    releaseSlow?.();
+  });
+
+  it('Test D: genuine upstream failure still triggers 60-second negative-cache backoff', async () => {
+    const fixedNow = Date.UTC(2026, 10, 25, 11, 0, 0);
+    const failingFetch = vi.fn().mockRejectedValue(new Error('Upstream socket failure'));
+
+    const fail1 = await fetchGlobalWindSnapshot({
+      model: 'gfs',
+      now: () => fixedNow,
+      fetchImpl: failingFetch as any,
+    });
+    expect(fail1.manifest.isAvailable).toBe(false);
+    expect(fail1.manifest.status).toBe('temporarily_unavailable');
+    expect(getGlobalWindCacheStats().failureCount).toBe(1);
+
+    const callsAtFail = failingFetch.mock.calls.length;
+    // Retry 10s later -> blocked by 60s backoff cooldown without hitting upstream
+    const fail2 = await fetchGlobalWindSnapshot({
+      model: 'gfs',
+      now: () => fixedNow + 10_000,
+      fetchImpl: failingFetch as any,
+    });
+    expect(fail2.manifest.isAvailable).toBe(false);
+    expect(failingFetch.mock.calls.length).toBe(callsAtFail);
+
+    // After 61s cooldown expires -> allows healthy upstream retry
+    const healthyFetch = createDynamicWindMockFetch();
+    const ok = await fetchGlobalWindSnapshot({
+      model: 'gfs',
+      now: () => fixedNow + 61_000,
+      fetchImpl: healthyFetch.mock as any,
+    });
+    expect(ok.manifest.isAvailable).toBe(true);
+    expect(getGlobalWindCacheStats().failureCount).toBe(0);
+  });
+
+  it('Test E: completed, cancelled, and failed operations leave zero stale in-flight entries', async () => {
+    const fixedNow = Date.UTC(2026, 10, 25, 11, 0, 0);
+
+    // 1. Completed
+    const okHarness = createDynamicWindMockFetch();
+    await fetchGlobalWindSnapshot({
+      model: 'gfs',
+      now: () => fixedNow,
+      fetchImpl: okHarness.mock as any,
+    });
+    expect(getGlobalWindCacheStats().inflightCount).toBe(0);
+
+    // 2. Cancelled
+    clearGlobalWindCache();
+    const cancelAc = new AbortController();
+    const pendingHarness = createDynamicWindMockFetch({ gate: new Promise(() => {}) });
+    const cancelledCall = fetchGlobalWindSnapshot({
+      model: 'gfs',
+      now: () => fixedNow,
+      fetchImpl: pendingHarness.mock as any,
+      signal: cancelAc.signal,
+    });
+    expect(getGlobalWindCacheStats().inflightCount).toBe(1);
+    cancelAc.abort();
+    await expect(cancelledCall).rejects.toMatchObject({ name: 'AbortError' });
+    expect(getGlobalWindCacheStats().inflightCount).toBe(0);
+
+    // 3. Failed
+    const errCall = await fetchGlobalWindSnapshot({
+      model: 'ifs',
+      now: () => fixedNow,
+      fetchImpl: vi.fn().mockRejectedValue(new Error('503')) as any,
+    });
+    expect(errCall.manifest.isAvailable).toBe(false);
+    expect(getGlobalWindCacheStats().inflightCount).toBe(0);
+  });
+});
+
+describe('PR #42 Blocker 2: Bounded Forecast Caches & Horizon Validation', () => {
+  beforeEach(() => {
+    clearGlobalWindCache();
+    clearGlobalWindClientCache();
+    vi.restoreAllMocks();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('Test A: strictly bounds snapshot, alias, and failure caches under > capacity distinct requests', async () => {
+    const fixedNow = Date.UTC(2026, 10, 25, 11, 0, 0);
+    const harness = createDynamicWindMockFetch({ mode: 'gfs' });
+
+    const countToInsert = GLOBAL_WIND_CACHE_MAX_SNAPSHOTS + 10;
+    for (let h = 0; h < countToInsert; h++) {
+      const targetIso = new Date(Date.UTC(2026, 10, 25, 6, 0, 0) + h * 3600_000).toISOString();
+      const snap = await fetchGlobalWindSnapshot({
+        model: 'gfs',
+        targetValidTimeUtc: targetIso,
+        now: () => fixedNow,
+        fetchImpl: harness.mock as any,
+      });
+      expect(snap.manifest.isAvailable).toBe(true);
+    }
+
+    const stats = getGlobalWindCacheStats();
+    expect(stats.snapshotCount).toBe(GLOBAL_WIND_CACHE_MAX_SNAPSHOTS);
+    expect(stats.aliasCount).toBeLessThanOrEqual(GLOBAL_WIND_CACHE_MAX_ALIASES);
+
+    // Also verify negative backoff map stays bounded <= GLOBAL_WIND_FAILURE_CACHE_MAX_ENTRIES
+    const failingMock = vi.fn().mockRejectedValue(new Error('down'));
+    for (let h = 0; h < GLOBAL_WIND_FAILURE_CACHE_MAX_ENTRIES + 12; h++) {
+      const targetIso = new Date(Date.UTC(2026, 10, 25, 6, 0, 0) + h * 3600_000).toISOString();
+      await fetchGlobalWindSnapshot({
+        model: 'ifs',
+        targetValidTimeUtc: targetIso,
+        now: () => fixedNow,
+        fetchImpl: failingMock as any,
+      });
+    }
+    expect(getGlobalWindCacheStats().failureCount).toBeLessThanOrEqual(
+      GLOBAL_WIND_FAILURE_CACHE_MAX_ENTRIES
+    );
+  });
+
+  it('Test B: evicts LRU entries on overflow, removes expired entries cleanly, and spares active in-flight work', async () => {
+    const fixedNow = Date.UTC(2026, 10, 25, 11, 0, 0);
+    const requestedSteps: number[] = [];
+    const harness = createDynamicWindMockFetch({
+      mode: 'gfs',
+      onStepRequest: (step) => requestedSteps.push(step),
+    });
+
+    // Fill capacity with f000..f023
+    for (let h = 0; h < GLOBAL_WIND_CACHE_MAX_SNAPSHOTS; h++) {
+      await fetchGlobalWindSnapshot({
+        model: 'gfs',
+        targetValidTimeUtc: new Date(Date.UTC(2026, 10, 25, 6, 0, 0) + h * 3600_000).toISOString(),
+        now: () => fixedNow + h,
+        fetchImpl: harness.mock as any,
+      });
+    }
+
+    // Touch f000 so it moves to MRU, leaving f001 as oldest LRU head
+    requestedSteps.length = 0;
+    await fetchGlobalWindSnapshot({
+      model: 'gfs',
+      targetValidTimeUtc: '2026-11-25T06:00:00.000Z',
+      now: () => fixedNow + 100,
+      fetchImpl: harness.mock as any,
+    });
+    expect(requestedSteps).toHaveLength(0);
+
+    // Start an active in-flight fetch on f030 BEFORE overflowing/pruning
+    let releaseInflight!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      releaseInflight = resolve;
+    });
+    const slowHarness = createDynamicWindMockFetch({ mode: 'gfs', gate });
+    const inflightPromise = fetchGlobalWindSnapshot({
+      model: 'gfs',
+      targetValidTimeUtc: new Date(Date.UTC(2026, 10, 25, 6, 0, 0) + 30 * 3600_000).toISOString(),
+      now: () => fixedNow + 200,
+      fetchImpl: slowHarness.mock as any,
+    });
+    expect(getGlobalWindCacheStats().inflightCount).toBe(1);
+
+    // Insert f024 -> must evict f001 (not touched f000) and never delete inflight f030!
+    await fetchGlobalWindSnapshot({
+      model: 'gfs',
+      targetValidTimeUtc: new Date(
+        Date.UTC(2026, 10, 25, 6, 0, 0) + GLOBAL_WIND_CACHE_MAX_SNAPSHOTS * 3600_000
+      ).toISOString(),
+      now: () => fixedNow + 300,
+      fetchImpl: harness.mock as any,
+    });
+    expect(getGlobalWindCacheStats().inflightCount).toBe(1);
+
+    // Explicit prune at expired age removes expired cache entries while preserving active inflight
+    const prunedNoneYet = pruneExpiredGlobalWindCache(fixedNow + 1000);
+    expect(prunedNoneYet.evictedSnapshots).toBe(0);
+    expect(getGlobalWindCacheStats().inflightCount).toBe(1);
+
+    // f000 still hits cache; f001 was evicted and requires fresh upstream call
+    requestedSteps.length = 0;
+    await fetchGlobalWindSnapshot({
+      model: 'gfs',
+      targetValidTimeUtc: '2026-11-25T06:00:00.000Z',
+      now: () => fixedNow + 400,
+      fetchImpl: harness.mock as any,
+    });
+    expect(requestedSteps).toHaveLength(0);
+
+    await fetchGlobalWindSnapshot({
+      model: 'gfs',
+      targetValidTimeUtc: '2026-11-25T07:00:00.000Z',
+      now: () => fixedNow + 500,
+      fetchImpl: harness.mock as any,
+    });
+    expect(requestedSteps).toEqual([1]);
+
+    // Finish active inflight cleanly and verify expiry pruning removes past-max-stale entries
+    releaseInflight();
+    const inflightResult = await inflightPromise;
+    expect(inflightResult.manifest.isAvailable).toBe(true);
+    expect(getGlobalWindCacheStats().inflightCount).toBe(0);
+
+    const prunedOld = pruneExpiredGlobalWindCache(fixedNow + GLOBAL_WIND_CACHE_MAX_STALE_MS + 60_000);
+    expect(prunedOld.evictedSnapshots).toBe(GLOBAL_WIND_CACHE_MAX_SNAPSHOTS);
+    expect(getGlobalWindCacheStats().snapshotCount).toBe(0);
+  });
+
+  it('Test C & D: reuses cached data and deduplicates distinct timestamps resolving to the same cycle/step', async () => {
+    const fixedNow = Date.UTC(2026, 10, 25, 11, 0, 0); // IFS 00z cycle
+    const ifsHarness = createDynamicWindMockFetch({ mode: 'ifs' });
+
+    // All three timestamps (08:20Z, 09:00Z, 09:40Z) snap onto IFS 00z step f009 (09:00Z)
+    const s1 = await fetchGlobalWindSnapshot({
+      model: 'ifs',
+      targetValidTimeUtc: '2026-11-25T08:20:00.000Z',
+      now: () => fixedNow,
+      fetchImpl: ifsHarness.mock as any,
+    });
+    const s2 = await fetchGlobalWindSnapshot({
+      model: 'ifs',
+      targetValidTimeUtc: '2026-11-25T09:00:00.000Z',
+      now: () => fixedNow + 5000,
+      fetchImpl: ifsHarness.mock as any,
+    });
+    const s3 = await fetchGlobalWindSnapshot({
+      model: 'ifs',
+      targetValidTimeUtc: '2026-11-25T09:40:00.000Z',
+      now: () => fixedNow + 10_000,
+      fetchImpl: ifsHarness.mock as any,
+    });
+
+    expect(s1.manifest.validTimeUtc).toBe('2026-11-25T09:00:00.000Z');
+    expect(s2.manifest.validTimeUtc).toBe('2026-11-25T09:00:00.000Z');
+    expect(s3.manifest.validTimeUtc).toBe('2026-11-25T09:00:00.000Z');
+    expect(s2.manifest.isCached).toBe(true);
+    expect(s3.manifest.isCached).toBe(true);
+    expect(ifsHarness.getIdxCalls()).toBe(1);
+    expect(getGlobalWindCacheStats().snapshotCount).toBe(1);
+
+    // GFS 3-hourly horizon (>120h): +122h and +124h both resolve to f123
+    clearGlobalWindCache();
+    const gfsHarness = createDynamicWindMockFetch({ mode: 'gfs' });
+    const t122 = new Date(Date.UTC(2026, 10, 25, 6, 0, 0) + 122 * 3600_000).toISOString();
+    const t124 = new Date(Date.UTC(2026, 10, 25, 6, 0, 0) + 124 * 3600_000).toISOString();
+    await fetchGlobalWindSnapshot({
+      model: 'gfs',
+      targetValidTimeUtc: t122,
+      now: () => fixedNow,
+      fetchImpl: gfsHarness.mock as any,
+    });
+    const reuse124 = await fetchGlobalWindSnapshot({
+      model: 'gfs',
+      targetValidTimeUtc: t124,
+      now: () => fixedNow,
+      fetchImpl: gfsHarness.mock as any,
+    });
+    expect(reuse124.manifest.forecastHour).toBe(123);
+    expect(reuse124.manifest.isCached).toBe(true);
+    expect(gfsHarness.getIdxCalls()).toBe(1);
+    expect(getGlobalWindCacheStats().snapshotCount).toBe(1);
+
+    // Binary cycle fetch reuses the warm cycle cache too
+    const bin = await fetchGlobalWindBinaryByCycle({
+      model: 'gfs',
+      overlay: 'none',
+      date: '20261125',
+      hour: 6,
+      forecastHour: 123,
+      now: () => fixedNow,
+      fetchImpl: gfsHarness.mock as any,
+    });
+    expect(bin.bytes.byteLength).toBe(360 * 181 * 8);
+    expect(gfsHarness.getIdxCalls()).toBe(1);
+  });
+
+  it('Test E: rejects out-of-range timestamps clearly while preserving legitimate diurnal & horizon requests', async () => {
+    const fixedNow = Date.UTC(2026, 10, 25, 11, 0, 0);
+
+    // Way too far in future (>384h GFS / >360h IFS) and past (<-24h)
+    const farFuture = new Date(fixedNow + 500 * 3600_000).toISOString();
+    const farPast = new Date(fixedNow - 48 * 3600_000).toISOString();
+
+    await expect(
+      fetchGlobalWindSnapshot({
+        model: 'gfs',
+        targetValidTimeUtc: farFuture,
+        now: () => fixedNow,
+      })
+    ).rejects.toBeInstanceOf(WindForecastRangeError);
+
+    await expect(
+      fetchGlobalWindSnapshot({
+        model: 'ifs',
+        targetValidTimeUtc: farPast,
+        now: () => fixedNow,
+      })
+    ).rejects.toBeInstanceOf(WindForecastRangeError);
+
+    expect(getGlobalWindCacheStats().snapshotCount).toBe(0);
+    expect(getGlobalWindCacheStats().failureCount).toBe(0);
+
+    // Direct validator rejects out-of-range and accepts valid operational steps including -18h diurnal & +360h
+    expect(
+      validateForecastTargetTime({
+        model: 'gfs',
+        targetValidTimeUtc: '2099-01-01T00:00:00Z',
+        nowMs: fixedNow,
+      }).ok
+    ).toBe(false);
+    expect(
+      validateForecastTargetTime({
+        model: 'gfs',
+        targetValidTimeUtc: new Date(fixedNow - 18 * 3600_000).toISOString(),
+        nowMs: fixedNow,
+      }).ok
+    ).toBe(true);
+    expect(
+      validateForecastTargetTime({
+        model: 'ifs',
+        targetValidTimeUtc: new Date(fixedNow + 120 * 3600_000).toISOString(),
+        nowMs: fixedNow,
+      }).ok
+    ).toBe(true);
+
+    // Route /api/environment/wind/global returns HTTP 400 with structured error on out-of-horizon validTimeUtc
+    const outOfRangeRes = await getGlobalManifest(
+      new NextRequest('http://localhost/api/environment/wind/global?model=gfs&validTimeUtc=2099-01-01T00:00:00Z')
+    );
+    expect(outOfRangeRes.status).toBe(400);
+    const errJson = await outOfRangeRes.json();
+    expect(errJson.code).toBe('FORECAST_HORIZON_OUT_OF_RANGE');
+
+    // Route /grid rejects invalid IFS 06z step > 144h
+    const badIfsGridRes = await getGlobalGrid(
+      new NextRequest('http://localhost/api/environment/wind/global/grid?model=ifs&date=20261125&hour=6&step=200')
+    );
+    expect(badIfsGridRes.status).toBe(400);
+  });
+
+  it('Test F: preserves stale-cached fallback during outages within max stale age and expires beyond max stale age', async () => {
+    const fixedNow = Date.UTC(2026, 10, 25, 11, 0, 0);
+    const harness = createDynamicWindMockFetch({ mode: 'gfs' });
+
+    const live = await fetchGlobalWindSnapshot({
+      model: 'gfs',
+      now: () => fixedNow,
+      fetchImpl: harness.mock as any,
+    });
+    expect(live.manifest.status).toBe('available');
+
+    // 45 minutes later (past 30m TTL, within 6h max stale retention) -> stale_cached fallback
+    const stale = await fetchGlobalWindSnapshot({
+      model: 'gfs',
+      now: () => fixedNow + 45 * 60_000,
+      fetchImpl: vi.fn().mockRejectedValue(new Error('Upstream outage')) as any,
+    });
+    expect(stale.manifest.status).toBe('stale_cached');
+    expect(stale.manifest.isStale).toBe(true);
+    expect(stale.manifest.freshness).toBe('stale');
+    expect(stale.manifest.isAvailable).toBe(true);
+
+    // 7 hours later (> 6h max stale age) -> hard-expired and NOT served as indefinitely stale data
+    const expired = await fetchGlobalWindSnapshot({
+      model: 'gfs',
+      now: () => fixedNow + 7 * 3600_000,
+      fetchImpl: vi.fn().mockRejectedValue(new Error('Upstream outage')) as any,
+    });
+    expect(expired.manifest.isAvailable).toBe(false);
+    expect(expired.manifest.freshness).toBe('unavailable');
   });
 });

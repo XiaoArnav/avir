@@ -43,6 +43,37 @@ const UPSTREAM_TIMEOUT_MS = 25_000;
 const OPTIONAL_SCALAR_TIMEOUT_MS = 10_000;
 const TARGET_GRID_RESOLUTION_DEG = 1;
 
+/**
+ * Bounded wind cache limits (per 1° global grid: 360 * 181 = 65,160 floats/field).
+ * - Without scalar overlay (u, v): ~0.50 MiB raw
+ * - With scalar overlay (u, v, scalar): ~0.75 MiB raw (~0.80 MiB total)
+ * Capping unique canonical (model, overlay, cycle, step) snapshots at 24 keeps
+ * worst-case serverless heap footprint strictly under ~20 MiB while supporting
+ * both active models, multiple scalar overlays, and recent timeline cycles.
+ */
+export const GLOBAL_WIND_CACHE_MAX_SNAPSHOTS = 24;
+export const GLOBAL_WIND_CACHE_MAX_ALIASES = 64;
+export const GLOBAL_WIND_FAILURE_CACHE_MAX_ENTRIES = 64;
+export const GLOBAL_WIND_CACHE_TTL_MS = DEFAULT_TTL_MS;
+export const GLOBAL_WIND_CACHE_MAX_STALE_MS = 6 * 60 * 60 * 1000;
+export const GLOBAL_WIND_PAST_HORIZON_MS = 24 * 60 * 60 * 1000;
+
+const CANCELLED_BY_SUBSCRIBERS_REASON = 'AVIR_WIND_CANCELLED_BY_SUBSCRIBERS';
+const UPSTREAM_TIMEOUT_REASON = 'AVIR_WIND_UPSTREAM_TIMEOUT';
+
+export class WindForecastRangeError extends Error {
+  readonly code = 'FORECAST_HORIZON_OUT_OF_RANGE';
+  readonly minValidTimeUtc: string;
+  readonly maxValidTimeUtc: string;
+
+  constructor(message: string, minValidTimeUtc: string, maxValidTimeUtc: string) {
+    super(message);
+    this.name = 'WindForecastRangeError';
+    this.minValidTimeUtc = minValidTimeUtc;
+    this.maxValidTimeUtc = maxValidTimeUtc;
+  }
+}
+
 export interface GfsIdxMessage {
   index: number;
   offset: number;
@@ -67,16 +98,52 @@ interface CachedGlobalWindState {
   fetchedAtMs: number;
 }
 
-const snapshotCache = new Map<string, CachedGlobalWindState>();
-const gridHistory = new Map<string, Map<string, CachedGlobalWindState>>();
-const inflightMap = new Map<string, Promise<GlobalWindSnapshot>>();
+interface TargetResolutionAlias {
+  canonicalKey: string;
+  fetchedAtMs: number;
+}
+
+interface InflightGlobalWindEntry {
+  promise: Promise<GlobalWindSnapshot>;
+  subscribers: number;
+  controller: AbortController;
+  cancelledBySubscribers: boolean;
+}
+
+const cycleSnapshotCache = new Map<string, CachedGlobalWindState>();
+const targetResolutionIndex = new Map<string, TargetResolutionAlias>();
+const inflightMap = new Map<string, InflightGlobalWindEntry>();
 const lastFailureMs = new Map<string, number>();
 
 export function clearGlobalWindCache(): void {
-  snapshotCache.clear();
-  gridHistory.clear();
+  cycleSnapshotCache.clear();
+  targetResolutionIndex.clear();
   inflightMap.clear();
   lastFailureMs.clear();
+}
+
+export function getGlobalWindCacheStats(): {
+  snapshotCount: number;
+  aliasCount: number;
+  inflightCount: number;
+  failureCount: number;
+  maxSnapshots: number;
+  maxAliases: number;
+  maxFailures: number;
+  ttlMs: number;
+  maxStaleMs: number;
+} {
+  return {
+    snapshotCount: cycleSnapshotCache.size,
+    aliasCount: targetResolutionIndex.size,
+    inflightCount: inflightMap.size,
+    failureCount: lastFailureMs.size,
+    maxSnapshots: GLOBAL_WIND_CACHE_MAX_SNAPSHOTS,
+    maxAliases: GLOBAL_WIND_CACHE_MAX_ALIASES,
+    maxFailures: GLOBAL_WIND_FAILURE_CACHE_MAX_ENTRIES,
+    ttlMs: GLOBAL_WIND_CACHE_TTL_MS,
+    maxStaleMs: GLOBAL_WIND_CACHE_MAX_STALE_MS,
+  };
 }
 
 export function assertSafeWindUpstreamUrl(rawUrl: string): URL {
@@ -763,6 +830,301 @@ async function fetchCycleFromProvider(params: {
   };
 }
 
+function createAbortError(reason?: unknown): Error {
+  if (reason instanceof Error && reason.name === 'AbortError') {
+    return reason;
+  }
+  return new DOMException('The operation was aborted', 'AbortError');
+}
+
+function canonicalCycleKey(
+  model: GlobalWindModelId,
+  overlay: GlobalWindOverlayKind,
+  cycle: GlobalWindCycleInfo
+): string {
+  return `${model}:${overlay}:${cycle.date}:${cycle.hour}:f${cycle.forecastHour}`;
+}
+
+function maxModelForecastHours(model: GlobalWindModelId, cycleHour: number): number {
+  if (model === 'ifs') {
+    return cycleHour === 6 || cycleHour === 18 ? 144 : 360;
+  }
+  return 384;
+}
+
+function resolveModelStep(
+  model: GlobalWindModelId,
+  hoursElapsed: number,
+  cycleHour: number
+): number {
+  return model === 'ifs'
+    ? nearestIfsStep(hoursElapsed, cycleHour)
+    : nearestGfsStep(hoursElapsed);
+}
+
+function touchMapEntry<K, V>(map: Map<K, V>, key: K, value: V): void {
+  map.delete(key);
+  map.set(key, value);
+}
+
+/**
+ * Validates that an explicit `targetValidTimeUtc` falls inside the operational forecast horizon
+ * of the active NWP model (24 h past lookback through 384 h GFS / 360 h IFS future steps).
+ */
+export function validateForecastTargetTime(params: {
+  model: GlobalWindModelId;
+  targetValidTimeUtc?: string;
+  nowMs: number;
+}): {
+  ok: true;
+  targetMs: number;
+  hasExplicitTarget: boolean;
+  primaryCycle: { date: string; hour: number };
+  candidates: Array<{ date: string; hour: number }>;
+  minValidTimeUtc: string;
+  maxValidTimeUtc: string;
+} | {
+  ok: false;
+  reason: string;
+  minValidTimeUtc: string;
+  maxValidTimeUtc: string;
+} {
+  const { model, targetValidTimeUtc, nowMs } = params;
+  const primaryCycle =
+    model === 'ifs' ? selectLatestIfsCycle(nowMs) : selectLatestGfsCycle(nowMs);
+  const fallbackCycle = stepBackSynopticCycle(primaryCycle, 6);
+  const baseCandidates = [primaryCycle, fallbackCycle];
+
+  const minMs = nowMs - GLOBAL_WIND_PAST_HORIZON_MS;
+  const maxMs = Math.max(
+    ...baseCandidates.map(
+      (c) => cycleRunMs(c) + maxModelForecastHours(model, c.hour) * 3600_000
+    )
+  );
+  const minValidTimeUtc = new Date(minMs).toISOString();
+  const maxValidTimeUtc = new Date(maxMs).toISOString();
+
+  if (targetValidTimeUtc === undefined) {
+    return {
+      ok: true,
+      targetMs: nowMs,
+      hasExplicitTarget: false,
+      primaryCycle,
+      candidates: baseCandidates,
+      minValidTimeUtc,
+      maxValidTimeUtc,
+    };
+  }
+
+  const parsedMs =
+    typeof targetValidTimeUtc === 'string' && targetValidTimeUtc.trim().length > 0
+      ? Date.parse(targetValidTimeUtc)
+      : Number.NaN;
+  if (Number.isNaN(parsedMs)) {
+    return {
+      ok: false,
+      reason: 'Invalid validTimeUtc. Expected ISO-8601 UTC timestamp.',
+      minValidTimeUtc,
+      maxValidTimeUtc,
+    };
+  }
+
+  if (parsedMs < minMs || parsedMs > maxMs) {
+    return {
+      ok: false,
+      reason: `Requested validTimeUtc (${new Date(parsedMs).toISOString()}) is outside the supported ${model.toUpperCase()} forecast horizon (${minValidTimeUtc} to ${maxValidTimeUtc}).`,
+      minValidTimeUtc,
+      maxValidTimeUtc,
+    };
+  }
+
+  const coveredCandidates = baseCandidates.filter(
+    (c) => parsedMs <= cycleRunMs(c) + maxModelForecastHours(model, c.hour) * 3600_000
+  );
+
+  return {
+    ok: true,
+    targetMs: parsedMs,
+    hasExplicitTarget: true,
+    primaryCycle,
+    candidates: coveredCandidates.length > 0 ? coveredCandidates : [fallbackCycle],
+    minValidTimeUtc,
+    maxValidTimeUtc,
+  };
+}
+
+/** Removes expired cached snapshots, aliases, and failure backoff records without touching active in-flight work. */
+export function pruneExpiredGlobalWindCache(
+  nowMs = Date.now(),
+  maxAgeMs = GLOBAL_WIND_CACHE_MAX_STALE_MS
+): { evictedSnapshots: number; evictedAliases: number; evictedFailures: number } {
+  let evictedSnapshots = 0;
+  for (const [key, state] of cycleSnapshotCache.entries()) {
+    if (nowMs - state.fetchedAtMs >= maxAgeMs) {
+      cycleSnapshotCache.delete(key);
+      evictedSnapshots++;
+    }
+  }
+
+  let evictedAliases = 0;
+  for (const [aliasKey, alias] of targetResolutionIndex.entries()) {
+    if (
+      !cycleSnapshotCache.has(alias.canonicalKey) ||
+      nowMs - alias.fetchedAtMs >= maxAgeMs
+    ) {
+      targetResolutionIndex.delete(aliasKey);
+      evictedAliases++;
+    }
+  }
+
+  let evictedFailures = 0;
+  for (const [failKey, failedAt] of lastFailureMs.entries()) {
+    if (nowMs - failedAt >= NEGATIVE_BACKOFF_MS) {
+      lastFailureMs.delete(failKey);
+      evictedFailures++;
+    }
+  }
+
+  return { evictedSnapshots, evictedAliases, evictedFailures };
+}
+
+function setCycleSnapshotCache(
+  canonicalKey: string,
+  state: CachedGlobalWindState,
+  nowMs: number,
+  ttlMs = DEFAULT_TTL_MS
+): void {
+  pruneExpiredGlobalWindCache(nowMs);
+
+  if (cycleSnapshotCache.has(canonicalKey)) {
+    touchMapEntry(cycleSnapshotCache, canonicalKey, state);
+  } else {
+    // Prefer evicting TTL-expired stale entries (oldest first) before active fresh entries.
+    if (cycleSnapshotCache.size >= GLOBAL_WIND_CACHE_MAX_SNAPSHOTS) {
+      for (const [key, existing] of cycleSnapshotCache.entries()) {
+        if (cycleSnapshotCache.size < GLOBAL_WIND_CACHE_MAX_SNAPSHOTS) break;
+        if (nowMs - existing.fetchedAtMs >= ttlMs) {
+          cycleSnapshotCache.delete(key);
+        }
+      }
+    }
+    // Enforce hard global LRU cap regardless of remaining TTL.
+    while (cycleSnapshotCache.size >= GLOBAL_WIND_CACHE_MAX_SNAPSHOTS) {
+      const oldestKey = cycleSnapshotCache.keys().next().value;
+      if (!oldestKey) break;
+      cycleSnapshotCache.delete(oldestKey);
+    }
+    cycleSnapshotCache.set(canonicalKey, state);
+  }
+
+  // Drop dangling aliases referencing evicted snapshots.
+  for (const [aliasKey, alias] of targetResolutionIndex.entries()) {
+    if (!cycleSnapshotCache.has(alias.canonicalKey)) {
+      targetResolutionIndex.delete(aliasKey);
+    }
+  }
+}
+
+function setTargetResolutionAlias(
+  requestKey: string,
+  canonicalKey: string,
+  fetchedAtMs: number
+): void {
+  while (
+    !targetResolutionIndex.has(requestKey) &&
+    targetResolutionIndex.size >= GLOBAL_WIND_CACHE_MAX_ALIASES
+  ) {
+    const oldestAlias = targetResolutionIndex.keys().next().value;
+    if (!oldestAlias) break;
+    targetResolutionIndex.delete(oldestAlias);
+  }
+  touchMapEntry(targetResolutionIndex, requestKey, { canonicalKey, fetchedAtMs });
+}
+
+function recordFailureBackoff(requestKey: string, nowMs: number): void {
+  for (const [key, ts] of lastFailureMs.entries()) {
+    if (nowMs - ts >= NEGATIVE_BACKOFF_MS) {
+      lastFailureMs.delete(key);
+    }
+  }
+  while (
+    !lastFailureMs.has(requestKey) &&
+    lastFailureMs.size >= GLOBAL_WIND_FAILURE_CACHE_MAX_ENTRIES
+  ) {
+    const oldestKey = lastFailureMs.keys().next().value;
+    if (!oldestKey) break;
+    lastFailureMs.delete(oldestKey);
+  }
+  touchMapEntry(lastFailureMs, requestKey, nowMs);
+}
+
+function findCachedState(
+  requestKey: string,
+  nowMs: number
+): { canonicalKey: string; state: CachedGlobalWindState } | null {
+  const direct = cycleSnapshotCache.get(requestKey);
+  if (direct && nowMs - direct.fetchedAtMs < GLOBAL_WIND_CACHE_MAX_STALE_MS) {
+    touchMapEntry(cycleSnapshotCache, requestKey, direct);
+    return { canonicalKey: requestKey, state: direct };
+  }
+  if (direct && nowMs - direct.fetchedAtMs >= GLOBAL_WIND_CACHE_MAX_STALE_MS) {
+    cycleSnapshotCache.delete(requestKey);
+  }
+
+  const alias = targetResolutionIndex.get(requestKey);
+  if (!alias) return null;
+  const resolved = cycleSnapshotCache.get(alias.canonicalKey);
+  if (!resolved || nowMs - resolved.fetchedAtMs >= GLOBAL_WIND_CACHE_MAX_STALE_MS) {
+    targetResolutionIndex.delete(requestKey);
+    if (resolved) cycleSnapshotCache.delete(alias.canonicalKey);
+    return null;
+  }
+
+  touchMapEntry(targetResolutionIndex, requestKey, alias);
+  touchMapEntry(cycleSnapshotCache, alias.canonicalKey, resolved);
+  return { canonicalKey: alias.canonicalKey, state: resolved };
+}
+
+function awaitWithCallerSignal<T>(
+  promise: Promise<T>,
+  signal: AbortSignal | undefined,
+  onCallerAbort: () => void
+): Promise<T> {
+  if (!signal) return promise;
+  if (signal.aborted) {
+    onCallerAbort();
+    return Promise.reject(createAbortError(signal.reason));
+  }
+
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const handleAbort = () => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener('abort', handleAbort);
+      onCallerAbort();
+      reject(createAbortError(signal.reason));
+    };
+
+    signal.addEventListener('abort', handleAbort, { once: true });
+
+    promise.then(
+      (value) => {
+        if (settled) return;
+        settled = true;
+        signal.removeEventListener('abort', handleAbort);
+        resolve(value);
+      },
+      (err) => {
+        if (settled) return;
+        settled = true;
+        signal.removeEventListener('abort', handleAbort);
+        reject(err);
+      }
+    );
+  });
+}
+
 /**
  * Fetches and caches the normalized global wind vector snapshot for `gfs` or `ifs`.
  * Tries the latest published synoptic cycle and steps back 6 hours if not yet published.
@@ -777,37 +1139,58 @@ export async function fetchGlobalWindSnapshot(params: {
   fetchImpl?: typeof fetch;
   signal?: AbortSignal;
 }): Promise<GlobalWindSnapshot> {
+  if (params.signal?.aborted) {
+    throw createAbortError(params.signal.reason);
+  }
+
   const model: GlobalWindModelId = params.model === 'ifs' ? 'ifs' : 'gfs';
   const rawOverlay = params.overlay ?? 'none';
   const fetchOverlay: GlobalWindOverlayKind =
     rawOverlay === 'temperature' || rawOverlay === 'pressure' ? rawOverlay : 'none';
   const now = params.now ?? (() => Date.now());
   const nowMs = now();
-  const targetMs =
-    params.targetValidTimeUtc && !Number.isNaN(Date.parse(params.targetValidTimeUtc))
-      ? Date.parse(params.targetValidTimeUtc)
-      : nowMs;
   const ttlMs = params.ttlMs ?? DEFAULT_TTL_MS;
   const fetchImpl = params.fetchImpl ?? fetch;
 
-  const targetBucket =
-    params.targetValidTimeUtc && !Number.isNaN(Date.parse(params.targetValidTimeUtc))
-      ? `hour:${Math.round(targetMs / 3600_000)}`
-      : 'latest';
-  const cacheKey = `${model}:${fetchOverlay}:${targetBucket}`;
+  const horizonCheck = validateForecastTargetTime({
+    model,
+    targetValidTimeUtc: params.targetValidTimeUtc,
+    nowMs,
+  });
+  if (!horizonCheck.ok) {
+    throw new WindForecastRangeError(
+      horizonCheck.reason,
+      horizonCheck.minValidTimeUtc,
+      horizonCheck.maxValidTimeUtc
+    );
+  }
+
+  const { targetMs, hasExplicitTarget, candidates } = horizonCheck;
+  const anchorCycle = candidates[0];
+  const requestKey = hasExplicitTarget
+    ? canonicalCycleKey(model, fetchOverlay, {
+        ...anchorCycle,
+        forecastHour: resolveModelStep(
+          model,
+          (targetMs - cycleRunMs(anchorCycle)) / 3600_000,
+          anchorCycle.hour
+        ),
+      })
+    : `${model}:${fetchOverlay}:latest`;
 
   if (!params.bypassCache) {
-    const cached = snapshotCache.get(cacheKey);
-    if (cached && nowMs - cached.fetchedAtMs < ttlMs) {
+    const cachedHit = findCachedState(requestKey, nowMs);
+    if (cachedHit && nowMs - cachedHit.state.fetchedAtMs < ttlMs) {
       const fresh = resolveGlobalFreshness({
-        validTimeUtc: cached.snapshot.manifest.validTimeUtc ?? new Date(nowMs).toISOString(),
+        validTimeUtc:
+          cachedHit.state.snapshot.manifest.validTimeUtc ?? new Date(nowMs).toISOString(),
         nowMs,
         isStale: false,
       });
       return {
-        ...cached.snapshot,
+        ...cachedHit.state.snapshot,
         manifest: {
-          ...cached.snapshot.manifest,
+          ...cachedHit.state.snapshot.manifest,
           isCached: true,
           isStale: false,
           freshness: fresh.freshness,
@@ -816,136 +1199,181 @@ export async function fetchGlobalWindSnapshot(params: {
       };
     }
 
-    const lastFail = lastFailureMs.get(cacheKey);
-    if (lastFail !== undefined && nowMs - lastFail < NEGATIVE_BACKOFF_MS) {
-      const stale = snapshotCache.get(cacheKey);
-      if (stale) {
-        const fresh = resolveGlobalFreshness({
-          validTimeUtc: stale.snapshot.manifest.validTimeUtc ?? new Date(nowMs).toISOString(),
-          nowMs,
-          isStale: true,
-        });
-        return {
-          ...stale.snapshot,
-          manifest: {
-            ...stale.snapshot.manifest,
-            status: 'stale_cached',
-            freshness: 'stale',
-            ageMinutes: fresh.ageMinutes,
-            isCached: true,
+    const lastFail = lastFailureMs.get(requestKey);
+    if (lastFail !== undefined) {
+      if (nowMs - lastFail >= NEGATIVE_BACKOFF_MS) {
+        lastFailureMs.delete(requestKey);
+      } else {
+        const staleHit = cachedHit ?? findCachedState(requestKey, nowMs);
+        if (staleHit) {
+          const fresh = resolveGlobalFreshness({
+            validTimeUtc:
+              staleHit.state.snapshot.manifest.validTimeUtc ?? new Date(nowMs).toISOString(),
+            nowMs,
             isStale: true,
-            unavailableReason: 'Upstream retry cooldown active; serving stale cached forecast.',
-          },
-        };
+          });
+          return {
+            ...staleHit.state.snapshot,
+            manifest: {
+              ...staleHit.state.snapshot.manifest,
+              status: 'stale_cached',
+              freshness: 'stale',
+              ageMinutes: fresh.ageMinutes,
+              isCached: true,
+              isStale: true,
+              unavailableReason: 'Upstream retry cooldown active; serving stale cached forecast.',
+            },
+          };
+        }
+        return buildUnavailableGlobalSnapshot({
+          model,
+          overlay: fetchOverlay,
+          status: 'temporarily_unavailable',
+          reason: 'Global wind upstream temporarily unavailable (backoff cooldown).',
+        });
       }
-      return buildUnavailableGlobalSnapshot({
-        model,
-        overlay: fetchOverlay,
-        status: 'temporarily_unavailable',
-        reason: 'Global wind upstream temporarily unavailable (backoff cooldown).',
-      });
     }
   }
 
-  const existingInflight = inflightMap.get(cacheKey);
-  if (existingInflight && !params.bypassCache) {
-    return existingInflight;
-  }
+  const shared = !params.bypassCache;
+  let entry = shared ? inflightMap.get(requestKey) : undefined;
 
-  const runPromise = (async (): Promise<GlobalWindSnapshot> => {
-    const controller = new AbortController();
-    const onParentAbort = () => controller.abort(params.signal?.reason);
-    params.signal?.addEventListener('abort', onParentAbort, { once: true });
-    const timer = setTimeout(() => controller.abort(new Error('TimeoutError')), UPSTREAM_TIMEOUT_MS);
+  if (!entry) {
+    const newEntry: InflightGlobalWindEntry = {
+      subscribers: 0,
+      controller: new AbortController(),
+      cancelledBySubscribers: false,
+      promise: null as unknown as Promise<GlobalWindSnapshot>,
+    };
 
-    try {
-      const primaryCycle =
-        model === 'ifs' ? selectLatestIfsCycle(nowMs) : selectLatestGfsCycle(nowMs);
-      const fallbackCycle = stepBackSynopticCycle(primaryCycle, 6);
-      const candidates = [primaryCycle, fallbackCycle];
+    newEntry.promise = (async (): Promise<GlobalWindSnapshot> => {
+      const timer = setTimeout(
+        () => newEntry.controller.abort(UPSTREAM_TIMEOUT_REASON),
+        UPSTREAM_TIMEOUT_MS
+      );
 
-      let lastErr: unknown = null;
-      for (const baseCycle of candidates) {
-        const runMs = cycleRunMs(baseCycle);
-        const elapsedHours = (targetMs - runMs) / 3600_000;
-        const forecastHour =
-          model === 'ifs'
-            ? nearestIfsStep(elapsedHours, baseCycle.hour)
-            : nearestGfsStep(elapsedHours);
-        const cycle: GlobalWindCycleInfo = { ...baseCycle, forecastHour };
-        try {
-          const snapshot = await fetchCycleFromProvider({
+      try {
+        let lastErr: unknown = null;
+        for (const baseCycle of candidates) {
+          if (newEntry.cancelledBySubscribers) break;
+          const runMs = cycleRunMs(baseCycle);
+          const elapsedHours = (targetMs - runMs) / 3600_000;
+          const forecastHour = resolveModelStep(model, elapsedHours, baseCycle.hour);
+          const cycle: GlobalWindCycleInfo = { ...baseCycle, forecastHour };
+          try {
+            const snapshot = await fetchCycleFromProvider({
+              model,
+              overlay: fetchOverlay,
+              cycle,
+              nowMs,
+              fetchImpl,
+              signal: newEntry.controller.signal,
+            });
+            if (newEntry.cancelledBySubscribers) {
+              return buildUnavailableGlobalSnapshot({
+                model,
+                overlay: fetchOverlay,
+                status: 'temporarily_unavailable',
+                reason: 'Global wind request cancelled by caller.',
+              });
+            }
+            const fetchedAtMs = now();
+            const canonicalKey = canonicalCycleKey(model, fetchOverlay, cycle);
+            const state: CachedGlobalWindState = {
+              id: `${cycle.date}-${cycle.hour}-f${cycle.forecastHour}`,
+              snapshot,
+              fetchedAtMs,
+            };
+            setCycleSnapshotCache(canonicalKey, state, fetchedAtMs, ttlMs);
+            if (canonicalKey !== requestKey) {
+              setTargetResolutionAlias(requestKey, canonicalKey, fetchedAtMs);
+            }
+            lastFailureMs.delete(requestKey);
+            return snapshot;
+          } catch (err) {
+            lastErr = err;
+            if (newEntry.cancelledBySubscribers || newEntry.controller.signal.aborted) break;
+          }
+        }
+
+        throw lastErr ?? new Error('Global wind provider unavailable');
+      } catch (err: any) {
+        if (
+          newEntry.cancelledBySubscribers ||
+          newEntry.controller.signal.reason === CANCELLED_BY_SUBSCRIBERS_REASON
+        ) {
+          return buildUnavailableGlobalSnapshot({
             model,
             overlay: fetchOverlay,
-            cycle,
-            nowMs,
-            fetchImpl,
-            signal: controller.signal,
+            status: 'temporarily_unavailable',
+            reason: 'Global wind request cancelled by caller.',
           });
-          const stateId = `${cycle.date}-${cycle.hour}-f${cycle.forecastHour}`;
-          const state: CachedGlobalWindState = {
-            id: stateId,
-            snapshot,
-            fetchedAtMs: now(),
+        }
+
+        const failNowMs = now();
+        recordFailureBackoff(requestKey, failNowMs);
+        const isTimeout =
+          newEntry.controller.signal.reason === UPSTREAM_TIMEOUT_REASON ||
+          err?.name === 'AbortError' ||
+          err?.message === 'TimeoutError';
+        const staleHit = findCachedState(requestKey, failNowMs);
+        if (staleHit) {
+          const fresh = resolveGlobalFreshness({
+            validTimeUtc:
+              staleHit.state.snapshot.manifest.validTimeUtc ?? new Date(failNowMs).toISOString(),
+            nowMs: failNowMs,
+            isStale: true,
+          });
+          return {
+            ...staleHit.state.snapshot,
+            manifest: {
+              ...staleHit.state.snapshot.manifest,
+              status: 'stale_cached',
+              freshness: 'stale',
+              ageMinutes: fresh.ageMinutes,
+              isCached: true,
+              isStale: true,
+              unavailableReason: `${isTimeout ? 'Upstream timeout' : 'Upstream error'}; serving stale cached forecast from ${staleHit.state.snapshot.manifest.retrievedAtUtc}.`,
+            },
           };
-          snapshotCache.set(cacheKey, state);
-          const history = gridHistory.get(cacheKey) ?? new Map<string, CachedGlobalWindState>();
-          history.set(stateId, state);
-          while (history.size > 2) {
-            const oldestKey = history.keys().next().value;
-            if (oldestKey) history.delete(oldestKey);
-          }
-          gridHistory.set(cacheKey, history);
-          lastFailureMs.delete(cacheKey);
-          return snapshot;
-        } catch (err) {
-          lastErr = err;
-          if (controller.signal.aborted) break;
+        }
+        return buildUnavailableGlobalSnapshot({
+          model,
+          overlay: fetchOverlay,
+          status: isTimeout ? 'upstream_timeout' : 'temporarily_unavailable',
+          reason:
+            err instanceof Error && !err.message.startsWith('HTTP_404')
+              ? err.message
+              : `Unable to retrieve ${model.toUpperCase()} global wind forecast GRIB2 field.`,
+        });
+      } finally {
+        clearTimeout(timer);
+        if (shared && inflightMap.get(requestKey) === newEntry) {
+          inflightMap.delete(requestKey);
         }
       }
+    })();
 
-      throw lastErr ?? new Error('Global wind provider unavailable');
-    } catch (err: any) {
-      lastFailureMs.set(cacheKey, now());
-      const isTimeout = err?.name === 'AbortError' || err?.message === 'TimeoutError';
-      const stale = snapshotCache.get(cacheKey);
-      if (stale) {
-        const fresh = resolveGlobalFreshness({
-          validTimeUtc: stale.snapshot.manifest.validTimeUtc ?? new Date(nowMs).toISOString(),
-          nowMs,
-          isStale: true,
-        });
-        return {
-          ...stale.snapshot,
-          manifest: {
-            ...stale.snapshot.manifest,
-            status: 'stale_cached',
-            freshness: 'stale',
-            ageMinutes: fresh.ageMinutes,
-            isCached: true,
-            isStale: true,
-            unavailableReason: `${isTimeout ? 'Upstream timeout' : 'Upstream error'}; serving stale cached forecast from ${stale.snapshot.manifest.retrievedAtUtc}.`,
-          },
-        };
-      }
-      return buildUnavailableGlobalSnapshot({
-        model,
-        overlay: fetchOverlay,
-        status: isTimeout ? 'upstream_timeout' : 'temporarily_unavailable',
-        reason:
-          err instanceof Error && !err.message.startsWith('HTTP_404')
-            ? err.message
-            : `Unable to retrieve ${model.toUpperCase()} global wind forecast GRIB2 field.`,
-      });
-    } finally {
-      clearTimeout(timer);
-      params.signal?.removeEventListener('abort', onParentAbort);
-      inflightMap.delete(cacheKey);
+    // Ensure background rejection can never become an unhandled promise rejection if all subscribers leave early.
+    newEntry.promise.catch(() => {});
+
+    if (shared) {
+      inflightMap.set(requestKey, newEntry);
     }
-  })();
+    entry = newEntry;
+  }
 
-  inflightMap.set(cacheKey, runPromise);
-  return runPromise;
+  entry.subscribers += 1;
+  return awaitWithCallerSignal(entry.promise, params.signal, () => {
+    entry.subscribers = Math.max(0, entry.subscribers - 1);
+    if (entry.subscribers === 0) {
+      entry.cancelledBySubscribers = true;
+      if (shared && inflightMap.get(requestKey) === entry) {
+        inflightMap.delete(requestKey);
+      }
+      entry.controller.abort(CANCELLED_BY_SUBSCRIBERS_REASON);
+    }
+  });
 }
 
 export function encodeGlobalWindBinaryGrid(snapshot: GlobalWindSnapshot): Uint8Array {
@@ -990,30 +1418,51 @@ export async function fetchGlobalWindBinaryByCycle(params: {
   fetchImpl?: typeof fetch;
   signal?: AbortSignal;
 }): Promise<{ bytes: Uint8Array; manifest: GlobalWindManifest }> {
+  if (params.signal?.aborted) {
+    throw createAbortError(params.signal.reason);
+  }
+
   const { model, overlay, date, hour, forecastHour } = params;
   const fetchOverlay: GlobalWindOverlayKind =
     overlay === 'temperature' || overlay === 'pressure' ? overlay : 'none';
-  const stateId = `${date}-${hour}-f${forecastHour}`;
+  const nowFn = params.now ?? (() => Date.now());
+  const nowMs = nowFn();
+  const canonicalKey = canonicalCycleKey(model, fetchOverlay, {
+    date,
+    hour,
+    forecastHour,
+  });
 
-  for (const [key, history] of gridHistory.entries()) {
-    if (!key.startsWith(`${model}:${fetchOverlay}:`)) continue;
-    const found = history.get(stateId);
-    if (found) {
-      return {
-        bytes: encodeGlobalWindBinaryGrid(found.snapshot),
-        manifest: found.snapshot.manifest,
-      };
-    }
+  const cached = cycleSnapshotCache.get(canonicalKey);
+  if (cached && nowMs - cached.fetchedAtMs < GLOBAL_WIND_CACHE_MAX_STALE_MS) {
+    touchMapEntry(cycleSnapshotCache, canonicalKey, cached);
+    return {
+      bytes: encodeGlobalWindBinaryGrid(cached.snapshot),
+      manifest: cached.snapshot.manifest,
+    };
+  }
+  if (cached && nowMs - cached.fetchedAtMs >= GLOBAL_WIND_CACHE_MAX_STALE_MS) {
+    cycleSnapshotCache.delete(canonicalKey);
   }
 
   const snapshot = await fetchCycleFromProvider({
     model,
     overlay: fetchOverlay,
     cycle: { date, hour, forecastHour },
-    nowMs: (params.now ?? (() => Date.now()))(),
+    nowMs,
     fetchImpl: params.fetchImpl ?? fetch,
     signal: params.signal,
   });
+
+  setCycleSnapshotCache(
+    canonicalKey,
+    {
+      id: `${date}-${hour}-f${forecastHour}`,
+      snapshot,
+      fetchedAtMs: nowFn(),
+    },
+    nowMs
+  );
 
   return {
     bytes: encodeGlobalWindBinaryGrid(snapshot),

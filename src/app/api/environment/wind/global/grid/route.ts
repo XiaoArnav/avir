@@ -9,6 +9,10 @@ const VALID_CYCLE_HOURS = new Set([0, 6, 12, 18]);
 
 export async function GET(req: NextRequest) {
   try {
+    if (req.signal?.aborted) {
+      return new NextResponse(null, { status: 499 });
+    }
+
     const { searchParams } = new URL(req.url);
     const model = (searchParams.get('model') || 'gfs').toLowerCase() as GlobalWindModelId;
     const overlay = (searchParams.get('overlay') || 'none').toLowerCase() as GlobalWindOverlayKind;
@@ -29,8 +33,9 @@ export async function GET(req: NextRequest) {
     if (!VALID_CYCLE_HOURS.has(hour)) {
       return NextResponse.json({ error: 'Invalid synoptic cycle hour (expected 0, 6, 12, 18).' }, { status: 400 });
     }
+    const maxStep = model === 'ifs' ? (hour === 0 || hour === 12 ? 360 : 144) : 384;
     const step = stepRaw !== null && /^\d{1,3}$/.test(stepRaw) ? Number(stepRaw) : Number.NaN;
-    if (!Number.isInteger(step) || step < 0 || step > 384) {
+    if (!Number.isInteger(step) || step < 0 || step > maxStep) {
       return NextResponse.json({ error: 'Invalid forecast step hour.' }, { status: 400 });
     }
 
@@ -60,6 +65,9 @@ export async function GET(req: NextRequest) {
       },
     });
   } catch (err) {
+    if (req.signal?.aborted || (err instanceof Error && err.name === 'AbortError')) {
+      return new NextResponse(null, { status: 499 });
+    }
     const message = err instanceof Error ? err.message : 'Unexpected grid error';
     const isNotFound = message.startsWith('HTTP_404');
     return NextResponse.json(
