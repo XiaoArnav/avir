@@ -195,19 +195,21 @@ test.describe('Avir Flagship Earth Command Center & Planetary Telemetry E2E', ()
     await expect(fallback).not.toBeVisible();
   });
 
-  test('toggles 3D engine between Three.js and CesiumJS without crashing', async ({ page }) => {
-    // Locate engine toggle button in GlobeControls
+  test('toggles 3D engine from default CesiumJS to Three.js and back without crashing or duplicating canvases', async ({ page }) => {
+    const pageErrors: string[] = [];
+    page.on('pageerror', (err) => pageErrors.push(err.message));
+
+    const threeCanvas = page.locator(
+      '[aria-label="Interactive 3D Earth Globe showing atmospheric air quality telemetry"] canvas'
+    );
+    const cesiumContainer = page.locator('.cesium-widget');
+
+    // TEST A, B, C: Opening Avir selects CESIUM by default and renders Cesium viewer without Three.js
     const engineButton = page.getByRole('button', { name: /toggle 3d engine/i });
     await expect(engineButton).toBeVisible();
-    await expect(engineButton).toHaveText('THREE');
-
-    // Click to switch to Cesium
-    await engineButton.click();
     await expect(engineButton).toHaveText('CESIUM');
-
-    // Verify Cesium widget or canvas container renders
-    const cesiumContainer = page.locator('.cesium-widget');
     await expect(cesiumContainer).toBeVisible({ timeout: 15000 });
+    await expect(threeCanvas).toHaveCount(0);
 
     // Verify legal accessible provider attribution panel is visible with imagery credits,
     // and real-terrain attribution is NOT shown while ellipsoid default is active
@@ -219,20 +221,86 @@ test.describe('Avir Flagship Earth Command Center & Planetary Telemetry E2E', ()
     await expect(attributionPanel).not.toContainText('Re:Earth / Mapterhorn');
     await expect(page.getByTestId('cesium-terrain-attribution')).toHaveCount(0);
 
-    // Switch back to Three.js
+    // TEST D, G, I: Switch CESIUM -> THREE cleanly with a single Three.js canvas
     await engineButton.click();
     await expect(engineButton).toHaveText('THREE');
-    await expect(cesiumContainer).not.toBeVisible();
+    await expect(cesiumContainer).toHaveCount(0);
+    await expect(threeCanvas).toHaveCount(1);
+    await expect(threeCanvas).toBeVisible({ timeout: 15000 });
+    await page.waitForFunction(() => Boolean((window as any).__avirThreeCamera));
+
+    // TEST E, I: Switch back THREE -> CESIUM and verify attribution remains intact
+    await engineButton.click();
+    await expect(engineButton).toHaveText('CESIUM');
+    await expect(threeCanvas).toHaveCount(0);
+    await expect(cesiumContainer).toBeVisible({ timeout: 15000 });
+    await expect(attributionPanel).toBeVisible();
+    expect(pageErrors).toEqual([]);
   });
 
-  test('operates camera controls (zoom, auto-rotate, reset) when Cesium engine is active', async ({ page }) => {
+  test('preserves CesiumJS default engine across 2D accessible fallback toggles and page reload', async ({ page }) => {
+    const engineButton = page.getByRole('button', { name: /toggle 3d engine/i });
+    const cesiumContainer = page.locator('.cesium-widget');
+
+    await expect(engineButton).toHaveText('CESIUM');
+    await expect(cesiumContainer).toBeVisible({ timeout: 15000 });
+
+    // TEST F: Switch to 2D and back preserves CESIUM selection
+    await page.getByRole('button', { name: /switch to accessible 2d map/i }).click();
+    const fallback2d = page.getByRole('region', { name: /2d geographic observation map/i });
+    await expect(fallback2d).toBeVisible();
+    await page.getByRole('button', { name: /switch to 3d earth globe/i }).click();
+    await expect(fallback2d).not.toBeVisible();
+    await expect(engineButton).toHaveText('CESIUM');
+    await expect(cesiumContainer).toBeVisible({ timeout: 15000 });
+
+    // TEST J: Switch to THREE then reload -> fresh page starts with CESIUM default again
+    await engineButton.click();
+    await expect(engineButton).toHaveText('THREE');
+    await page.reload();
+    await expect(page.getByRole('button', { name: /toggle 3d engine/i })).toHaveText('CESIUM');
+    await expect(page.locator('.cesium-widget')).toBeVisible({ timeout: 15000 });
+  });
+
+  test('falls back automatically to Three.js when CesiumJS WebGL initialization genuinely fails', async ({ page }) => {
+    // Deterministic failure fixture: fail WebGL context creation only for Cesium canvases
+    await page.addInitScript(() => {
+      const proto = HTMLCanvasElement.prototype as unknown as {
+        getContext: (type: string, ...args: unknown[]) => unknown;
+      };
+      const origGetContext = proto.getContext;
+      proto.getContext = function (this: HTMLCanvasElement, type: string, ...args: unknown[]) {
+        if (
+          (type === 'webgl' || type === 'webgl2' || type === 'experimental-webgl') &&
+          (this.closest('.cesium-viewer') || this.closest('.cesium-widget'))
+        ) {
+          return null;
+        }
+        return origGetContext.apply(this, [type, ...args]);
+      };
+    });
+
+    await page.goto('/');
+
+    const engineButton = page.getByRole('button', { name: /toggle 3d engine/i });
+    const fallbackBanner = page.getByText(/Cesium unavailable.*Reverted to Three\.js/i);
+    const threeCanvas = page.locator(
+      '[aria-label="Interactive 3D Earth Globe showing atmospheric air quality telemetry"] canvas'
+    );
+
+    // TEST H: Genuine Cesium WebGL failure triggers automatic fallback to Three.js with notice
+    await expect(fallbackBanner).toBeVisible({ timeout: 15000 });
+    await expect(engineButton).toHaveText('THREE');
+    await expect(threeCanvas).toBeVisible({ timeout: 15000 });
+  });
+
+  test('operates camera controls (zoom, auto-rotate, reset) when Cesium engine is active by default', async ({ page }) => {
     test.setTimeout(60000);
     const engineButton = page.getByRole('button', { name: /toggle 3d engine/i });
     await expect(engineButton).toBeVisible();
-    await engineButton.click();
     await expect(engineButton).toHaveText('CESIUM');
 
-    // Wait for Cesium canvas to initialize
+    // Wait for Cesium canvas to initialize without clicking the switcher
     const cesiumWidget = page.locator('.cesium-widget');
     await expect(cesiumWidget).toBeVisible({ timeout: 15000 });
 

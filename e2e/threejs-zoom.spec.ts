@@ -85,6 +85,14 @@ test.describe('Three.js Advanced Cesium-Style Zoom & Camera System E2E', () => {
     // Wait for the globe section to be visible
     const commandCenter = page.locator('section[aria-label="Atmospheric Intelligence Earth Command Center"]');
     await expect(commandCenter).toBeVisible({ timeout: 15000 });
+
+    // Switch from default CesiumJS engine to Three.js before Three.js-specific zoom assertions
+    const engineButton = page.getByRole('button', { name: /toggle 3d engine/i });
+    await expect(engineButton).toBeVisible();
+    await expect(engineButton).toHaveText('CESIUM');
+    await engineButton.click();
+    await expect(engineButton).toHaveText('THREE');
+    await page.waitForFunction(() => Boolean((window as any).__avirThreeCamera));
   });
 
   test('Test A: Zoom In button decreases camera distance proportionally', async ({ page }) => {
