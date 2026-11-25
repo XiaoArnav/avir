@@ -452,4 +452,52 @@ describe('Global Wind-Flow API Route & Service Integrity (/api/environment/wind)
     expect(outOfWindow.isAvailable).toBe(false);
     expect(outOfWindow.cityWind).toBeNull();
   });
+
+  it('Phase 1 regression: discloses future vs current freshness honestly and selects nearest UTC hour across midnight boundary when hour omitted', async () => {
+    vi.useFakeTimers();
+    const nowUtc = Date.UTC(2026, 10, 25, 0, 45, 0); // 00:45Z across UTC midnight
+    vi.setSystemTime(nowUtc);
+
+    // Simulate Open-Meteo `past_hours=2&forecast_days=2`: starts at 2026-11-24T22:00Z through 2026-11-26T23:00Z
+    const startMs = Date.UTC(2026, 10, 24, 22, 0, 0);
+    const times = Array.from({ length: 50 }, (_, i) =>
+      new Date(startMs + i * 3600_000).toISOString().slice(0, 16)
+    );
+
+    const payload = buildBatchOpenMeteoPayload(28.6139, 77.209, {
+      timeStrings: times,
+      activeSpeedAtHour: { 2: 9, 10: 21 },
+    });
+
+    // Omitting both `hour` and `targetValidTimeUtc` prefers current 00:00Z window
+    const currentRes = await fetchWindForecast({
+      latitude: 28.6139,
+      longitude: 77.209,
+      fetchImpl: vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => payload,
+      }) as any,
+    });
+    expect(currentRes.isAvailable).toBe(true);
+    expect(currentRes.validTimeUtc).toBe('2026-11-25T00:00:00.000Z');
+    expect(currentRes.freshness).toBe('current');
+
+    clearWindCache();
+
+    // Future forecast valid time (6 hours ahead) explicitly discloses forecast status
+    const futureRes = await fetchWindForecast({
+      latitude: 28.6139,
+      longitude: 77.209,
+      targetValidTimeUtc: '2026-11-25T06:00:00Z',
+      fetchImpl: vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => payload,
+      }) as any,
+    });
+    expect(futureRes.isAvailable).toBe(true);
+    expect(futureRes.freshness).toBe('forecast');
+    expect(futureRes.uncertaintyDisclosure).toMatch(/Forecast data valid/i);
+  });
 });

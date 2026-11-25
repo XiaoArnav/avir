@@ -344,61 +344,74 @@ test.describe('Avir Flagship Earth Command Center & Planetary Telemetry E2E', ()
     await expect(page.locator('text=Imagery: Tiles © Esri')).toBeVisible();
   });
 
-  test('operates unified Environmental Layers (Wind, FIRMS Fires, Cesium Terrain, NASA GIBS Satellite Comparison) with honest status and intact scroll zoom', async ({
+  test('operates unified Environmental Layers (Cesium & Three.js Global Wind V2, FIRMS Fires, Cesium Terrain, NASA GIBS) with model preservation and intact scroll zoom', async ({
     page,
   }) => {
     test.setTimeout(60000);
 
-    await page.route('**/api/environment/wind*', async (route) => {
+    const buildMockBinaryGrid = (uVal: number, vVal: number) => {
+      const width = 36;
+      const height = 19;
+      const count = width * height;
+      const buf = new Float32Array(count * 2);
+      buf.fill(uVal, 0, count);
+      buf.fill(vVal, count, count * 2);
+      return Buffer.from(buf.buffer);
+    };
+
+    await page.route('**/api/environment/wind/global/grid*', async (route) => {
+      const reqUrl = new URL(route.request().url());
+      const model = reqUrl.searchParams.get('model') === 'ifs' ? 'ifs' : 'gfs';
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/octet-stream',
+        body: buildMockBinaryGrid(model === 'ifs' ? 9.5 : 6.0, 2.0),
+      });
+    });
+
+    await page.route('**/api/environment/wind/global?*', async (route) => {
+      const reqUrl = new URL(route.request().url());
+      const model = reqUrl.searchParams.get('model') === 'ifs' ? 'ifs' : 'gfs';
+      const overlay = reqUrl.searchParams.get('overlay') || 'none';
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
+          schemaVersion: 2,
+          model,
+          modelName: model === 'ifs' ? 'ECMWF IFS (0.25° -> 1° grid)' : 'NOAA GFS (0.25° -> 1° grid)',
+          provider: model === 'ifs' ? 'ECMWF Open Data' : 'NOAA / NCEP Open Data',
+          initTimeUtc: '2026-11-25T00:00:00.000Z',
+          validTimeUtc: '2026-11-25T06:00:00.000Z',
+          forecastHour: 6,
+          retrievedAtUtc: '2026-11-25T06:02:00.000Z',
+          grid: {
+            width: 36,
+            height: 19,
+            lo1: 0,
+            la1: 90,
+            dx: 10,
+            dy: 10,
+            bounds: { west: -180, south: -90, east: 180, north: 90 },
+            resolutionDeg: 10,
+            nativeResolutionDeg: 0.25,
+          },
+          level: '10 m above ground',
+          units: 'm/s',
+          overlay,
+          scalar: null,
+          scalarError: null,
           status: 'available',
+          freshness: 'current',
+          ageMinutes: 2,
           isAvailable: true,
           isCached: false,
           isStale: false,
-          model: 'GFS Seamless 10m',
-          modelRunAvailable: true,
-          source: 'Open-Meteo GFS Wind Grid',
-          validTimeUtc: '2026-11-24T12:00:00Z',
-          fetchedAtUtc: '2026-11-24T12:05:00Z',
-          grid: [
-            {
-              latitude: 12.97,
-              longitude: 77.59,
-              u: 3.1,
-              v: 1.8,
-              speedKmh: 12.9,
-              speedMs: 3.58,
-              directionDeg: 240,
-              heightM: 10,
-              role: 'active_target',
-            },
-            {
-              latitude: 28.61,
-              longitude: 77.2,
-              u: -4.2,
-              v: 0.9,
-              speedKmh: 15.5,
-              speedMs: 4.3,
-              directionDeg: 102,
-              heightM: 10,
-              role: 'reference_probe',
-            },
-          ],
-          cityWind: {
-            latitude: 12.97,
-            longitude: 77.59,
-            u: 3.1,
-            v: 1.8,
-            speedKmh: 12.9,
-            speedMs: 3.58,
-            directionDeg: 240,
-            heightM: 10,
-            role: 'active_target',
-          },
-          summary: 'Verified Open-Meteo 10m wind vector grid active.',
+          unavailableReason: null,
+          attribution: model === 'ifs' ? 'ECMWF IFS Open Data' : 'NOAA / NCEP GFS',
+          license: model === 'ifs' ? 'CC BY 4.0' : 'Public Domain',
+          cycle: { date: '20261125', hour: 0, forecastHour: 6 },
+          gridUrl: `/api/environment/wind/global/grid?model=${model}&overlay=none&date=20261125&hour=0&step=6`,
         }),
       });
     });
@@ -452,7 +465,7 @@ test.describe('Avir Flagship Earth Command Center & Planetary Telemetry E2E', ()
       });
     });
 
-    // 1. Default CesiumJS loads; open Layers popover and verify honest OFF states, enabled Terrain, and disabled Three.js-only Wind
+    // 1. Default CesiumJS loads; open Layers popover and verify Wind Flow is ENABLED in Cesium, along with Terrain and Fires
     await expect(page.locator('.cesium-widget')).toBeVisible({ timeout: 15000 });
     const layersButton = page.getByRole('button', { name: 'Environmental Intelligence Layers' });
     await expect(layersButton).toHaveAttribute('aria-expanded', 'false');
@@ -464,13 +477,33 @@ test.describe('Avir Flagship Earth Command Center & Planetary Telemetry E2E', ()
     const terrainToggle = page.getByRole('button', { name: 'Toggle 3D Terrain Mesh layer' });
     const satelliteToggle = page.getByRole('button', { name: 'Toggle Satellite Imagery Comparison panel' });
 
-    await expect(windToggle).toBeDisabled();
-    await expect(page.getByTestId('layer-status-wind')).toHaveText('THREE.JS ONLY');
+    await expect(windToggle).toBeEnabled();
+    await expect(windToggle).toHaveAttribute('aria-pressed', 'false');
+    await expect(page.getByTestId('layer-status-wind')).toHaveText('OFF');
     await expect(firesToggle).toHaveAttribute('aria-pressed', 'false');
     await expect(terrainToggle).toBeEnabled();
     await expect(terrainToggle).toHaveAttribute('aria-pressed', 'false');
 
-    // 2. Toggle 3D Terrain Mesh ON/OFF in CesiumJS, and toggle Active Fires ON -> honest UNCONFIGURED state (never fake 0 detections)
+    // 2. Enable Wind Flow directly in CesiumJS, verify LIVE status + metadata + switch model GFS -> IFS + pause + inspect
+    await windToggle.click();
+    await expect(windToggle).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByTestId('layer-status-wind')).toHaveText('LIVE', { timeout: 15000 });
+    await expect(page.getByTestId('wind-controls-subpanel')).toBeVisible();
+    await expect(page.getByTestId('wind-forecast-metadata')).toContainText('NOAA GFS');
+    await expect(page.getByTestId('wind-forecast-metadata')).toContainText('2026-11-25 06:00 UTC');
+
+    await page.getByTestId('wind-model-ifs').click();
+    await expect(page.getByTestId('wind-forecast-metadata')).toContainText('ECMWF IFS', { timeout: 15000 });
+
+    await page.getByTestId('wind-inspect-city').click();
+    await expect(page.getByTestId('wind-inspection-card')).toContainText('12.97°N');
+
+    await page.getByTestId('wind-animation-toggle').click();
+    await expect(page.getByTestId('wind-animation-toggle')).toContainText('PAUSED');
+    await page.getByTestId('wind-animation-toggle').click();
+    await expect(page.getByTestId('wind-animation-toggle')).toContainText('FLOWING');
+
+    // 3. Toggle 3D Terrain Mesh ON/OFF in CesiumJS, and toggle Active Fires ON -> honest UNCONFIGURED state
     await terrainToggle.click();
     await expect(terrainToggle).toHaveAttribute('aria-pressed', 'true');
     await terrainToggle.click();
@@ -480,7 +513,7 @@ test.describe('Avir Flagship Earth Command Center & Planetary Telemetry E2E', ()
     await expect(firesToggle).toHaveAttribute('aria-pressed', 'true');
     await expect(page.getByTestId('layer-status-fires')).toHaveText('UNCONFIGURED');
 
-    // 3. Switch to Three.js -> re-open Layers, verify Wind unlocks cleanly -> LIVE while Terrain becomes CESIUM ONLY and Fires stays ON
+    // 4. Switch to Three.js -> re-open Layers, verify Wind stays LIVE with ECMWF IFS model preserved!
     await page.getByRole('button', { name: /toggle 3d engine/i }).click();
     await page.waitForFunction(() => Boolean((window as any).__avirThreeCamera));
     await layersButton.click();
@@ -490,14 +523,14 @@ test.describe('Avir Flagship Earth Command Center & Planetary Telemetry E2E', ()
     await expect(terrainToggle).toBeDisabled();
     await expect(page.getByTestId('layer-status-terrain')).toHaveText('CESIUM ONLY');
     await expect(windToggle).toBeEnabled();
-
-    await windToggle.click();
     await expect(windToggle).toHaveAttribute('aria-pressed', 'true');
     await expect(page.getByTestId('layer-status-wind')).toHaveText('LIVE');
+    await expect(page.getByTestId('wind-model-ifs')).toHaveAttribute('aria-pressed', 'true');
+
     await windToggle.click();
     await expect(windToggle).toHaveAttribute('aria-pressed', 'false');
 
-    // 4. Toggle Satellite Imagery Comparison ON -> renders NASA GIBS slider and closes cleanly
+    // 5. Toggle Satellite Imagery Comparison ON -> renders NASA GIBS slider and closes cleanly
     await satelliteToggle.click();
     await expect(satelliteToggle).toHaveAttribute('aria-pressed', 'true');
 
@@ -508,7 +541,7 @@ test.describe('Avir Flagship Earth Command Center & Planetary Telemetry E2E', ()
     await page.getByRole('button', { name: 'Close satellite imagery comparison' }).click();
     await expect(comparisonPanel).toHaveCount(0);
 
-    // 5. Re-open Layers to confirm Satellite toggle returned OFF, close via Escape, and confirm wheel zoom over Three.js does not scroll page
+    // 6. Re-open Layers to confirm Satellite toggle returned OFF, close via Escape, and confirm wheel zoom over Three.js does not scroll page
     await layersButton.click();
     await expect(layersButton).toHaveAttribute('aria-expanded', 'true');
     await expect(satelliteToggle).toHaveAttribute('aria-pressed', 'false');
@@ -531,5 +564,60 @@ test.describe('Avir Flagship Earth Command Center & Planetary Telemetry E2E', ()
       expect(distAfter).toBeLessThan(distBefore);
       expect(scrollY).toBe(0);
     }
+
+    // 7. Switch back to Cesium cleanly without errors
+    await page.getByRole('button', { name: /toggle 3d engine/i }).click();
+    await expect(page.locator('.cesium-widget')).toBeVisible({ timeout: 15000 });
+  });
+
+  test('displays honest UNAVAILABLE state in Wind Flow when global wind provider fails', async ({ page }) => {
+    await page.route('**/api/environment/wind/global?*', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          schemaVersion: 2,
+          model: 'gfs',
+          modelName: 'NOAA GFS (0.25° -> 1° grid)',
+          provider: 'NOAA / NCEP Open Data',
+          initTimeUtc: null,
+          validTimeUtc: null,
+          forecastHour: null,
+          retrievedAtUtc: '2026-11-25T06:00:00.000Z',
+          grid: {
+            width: 0,
+            height: 0,
+            lo1: 0,
+            la1: 90,
+            dx: 1,
+            dy: 1,
+            bounds: { west: -180, south: -90, east: 180, north: 90 },
+            resolutionDeg: 1,
+            nativeResolutionDeg: 0.25,
+          },
+          level: '10 m above ground',
+          units: 'm/s',
+          overlay: 'none',
+          scalar: null,
+          scalarError: null,
+          status: 'temporarily_unavailable',
+          freshness: 'unavailable',
+          ageMinutes: null,
+          isAvailable: false,
+          isCached: false,
+          isStale: false,
+          unavailableReason: 'NOAA GFS archive temporarily unreachable.',
+          attribution: 'NOAA / NCEP GFS',
+          license: 'Public Domain',
+          cycle: null,
+          gridUrl: null,
+        }),
+      });
+    });
+
+    await expect(page.locator('.cesium-widget')).toBeVisible({ timeout: 15000 });
+    await page.getByRole('button', { name: 'Environmental Intelligence Layers' }).click();
+    await page.getByRole('button', { name: 'Toggle Wind Flow layer' }).click();
+    await expect(page.getByTestId('layer-status-wind')).toHaveText('UNAVAILABLE', { timeout: 10000 });
   });
 });

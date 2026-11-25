@@ -3,10 +3,15 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { GeographicObservationPoint, AqiStandard } from '@/services/geo/geographic-observation-adapter';
 import type { FirmsHotspot } from '@/domain/firms-types';
+import type { GlobalWindOverlayKind, GlobalWindSnapshot } from '@/domain/wind-types';
 import {
   createCesiumTerrainController,
   type CesiumTerrainController,
 } from './cesium-terrain';
+import {
+  createCesiumWindController,
+  type CesiumWindController,
+} from './cesium-wind';
 
 export type ViewerLifecycle = 'idle' | 'initializing' | 'ready' | 'failed' | 'destroyed';
 export type CesiumTerrainLoadState = 'off' | 'loading' | 'active' | 'fallback';
@@ -32,6 +37,11 @@ export interface AvirCesiumGlobeProps {
   isTerrainEnabled?: boolean;
   isFiresEnabled?: boolean;
   fireHotspots?: FirmsHotspot[];
+  isWindEnabled?: boolean;
+  windSnapshot?: GlobalWindSnapshot | null;
+  windOverlay?: GlobalWindOverlayKind;
+  windPaused?: boolean;
+  onInspectWindCoords?: (coords: { latitude: number; longitude: number }) => void;
   onTerrainStatusChange?: (status: CesiumTerrainLoadState) => void;
   onReady?: () => void;
   onFallbackToThree?: (reason: string) => void;
@@ -52,6 +62,11 @@ export function AvirCesiumGlobe({
   isTerrainEnabled = false,
   isFiresEnabled = false,
   fireHotspots = [],
+  isWindEnabled = false,
+  windSnapshot = null,
+  windOverlay = 'none',
+  windPaused = false,
+  onInspectWindCoords,
   onTerrainStatusChange,
   onReady,
   onFallbackToThree,
@@ -84,10 +99,17 @@ export function AvirCesiumGlobe({
   const onTerrainStatusChangeRef = useRef(onTerrainStatusChange);
   onTerrainStatusChangeRef.current = onTerrainStatusChange;
 
+  const isWindEnabledRef = useRef(isWindEnabled);
+  isWindEnabledRef.current = isWindEnabled;
+
+  const onInspectWindCoordsRef = useRef(onInspectWindCoords);
+  onInspectWindCoordsRef.current = onInspectWindCoords;
+
   const isUserInteractingRef = useRef(false);
   const entitiesMapRef = useRef<Map<string, any>>(new Map());
   const fireEntitiesMapRef = useRef<Map<string, any>>(new Map());
   const terrainControllerRef = useRef<CesiumTerrainController | null>(null);
+  const windControllerRef = useRef<CesiumWindController | null>(null);
 
   // Main Cesium Viewer Lifecycle Effect (Mount & StrictMode clean initialization)
   useEffect(() => {
@@ -244,6 +266,23 @@ export function AvirCesiumGlobe({
 
               if (occluder.isPointVisible(entityCartesian)) {
                 onSelectPointRef.current(pointData);
+                return;
+              }
+            }
+          }
+
+          if (isWindEnabledRef.current && onInspectWindCoordsRef.current) {
+            const pickedCartesian = viewer.camera.pickEllipsoid(
+              click.position,
+              viewer.scene.globe.ellipsoid
+            );
+            if (Cesium.defined(pickedCartesian)) {
+              const cartographic = Cesium.Cartographic.fromCartesian(pickedCartesian);
+              if (cartographic) {
+                onInspectWindCoordsRef.current({
+                  latitude: Cesium.Math.toDegrees(cartographic.latitude),
+                  longitude: Cesium.Math.toDegrees(cartographic.longitude),
+                });
               }
             }
           }
@@ -258,6 +297,7 @@ export function AvirCesiumGlobe({
 
         if (isMounted) {
           terrainControllerRef.current = createCesiumTerrainController();
+          windControllerRef.current = createCesiumWindController();
           setLifecycle('ready');
           onReady?.();
         }
@@ -276,6 +316,8 @@ export function AvirCesiumGlobe({
 
     return () => {
       isMounted = false;
+      windControllerRef.current?.dispose();
+      windControllerRef.current = null;
       terrainControllerRef.current?.dispose();
       terrainControllerRef.current = null;
       setLifecycle('destroyed');
@@ -554,6 +596,26 @@ export function AvirCesiumGlobe({
       controller.cancelPending();
     };
   }, [isTerrainEnabled, lifecycle]);
+
+  // Synchronize global GFS/IFS wind streamlines and optional scalar overlay on Cesium globe
+  useEffect(() => {
+    if (lifecycle !== 'ready' || !viewerRef.current) return;
+    const { viewer, Cesium } = viewerRef.current;
+    if (viewer.isDestroyed()) return;
+
+    const windController =
+      windControllerRef.current ??
+      (windControllerRef.current = createCesiumWindController());
+
+    windController.sync({
+      viewer,
+      Cesium,
+      enabled: isWindEnabled,
+      snapshot: windSnapshot,
+      overlay: windOverlay,
+      paused: windPaused,
+    });
+  }, [isWindEnabled, windSnapshot, windOverlay, windPaused, lifecycle]);
 
   if (lifecycle === 'failed') {
     return (
