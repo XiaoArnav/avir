@@ -9,6 +9,13 @@ import {
   getAvailableImageryDates,
   verifyImageryAvailability,
 } from '@/services/environment/satellite-imagery-service';
+import {
+  buildInitialSatelliteComparisonForTarget,
+  fetchActiveCityFirmsLayer,
+  fetchActiveCityWindLayer,
+  resolveActiveCityEnvironmentTarget,
+} from '@/components/globe/AvirGlobe';
+import type { GeographicObservationPoint } from '@/services/geo/geographic-observation-adapter';
 
 describe('Phase 7 Integration: Environmental Layers Runtime Behavior & Cleanup', () => {
   beforeEach(() => {
@@ -16,6 +23,7 @@ describe('Phase 7 Integration: Environmental Layers Runtime Behavior & Cleanup',
   });
 
   afterEach(() => {
+    vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
 
@@ -132,5 +140,182 @@ describe('Phase 7 Integration: Environmental Layers Runtime Behavior & Cleanup',
     expect(gibsCheck.globalDateListed).toBe(true);
     expect(gibsCheck.regionalCoverageVerified).toBe(false);
     expect(gibsCheck.verifiedObservationDate).toBeNull();
+  });
+
+  it('sends Wind, FIRMS, and NASA GIBS requests for actual active city coordinates even when absent from points or inspecting another marker', async () => {
+    const globePoints: GeographicObservationPoint[] = [
+      {
+        id: 'pt-beijing',
+        name: 'Beijing',
+        country: 'China',
+        countryCode: 'CN',
+        region: 'Asia',
+        latitude: 39.9042,
+        longitude: 116.4074,
+        aqi: 145,
+        cpcbAqi: 145,
+        usAqi: 135,
+        pm25: 50,
+        pm10: 85,
+        category: 'moderate',
+        categoryLabel: 'Moderate',
+        categoryColor: '#eab308',
+        primaryPollutant: 'PM2.5',
+        provenance: 'modeled_forecast',
+        source: 'Open-Meteo',
+        timestamp: '2026-11-24T12:00:00Z',
+        isOfficialGround: false,
+      },
+    ];
+
+    const target = resolveActiveCityEnvironmentTarget({
+      activeCityName: 'Reykjavik',
+      activeCityLatitude: 64.1466,
+      activeCityLongitude: -21.9426,
+      points: globePoints,
+    });
+
+    expect(target).toEqual({
+      name: 'Reykjavik',
+      latitude: 64.1466,
+      longitude: -21.9426,
+    });
+
+    const requestedUrls: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        requestedUrls.push(url);
+        if (url.startsWith('/api/environment/wind')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              status: 'available',
+              isAvailable: true,
+              isCached: false,
+              isStale: false,
+              grid: [
+                {
+                  latitude: 64.1466,
+                  longitude: -21.9426,
+                  u: 4.1,
+                  v: 1.2,
+                  speedMs: 4.27,
+                  speedKmh: 15.4,
+                  directionDeg: 254,
+                  heightM: 10,
+                },
+              ],
+              cityWind: {
+                latitude: 64.1466,
+                longitude: -21.9426,
+                u: 4.1,
+                v: 1.2,
+                speedMs: 4.27,
+                speedKmh: 15.4,
+                directionDeg: 254,
+                heightM: 10,
+              },
+            }),
+          } as Response;
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            configured: true,
+            isAvailable: true,
+            isCached: false,
+            isStale: false,
+            status: 'no_detections',
+            message: 'No thermal anomalies detected',
+            count: 0,
+            hotspots: [],
+            latestObservationUtc: null,
+          }),
+        } as Response;
+      })
+    );
+
+    const windResult = await fetchActiveCityWindLayer({ target, selectedHour: 14 });
+    const firmsResult = await fetchActiveCityFirmsLayer({ target });
+    const gibsResult = buildInitialSatelliteComparisonForTarget(target);
+
+    expect(requestedUrls).toHaveLength(2);
+    const windParams = new URL(requestedUrls[0], 'http://localhost').searchParams;
+    const firmsParams = new URL(requestedUrls[1], 'http://localhost').searchParams;
+
+    expect(windParams.get('lat')).toBe('64.1466');
+    expect(windParams.get('lng')).toBe('-21.9426');
+    expect(windResult.info.state).toBe('live');
+    expect(windResult.data).toHaveLength(1);
+
+    expect(firmsParams.get('lat')).toBe('64.1466');
+    expect(firmsParams.get('lng')).toBe('-21.9426');
+    expect(firmsParams.get('radiusKm')).toBe('500');
+    expect(firmsResult.info.state).toBe('no_detections');
+
+    expect(gibsResult.comparison?.city).toBe('Reykjavik');
+    expect(gibsResult.comparison?.coordinates.lat).toBe(64.1466);
+    expect(gibsResult.comparison?.coordinates.lng).toBe(-21.9426);
+    expect(gibsResult.error).toBeNull();
+  });
+
+  it('aborts with honest unavailable state and sends zero Wind, FIRMS, or GIBS requests when valid active-city coordinates are missing or invalid', async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const invalidTarget = resolveActiveCityEnvironmentTarget({
+      activeCityName: 'Delhi-NCR',
+      activeCityLatitude: Number.NaN,
+      activeCityLongitude: 77.209,
+      points: [
+        {
+          id: 'pt-delhi',
+          name: 'Delhi-NCR',
+          country: 'India',
+          countryCode: 'IN',
+          region: 'Asia',
+          latitude: 28.6139,
+          longitude: 77.209,
+          aqi: 200,
+          cpcbAqi: 200,
+          usAqi: 170,
+          pm25: 90,
+          pm10: 135,
+          category: 'unhealthy',
+          categoryLabel: 'Unhealthy',
+          categoryColor: '#ef4444',
+          primaryPollutant: 'PM2.5',
+          provenance: 'modeled_forecast',
+          source: 'Open-Meteo',
+          timestamp: '2026-11-24T12:00:00Z',
+          isOfficialGround: false,
+        },
+      ],
+    });
+
+    expect(invalidTarget).toBeNull();
+
+    const windResult = await fetchActiveCityWindLayer({ target: invalidTarget });
+    const firmsResult = await fetchActiveCityFirmsLayer({ target: invalidTarget });
+    const gibsResult = buildInitialSatelliteComparisonForTarget(invalidTarget);
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(windResult).toEqual({
+      data: [],
+      info: { state: 'unavailable', detail: 'Active city coordinates unavailable' },
+    });
+    expect(firmsResult).toEqual({
+      data: [],
+      info: { state: 'unavailable', detail: 'Active city coordinates unavailable' },
+    });
+    expect(gibsResult).toEqual({
+      comparison: null,
+      error: 'Satellite imagery comparison requires valid active city coordinates.',
+      info: { state: 'unavailable', detail: 'Active city coordinates unavailable' },
+    });
   });
 });

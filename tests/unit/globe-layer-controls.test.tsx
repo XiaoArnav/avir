@@ -6,7 +6,9 @@ import {
   AvirGlobe,
   mapFirmsStatusToLayerInfo,
   mapWindStatusToLayerInfo,
+  resolveActiveCityEnvironmentTarget,
 } from '@/components/globe/AvirGlobe';
+import type { GeographicObservationPoint } from '@/services/geo/geographic-observation-adapter';
 import type { FirmsStatusResponse } from '@/domain/firms-types';
 import type { WindForecastResponse } from '@/domain/wind-types';
 
@@ -228,6 +230,201 @@ describe('Phase 7: Unified Environmental Layer Controls & Status Contracts', () 
     ).toEqual({
       state: 'rate_limited',
       detail: 'Wind forecast rate limit reached',
+    });
+  });
+
+  describe('Active-City Coordinate Resolution & Inspected-City Separation', () => {
+    const samplePoints: GeographicObservationPoint[] = [
+      {
+        id: 'pt-delhi',
+        name: 'Delhi-NCR',
+        country: 'India',
+        countryCode: 'IN',
+        region: 'Asia',
+        latitude: 28.6139,
+        longitude: 77.209,
+        aqi: 210,
+        cpcbAqi: 210,
+        usAqi: 175,
+        pm25: 92,
+        pm10: 140,
+        category: 'unhealthy',
+        categoryLabel: 'Unhealthy',
+        categoryColor: '#ef4444',
+        primaryPollutant: 'PM2.5',
+        provenance: 'modeled_forecast',
+        source: 'Open-Meteo',
+        timestamp: '2026-11-24T12:00:00Z',
+        isOfficialGround: false,
+      },
+      {
+        id: 'pt-beijing',
+        name: 'Beijing',
+        country: 'China',
+        countryCode: 'CN',
+        region: 'Asia',
+        latitude: 39.9042,
+        longitude: 116.4074,
+        aqi: 140,
+        cpcbAqi: 140,
+        usAqi: 132,
+        pm25: 48,
+        pm10: 82,
+        category: 'moderate',
+        categoryLabel: 'Moderate',
+        categoryColor: '#eab308',
+        primaryPollutant: 'PM2.5',
+        provenance: 'modeled_forecast',
+        source: 'Open-Meteo',
+        timestamp: '2026-11-24T12:00:00Z',
+        isOfficialGround: false,
+      },
+    ];
+
+    it('resolves active city present in points and prioritizes explicit active-city coordinates', () => {
+      expect(
+        resolveActiveCityEnvironmentTarget({
+          activeCityName: 'delhi-ncr',
+          points: samplePoints,
+        })
+      ).toEqual({
+        name: 'delhi-ncr',
+        latitude: 28.6139,
+        longitude: 77.209,
+      });
+
+      // Explicit active-city props take priority even when points hold another value
+      expect(
+        resolveActiveCityEnvironmentTarget({
+          activeCityName: 'Delhi-NCR',
+          activeCityLatitude: 28.62,
+          activeCityLongitude: 77.22,
+          points: samplePoints,
+        })
+      ).toEqual({
+        name: 'Delhi-NCR',
+        latitude: 28.62,
+        longitude: 77.22,
+      });
+    });
+
+    it('uses explicit active-city coordinates when active city is absent from points and never falls back to selectedPoint or points[0]', () => {
+      // With explicit coordinates (normal EarthCommandCenter flow even when telemetry/points omit city)
+      expect(
+        resolveActiveCityEnvironmentTarget({
+          activeCityName: 'Reykjavik',
+          activeCityLatitude: 64.1466,
+          activeCityLongitude: -21.9426,
+          points: samplePoints,
+        })
+      ).toEqual({
+        name: 'Reykjavik',
+        latitude: 64.1466,
+        longitude: -21.9426,
+      });
+
+      // Without explicit coordinates when activeCityName is absent -> null (never points[0])
+      expect(
+        resolveActiveCityEnvironmentTarget({
+          activeCityName: 'Reykjavik',
+          points: samplePoints,
+        })
+      ).toBeNull();
+
+      // Empty points & missing coordinates -> null
+      expect(
+        resolveActiveCityEnvironmentTarget({
+          activeCityName: 'Reykjavik',
+          points: [],
+        })
+      ).toBeNull();
+    });
+
+    it('rejects invalid active-city coordinates instead of falling back to points', () => {
+      const invalidCases = [
+        { lat: Number.NaN, lng: 77.209 },
+        { lat: 28.6139, lng: Number.POSITIVE_INFINITY },
+        { lat: 95, lng: 77.209 },
+        { lat: -91, lng: 77.209 },
+        { lat: 28.6139, lng: 185 },
+        { lat: 28.6139, lng: undefined },
+      ];
+
+      for (const testCase of invalidCases) {
+        expect(
+          resolveActiveCityEnvironmentTarget({
+            activeCityName: 'Delhi-NCR',
+            activeCityLatitude: testCase.lat,
+            activeCityLongitude: testCase.lng,
+            points: samplePoints,
+          })
+        ).toBeNull();
+      }
+    });
+
+    it('preserves separate inspected-city card UI while locking active city telemetry target', () => {
+      const html = ReactDOMServer.renderToString(
+        <AvirGlobe
+          points={samplePoints}
+          selectedPointId="pt-beijing"
+          activeCityName="Reykjavik"
+          activeCityLatitude={64.1466}
+          activeCityLongitude={-21.9426}
+          onSelectPoint={vi.fn()}
+          onSetActiveCity={vi.fn()}
+        />
+      );
+
+      // Inspected marker card still displays Beijing cleanly
+      expect(html).toContain('City observation: Beijing');
+      expect(html).toContain('Set Active City in Dashboard');
+    });
+
+    it('verifies EarthCommandCenter passes explicit currentCity coordinates to AvirGlobe even when telemetry is unavailable', async () => {
+      const capturedProps: Array<Record<string, unknown>> = [];
+      vi.resetModules();
+      vi.doMock('@/components/globe/AvirGlobe', async () => {
+        const actual = await vi.importActual<typeof import('@/components/globe/AvirGlobe')>(
+          '@/components/globe/AvirGlobe'
+        );
+        return {
+          ...actual,
+          AvirGlobe: (props: Record<string, unknown>) => {
+            capturedProps.push(props);
+            return React.createElement('div', { 'data-testid': 'mock-avir-globe' });
+          },
+        };
+      });
+
+      const { EarthCommandCenter } = await import('@/components/home/EarthCommandCenter');
+      ReactDOMServer.renderToString(
+        React.createElement(EarthCommandCenter, {
+          currentCity: {
+            id: 999001,
+            name: 'Reykjavik',
+            country: 'Iceland',
+            countryCode: 'IS',
+            latitude: 64.1466,
+            longitude: -21.9426,
+          },
+          metrics: null,
+          isLoading: false,
+          onSelectCity: vi.fn(),
+          onRefreshTelemetry: vi.fn(),
+          onOpenExplainer: vi.fn(),
+          onOpenShare: vi.fn(),
+          onOpenMultiSource: vi.fn(),
+          onOpenDailyPlan: vi.fn(),
+        })
+      );
+
+      vi.doUnmock('@/components/globe/AvirGlobe');
+      vi.resetModules();
+
+      expect(capturedProps).toHaveLength(1);
+      expect(capturedProps[0].activeCityName).toBe('Reykjavik');
+      expect(capturedProps[0].activeCityLatitude).toBe(64.1466);
+      expect(capturedProps[0].activeCityLongitude).toBe(-21.9426);
     });
   });
 });
