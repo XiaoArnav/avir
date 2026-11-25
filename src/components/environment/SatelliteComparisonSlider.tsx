@@ -29,6 +29,26 @@ export function deriveInitialLoadStatus(slot: SatelliteImageSlot): SlotLoadStatu
   return 'loading';
 }
 
+export function reconcileSlotLoadStatus(
+  slot: SatelliteImageSlot,
+  prevUrl: string | null,
+  prevStatus: SlotLoadStatus,
+  imgEl: { complete: boolean; naturalWidth: number; getAttribute: (name: string) => string | null } | null
+): SlotLoadStatus {
+  if (slot.availability === 'unavailable' || !slot.imageUrl) {
+    return 'unavailable';
+  }
+  if (imgEl && imgEl.getAttribute('src') === slot.imageUrl && imgEl.complete) {
+    return imgEl.naturalWidth > 0 ? 'loaded' : 'failed';
+  }
+  // Metadata-only upgrade (e.g. 'unverified' -> 'verified_regional') for the exact same imageUrl
+  // must preserve an already-loaded image instead of re-arming a 15s load timeout.
+  if (prevUrl === slot.imageUrl && prevStatus === 'loaded') {
+    return 'loaded';
+  }
+  return 'loading';
+}
+
 export function computeSliderPercentFromPointer(
   clientX: number,
   rect: { left: number; width: number }
@@ -151,30 +171,38 @@ export function SatelliteComparisonSlider({
   const [statusB, setStatusB] = useState<SlotLoadStatus>(() => deriveInitialLoadStatus(slotB));
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const imgARef = useRef<HTMLImageElement>(null);
+  const imgBRef = useRef<HTMLImageElement>(null);
+  const prevUrlARef = useRef<string | null>(slotA.imageUrl);
+  const prevUrlBRef = useRef<string | null>(slotB.imageUrl);
   const isDraggingRef = useRef<boolean>(false);
   const activePointerIdRef = useRef<number | null>(null);
 
-  // Sync loading states when either slot changes and prevent infinite loading spinners
+  // Sync loading states when slot URL or availability changes without clobbering already-loaded frames
   useEffect(() => {
-    const initialA = deriveInitialLoadStatus(slotA);
-    setStatusA(initialA);
-    if (initialA !== 'loading') return;
+    const nextA = reconcileSlotLoadStatus(slotA, prevUrlARef.current, statusA, imgARef.current);
+    prevUrlARef.current = slotA.imageUrl;
+    setStatusA(nextA);
+    if (nextA !== 'loading') return;
 
     const timer = setTimeout(() => {
       setStatusA((prev) => (prev === 'loading' ? 'failed' : prev));
     }, IMAGE_LOAD_TIMEOUT_MS);
     return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slotA.imageUrl, slotA.availability, slotA.date, slotA.productId]);
 
   useEffect(() => {
-    const initialB = deriveInitialLoadStatus(slotB);
-    setStatusB(initialB);
-    if (initialB !== 'loading') return;
+    const nextB = reconcileSlotLoadStatus(slotB, prevUrlBRef.current, statusB, imgBRef.current);
+    prevUrlBRef.current = slotB.imageUrl;
+    setStatusB(nextB);
+    if (nextB !== 'loading') return;
 
     const timer = setTimeout(() => {
       setStatusB((prev) => (prev === 'loading' ? 'failed' : prev));
     }, IMAGE_LOAD_TIMEOUT_MS);
     return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slotB.imageUrl, slotB.availability, slotB.date, slotB.productId]);
 
   // Global release guard so releasing outside the slider never leaves dragging active
@@ -337,6 +365,7 @@ export function SatelliteComparisonSlider({
         <div className="absolute inset-0 w-full h-full pointer-events-none" data-testid="comparison-layer-b">
           {slotB.imageUrl && statusB !== 'unavailable' && statusB !== 'failed' ? (
             <img
+              ref={imgBRef}
               src={slotB.imageUrl}
               alt={`Satellite imagery for ${city} on requested date ${slotB.date} (${slotB.productName})`}
               className="absolute inset-0 w-full h-full object-cover pointer-events-none"
@@ -364,6 +393,7 @@ export function SatelliteComparisonSlider({
         >
           {slotA.imageUrl && statusA !== 'unavailable' && statusA !== 'failed' ? (
             <img
+              ref={imgARef}
               src={slotA.imageUrl}
               alt={`Satellite imagery for ${city} on requested date ${slotA.date} (${slotA.productName})`}
               className="absolute inset-0 w-full h-full object-cover pointer-events-none"

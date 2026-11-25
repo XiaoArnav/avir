@@ -7,6 +7,7 @@ import {
   computeSliderPercentFromPointer,
   deriveInitialLoadStatus,
   formatAvailabilityBadge,
+  reconcileSlotLoadStatus,
   resolveComparisonBannerState,
 } from '@/components/environment/SatelliteComparisonSlider';
 import { buildSatelliteComparison } from '@/services/environment/satellite-imagery-service';
@@ -176,5 +177,47 @@ describe('Phase 6 Integration: SatelliteComparisonSlider Component', () => {
     expect(applySliderKeyAction(42, 'Home')).toEqual({ nextPct: 0, handled: true });
     expect(applySliderKeyAction(42, 'End')).toEqual({ nextPct: 100, handled: true });
     expect(applySliderKeyAction(42, 'Tab')).toEqual({ nextPct: 42, handled: false });
+  });
+
+  it('preserves loaded status when slot availability upgrades from unverified to verified_regional on unchanged imageUrl', () => {
+    const upgradedSlot = {
+      ...sampleComparison.slotA,
+      availability: 'verified_regional' as const,
+      verifiedAcquisitionDate: '2026-11-01',
+    };
+
+    // Case 1: DOM img already finished loading
+    expect(
+      reconcileSlotLoadStatus(upgradedSlot, upgradedSlot.imageUrl, 'loading', {
+        complete: true,
+        naturalWidth: 800,
+        getAttribute: (name) => (name === 'src' ? upgradedSlot.imageUrl : null),
+      })
+    ).toBe('loaded');
+
+    // Case 2: State was already loaded with identical imageUrl before DOM ref check
+    expect(
+      reconcileSlotLoadStatus(upgradedSlot, upgradedSlot.imageUrl, 'loaded', null)
+    ).toBe('loaded');
+
+    // Case 3: Slot transitions to unavailable (e.g. Data-Present: false)
+    expect(
+      reconcileSlotLoadStatus(
+        { ...upgradedSlot, availability: 'unavailable', imageUrl: null },
+        upgradedSlot.imageUrl,
+        'loaded',
+        null
+      )
+    ).toBe('unavailable');
+
+    // Case 4: URL genuinely changed (city switched) -> transitions cleanly back to loading
+    expect(
+      reconcileSlotLoadStatus(
+        { ...upgradedSlot, imageUrl: 'https://wvs.earthdata.nasa.gov/api/v1/snapshot?TIME=2026-11-19' },
+        upgradedSlot.imageUrl,
+        'loaded',
+        null
+      )
+    ).toBe('loading');
   });
 });

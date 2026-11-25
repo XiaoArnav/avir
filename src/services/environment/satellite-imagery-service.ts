@@ -431,8 +431,8 @@ export async function probeWvsRegionalCoverage(params: {
     product: prod.id,
     date: validDate,
     bbox: validBbox,
-    width: 256,
-    height: 256,
+    width: 64,
+    height: 64,
     referenceNow,
   });
 
@@ -444,8 +444,8 @@ export async function probeWvsRegionalCoverage(params: {
     const dataPresentRaw = res.headers?.get?.('Data-Present')?.trim().toLowerCase() ?? '';
     const acquisitionTimeRaw = res.headers?.get?.('Acquisition-Time')?.trim() ?? '';
 
-    if (typeof res.body?.cancel === 'function') {
-      await res.body.cancel().catch(() => {});
+    if (typeof res.arrayBuffer === 'function') {
+      await res.arrayBuffer().catch(() => {});
     }
 
     if (!res.ok) {
