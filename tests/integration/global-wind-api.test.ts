@@ -468,6 +468,7 @@ describe('Phase 2: Pure-TS GRIB2 Decoder, Cycle Selection & Global Wind Proxy AP
       date: '20261125',
       hour: 0,
       forecastHour: 9,
+      now: () => fixedNow,
       fetchImpl: fetchMock as any,
     });
     expect(byCycle.bytes.byteLength).toBe(bin.byteLength);
