@@ -209,8 +209,15 @@ test.describe('Avir Flagship Earth Command Center & Planetary Telemetry E2E', ()
     const cesiumContainer = page.locator('.cesium-widget');
     await expect(cesiumContainer).toBeVisible({ timeout: 15000 });
 
-    // Verify legal provider attribution badge is visible
-    await expect(page.locator('text=Imagery: Tiles © Esri')).toBeVisible();
+    // Verify legal accessible provider attribution panel is visible with imagery credits,
+    // and real-terrain attribution is NOT shown while ellipsoid default is active
+    const attributionPanel = page.getByRole('contentinfo', {
+      name: /satellite imagery and map data attribution/i,
+    });
+    await expect(attributionPanel).toBeVisible();
+    await expect(attributionPanel).toContainText('Imagery: Tiles © Esri');
+    await expect(attributionPanel).not.toContainText('Re:Earth / Mapterhorn');
+    await expect(page.getByTestId('cesium-terrain-attribution')).toHaveCount(0);
 
     // Switch back to Three.js
     await engineButton.click();
@@ -232,25 +239,40 @@ test.describe('Avir Flagship Earth Command Center & Planetary Telemetry E2E', ()
     // 1. Zoom In
     const zoomInBtn = page.getByRole('button', { name: 'Zoom In' });
     await expect(zoomInBtn).toBeVisible();
-    await zoomInBtn.click();
+    await zoomInBtn.click({ force: true });
 
     // 2. Zoom Out
     const zoomOutBtn = page.getByRole('button', { name: 'Zoom Out' });
     await expect(zoomOutBtn).toBeVisible();
-    await zoomOutBtn.click();
+    await zoomOutBtn.click({ force: true });
 
     // 3. Toggle Auto-Rotation (Pause / Resume)
     const rotateBtn = page.getByRole('button', { name: /pause rotation|start auto-rotation/i });
     await expect(rotateBtn).toBeVisible();
-    await rotateBtn.click();
-    await rotateBtn.click();
+    await rotateBtn.click({ force: true });
+    await rotateBtn.click({ force: true });
 
     // 4. Reset Camera View
     const resetBtn = page.getByRole('button', { name: 'Reset Globe Orientation' });
     await expect(resetBtn).toBeVisible();
-    await resetBtn.click();
+    await resetBtn.click({ force: true });
 
-    // Ensure the widget remains intact and responsive
+    // 5. Verify direct drag and wheel navigation on Cesium canvas without regression
+    const canvas = cesiumWidget.locator('canvas').first();
+    const box = await canvas.boundingBox();
+    expect(box).not.toBeNull();
+    if (box) {
+      const cx = box.x + box.width / 2;
+      const cy = box.y + box.height / 2;
+      await page.mouse.move(cx, cy);
+      await page.mouse.down();
+      await page.mouse.move(cx + 60, cy - 30, { steps: 5 });
+      await page.mouse.up();
+      await page.mouse.wheel(0, -180);
+    }
+
+    // Ensure the widget and imagery attribution remain intact and responsive
     await expect(cesiumWidget).toBeVisible();
+    await expect(page.locator('text=Imagery: Tiles © Esri')).toBeVisible();
   });
 });

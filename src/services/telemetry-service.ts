@@ -273,6 +273,7 @@ export interface FetchTelemetryOptions {
   signal?: AbortSignal;
   forceRefresh?: boolean;
   cityName?: string;
+  domain?: string;
 }
 
 /**
@@ -323,7 +324,7 @@ export async function fetchLiveAtmosphericMetrics(
     };
   }
 
-  const cacheKey = `telemetry:${latitude.toFixed(2)},${longitude.toFixed(2)}`;
+  const cacheKey = `telemetry:${latitude.toFixed(2)},${longitude.toFixed(2)}${options?.domain ? `:${options.domain}` : ''}`;
 
   if (!options?.forceRefresh) {
     const cached = telemetryCache.get(cacheKey) as AtmosphericMetrics | null;
@@ -345,7 +346,8 @@ export async function fetchLiveAtmosphericMetrics(
   const retrievedAt = new Date().toISOString();
 
   try {
-    const airQualityUrl = `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${latitude}&longitude=${longitude}&current=us_aqi,pm2_5,pm10,carbon_monoxide,nitrogen_dioxide,sulphur_dioxide,ozone&hourly=pm2_5&timezone=auto`;
+    const domainParam = options?.domain ? `&domains=${encodeURIComponent(options.domain)}` : '';
+    const airQualityUrl = `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${latitude}&longitude=${longitude}&current=us_aqi,pm2_5,pm10,carbon_monoxide,nitrogen_dioxide,sulphur_dioxide,ozone&hourly=pm2_5&timezone=auto${domainParam}`;
     const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m&hourly=boundary_layer_height,temperature_2m,relative_humidity_2m,wind_speed_10m&timezone=auto`;
 
     const [aqRes, weatherRes] = await Promise.all([
