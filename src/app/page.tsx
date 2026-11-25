@@ -763,11 +763,9 @@ export default function Home() {
           </div>
 
           <p className="text-xs text-ink-muted dark:text-zinc-400 flex flex-wrap items-center justify-center gap-x-2">
-            <span>Built by <strong className="text-ink dark:text-white">XiaoArnav</strong></span>
+            <span>Built by <strong className="text-ink dark:text-white">Arnav Patel (XiaoArnav)</strong></span>
             <span className="text-stone-300 dark:text-zinc-600">•</span>
-            <span>PromptWars Virtual (Challenge 6: Urban Air Quality Assistant)</span>
-            <span className="text-stone-300 dark:text-zinc-600">•</span>
-            <span>Copernicus &amp; NOAA Atmospheric Telemetry</span>
+            <span>Atmospheric Data: Copernicus &amp; NOAA</span>
             <span className="text-stone-300 dark:text-zinc-600">•</span>
             <a 
               href="https://github.com/XiaoArnav/avir" 
