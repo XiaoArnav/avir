@@ -340,7 +340,6 @@ export function SatelliteComparisonSlider({
               src={slotB.imageUrl}
               alt={`Satellite imagery for ${city} on requested date ${slotB.date} (${slotB.productName})`}
               className="absolute inset-0 w-full h-full object-cover pointer-events-none"
-              loading="lazy"
               onLoad={() => setStatusB('loaded')}
               onError={() => setStatusB('failed')}
             />
@@ -368,7 +367,6 @@ export function SatelliteComparisonSlider({
               src={slotA.imageUrl}
               alt={`Satellite imagery for ${city} on requested date ${slotA.date} (${slotA.productName})`}
               className="absolute inset-0 w-full h-full object-cover pointer-events-none"
-              loading="lazy"
               onLoad={() => setStatusA('loaded')}
               onError={() => setStatusA('failed')}
             />

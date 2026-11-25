@@ -55,22 +55,45 @@ describe('NASA FIRMS Active-Fire API Route & Failure Integrity (/api/environment
     }
   });
 
-  it('returns structured unconfigured status without caching when FIRMS_MAP_KEY is unconfigured', async () => {
+  it('uses keyless NASA FIRMS 24h regional CSV archive when FIRMS_MAP_KEY is absent, and fails closed cleanly if archive fetch fails', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => SAMPLE_NOAA20_CSV,
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
     const req = new NextRequest(
       'http://localhost:3000/api/environment/fires?lat=28.6139&lng=77.2090&radiusKm=300',
       { headers: { 'x-forwarded-for': '203.0.113.10' } }
     );
     const res = await GET(req);
     expect(res.status).toBe(200);
-    expect(res.headers.get('Cache-Control')).toBe('no-store');
+    expect(res.headers.get('Cache-Control')).toContain('s-maxage=900');
 
     const json = await res.json();
     expect(json.disclaimer).toBe(FIRMS_SCIENTIFIC_DISCLAIMER);
-    expect(json.hotspots).toEqual([]);
     expect(json.configured).toBe(false);
-    expect(json.isAvailable).toBe(false);
-    expect(json.status).toBe('unconfigured');
-    expect(json.count).toBe(0);
+    expect(json.isAvailable).toBe(true);
+    expect(json.status).toBe('active');
+    expect(json.dataset).toBe('VIIRS_NOAA20_C2_24H');
+    expect(json.count).toBe(2);
+    expect(String(fetchMock.mock.calls[0][0])).toContain('J1_VIIRS_C2_South_Asia_24h.csv');
+
+    clearFirmsCache();
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Archive offline')));
+    const offlineRes = await GET(
+      new NextRequest(
+        'http://localhost:3000/api/environment/fires?lat=28.6139&lng=77.2090&radiusKm=300',
+        { headers: { 'x-forwarded-for': '203.0.113.12' } }
+      )
+    );
+    expect(offlineRes.status).toBe(200);
+    expect(offlineRes.headers.get('Cache-Control')).toBe('no-store');
+    const offlineJson = await offlineRes.json();
+    expect(offlineJson.configured).toBe(false);
+    expect(offlineJson.isAvailable).toBe(false);
+    expect(offlineJson.hotspots).toEqual([]);
   });
 
   it('returns active NOAA-20 VIIRS detections via /api/environment/fires without leaking server MAP_KEY', async () => {

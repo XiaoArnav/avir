@@ -60,6 +60,102 @@ export interface CesiumTerrainController {
 }
 
 const DEFAULT_MAX_TRANSIENT_TILE_ERRORS = 3;
+export const TERRAIN_RETRY_ATTEMPTS = 3;
+const TERRAIN_RETRY_STATUSES: readonly number[] = [429, 502, 503, 504];
+export const TERRAIN_RETRY_BASE_MS = 750;
+export const TERRAIN_RETRY_MAX_MS = 15_000;
+export const TERRAIN_RETRY_SPREAD_MS = 1_500;
+const CESIUM_REQUEST_CANCELLED = 4;
+
+export interface TerrainRetryPolicy {
+  retryCallback: (resource: unknown, error: unknown) => Promise<boolean>;
+  retryAttempts: number;
+  shouldRetry: (error: unknown) => boolean;
+  cooldownUntil: () => number;
+}
+
+function parseRetryAfterMs(value: unknown, nowMs: number): number | null {
+  if (value == null) return null;
+  const text = String(value).trim();
+  if (!text) return null;
+  if (/^\d+$/.test(text)) return Number(text) * 1000;
+  const parsed = Date.parse(text);
+  if (!Number.isFinite(parsed)) return null;
+  return Math.max(0, parsed - nowMs);
+}
+
+function extractRetryAfterHeader(headers: unknown): unknown {
+  if (!headers || typeof headers !== 'object') return null;
+  for (const [k, v] of Object.entries(headers as Record<string, unknown>)) {
+    if (k.toLowerCase() === 'retry-after') return v;
+  }
+  return null;
+}
+
+/**
+ * Shared-cooldown retry policy for Re:Earth keyless quantized-mesh tiles
+ * (adapted from bilawalsidhu/gods-eye-view terrainRetry). Absorbs burst 429/502/503/504
+ * throttling without immediately triggering fallback to flat ellipsoid terrain.
+ */
+export function createTerrainRetryPolicy(options?: {
+  now?: () => number;
+  wait?: (ms: number) => Promise<void>;
+  random?: () => number;
+  attempts?: number;
+}): TerrainRetryPolicy {
+  const now = options?.now ?? (() => Date.now());
+  const wait = options?.wait ?? ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
+  const random = options?.random ?? Math.random;
+  const attempts = options?.attempts ?? TERRAIN_RETRY_ATTEMPTS;
+
+  const attemptsByResource = new WeakMap<object, number>();
+  let cooldownUntilMs = 0;
+
+  const isCancelled = (resource: unknown): boolean => {
+    const req = (resource as { request?: { cancelled?: boolean; state?: number } } | null)?.request;
+    return req?.cancelled === true || req?.state === CESIUM_REQUEST_CANCELLED;
+  };
+
+  const shouldRetry = (error: unknown): boolean => {
+    const statusCode = (error as { statusCode?: number; status?: number } | null)?.statusCode
+      ?? (error as { status?: number } | null)?.status;
+    return typeof statusCode === 'number' && TERRAIN_RETRY_STATUSES.includes(statusCode);
+  };
+
+  const retryCallback = async (resource: unknown, error: unknown): Promise<boolean> => {
+    if (!shouldRetry(error) || isCancelled(resource)) return false;
+    const key = typeof resource === 'object' && resource !== null ? resource : {};
+    const spent = attemptsByResource.get(key) ?? 0;
+    if (spent >= attempts) return false;
+    attemptsByResource.set(key, spent + 1);
+
+    const started = now();
+    const backoff = Math.min(TERRAIN_RETRY_MAX_MS, TERRAIN_RETRY_BASE_MS * 2 ** spent);
+    const retryAfter = parseRetryAfterMs(
+      extractRetryAfterHeader((error as { responseHeaders?: unknown } | null)?.responseHeaders),
+      started
+    );
+    const delay = Math.min(TERRAIN_RETRY_MAX_MS, Math.max(backoff, retryAfter ?? 0));
+    if (started + delay > cooldownUntilMs) cooldownUntilMs = started + delay;
+
+    const jitter = random() * TERRAIN_RETRY_SPREAD_MS;
+    const deadline = started + TERRAIN_RETRY_MAX_MS + TERRAIN_RETRY_SPREAD_MS;
+    for (let i = 0; i < 32; i += 1) {
+      const remaining = Math.min(cooldownUntilMs + jitter, deadline) - now();
+      if (remaining <= 0) break;
+      await wait(remaining);
+      if (isCancelled(resource)) return false;
+    }
+    return !isCancelled(resource);
+  };
+
+  return {
+    retryCallback,
+    retryAttempts: attempts,
+    shouldRetry,
+    cooldownUntil: () => cooldownUntilMs,
+  };
+}
 
 /**
  * Extracts a bounded, non-sensitive diagnostic summary without raw URLs, tokens, or large payloads.
@@ -155,7 +251,19 @@ export async function createKeylessTerrainProvider(Cesium: any): Promise<Terrain
   }
 
   try {
-    const provider = await Cesium.CesiumTerrainProvider.fromUrl(REEARTH_KEYLESS_TERRAIN_URL, {
+    const terrainSource =
+      typeof Cesium.Resource === 'function'
+        ? (() => {
+            const policy = createTerrainRetryPolicy();
+            return new Cesium.Resource({
+              url: REEARTH_KEYLESS_TERRAIN_URL,
+              retryCallback: policy.retryCallback,
+              retryAttempts: policy.retryAttempts,
+            });
+          })()
+        : REEARTH_KEYLESS_TERRAIN_URL;
+
+    const provider = await Cesium.CesiumTerrainProvider.fromUrl(terrainSource, {
       requestVertexNormals: true,
       requestWaterMask: false,
     });

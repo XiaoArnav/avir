@@ -197,22 +197,42 @@ function buildHourlyIndexByUtcEpoch(resp: any): {
   return { entriesByEpoch, orderedEpochs };
 }
 
+const HOURLY_STEP_TOLERANCE_MS = 3_600_000;
+
 function selectTargetEpoch(
   candidateEpochs: number[],
   selectedHour: number,
   targetValidTimeUtc?: string
-): number | null {
+): { epoch: number; alignedFromRequested: boolean } | null {
   if (candidateEpochs.length === 0) return null;
 
   if (targetValidTimeUtc) {
     const requestedEpoch = Date.parse(targetValidTimeUtc);
     if (Number.isNaN(requestedEpoch)) return null;
-    return candidateEpochs.includes(requestedEpoch) ? requestedEpoch : null;
+    if (candidateEpochs.includes(requestedEpoch)) {
+      return { epoch: requestedEpoch, alignedFromRequested: false };
+    }
+
+    // Sub-hour UTC offsets (e.g., India IST +05:30 producing :30Z timestamps) align
+    // to the nearest upstream hourly UTC forecast instant strictly within +-60 min.
+    let bestEpoch: number | null = null;
+    let bestDelta = Number.POSITIVE_INFINITY;
+    for (const candidate of candidateEpochs) {
+      const delta = Math.abs(candidate - requestedEpoch);
+      if (
+        delta <= HOURLY_STEP_TOLERANCE_MS &&
+        (delta < bestDelta || (delta === bestDelta && candidate > (bestEpoch ?? -Infinity)))
+      ) {
+        bestEpoch = candidate;
+        bestDelta = delta;
+      }
+    }
+    return bestEpoch !== null ? { epoch: bestEpoch, alignedFromRequested: true } : null;
   }
 
   const matches = candidateEpochs.filter((ep) => new Date(ep).getUTCHours() === selectedHour);
   if (matches.length === 0) return null;
-  return matches[0];
+  return { epoch: matches[0], alignedFromRequested: false };
 }
 
 function buildUnavailableResponse(params: {
@@ -297,7 +317,7 @@ export async function fetchWindForecast(params: {
   }
 
   const utcDateKey = targetValidTimeUtc
-    ? new Date(targetValidTimeUtc).toISOString().slice(0, 13)
+    ? new Date(targetValidTimeUtc).toISOString().slice(0, 16)
     : `${new Date().toISOString().slice(0, 10)}T${String(hour).padStart(2, '0')}`;
   const cacheKey = `${latitude.toFixed(4)}_${longitude.toFixed(4)}_${utcDateKey}_${model}_kmh`;
   const modelLabel = `Open-Meteo Forecast API (${model} 10m wind)`;
@@ -318,8 +338,8 @@ export async function fetchWindForecast(params: {
   const lats = allProbes.map((p) => p.lat.toFixed(4)).join(',');
   const lngs = allProbes.map((p) => p.lng.toFixed(4)).join(',');
 
-  // Open-Meteo Forecast API with GMT alignment, explicit km/h unit, and 2-day window to span UTC midnight cleanly
-  const url = `https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lngs}&hourly=wind_speed_10m,wind_direction_10m&models=${model}&wind_speed_unit=kmh&forecast_days=2&timezone=GMT`;
+  // Open-Meteo Forecast API with GMT alignment, explicit km/h unit, past_hours=2 for IST/midnight overlap
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lngs}&hourly=wind_speed_10m,wind_direction_10m&models=${model}&wind_speed_unit=kmh&past_hours=2&forecast_days=2&timezone=GMT`;
 
   let failureStatus: WindForecastStatus = 'temporarily_unavailable';
   let failureReason = 'Upstream wind forecast service is temporarily unavailable.';
@@ -385,17 +405,18 @@ export async function fetchWindForecast(params: {
       throw new Error(failureReason);
     }
 
-    const targetEpoch = selectTargetEpoch(
+    const targetSelection = selectTargetEpoch(
       referenceSeries.orderedEpochs,
       hour,
       targetValidTimeUtc
     );
-    if (targetEpoch === null) {
+    if (targetSelection === null) {
       failureStatus = 'invalid_upstream_response';
       failureReason = 'Requested forecast UTC instant is absent from upstream hourly time series.';
       throw new Error(failureReason);
     }
 
+    const { epoch: targetEpoch, alignedFromRequested } = targetSelection;
     const resolvedValidTimeUtc = new Date(targetEpoch).toISOString();
     const rawInit =
       typeof referenceSeries.resp?.model_run_at === 'string' &&
@@ -479,8 +500,9 @@ export async function fetchWindForecast(params: {
       ventilationRating: rating,
       ventilationIndicatorScope: scope,
       ventilationDescription: description,
-      uncertaintyDisclosure:
-        'Open-Meteo best_match selects or blends gridded NWP models per region; grid-cell surface winds reflect regional synoptic flow rather than hyper-local street-canyon gusts. Model initialization time is not exposed by the forecast endpoint.',
+      uncertaintyDisclosure: alignedFromRequested
+        ? `Aligned requested UTC instant (${targetValidTimeUtc}) to nearest available hourly Open-Meteo GFS forecast frame (${resolvedValidTimeUtc}). Open-Meteo best_match selects or blends gridded NWP models per region; grid-cell surface winds reflect synoptic flow rather than hyper-local street-canyon gusts.`
+        : 'Open-Meteo best_match selects or blends gridded NWP models per region; grid-cell surface winds reflect regional synoptic flow rather than hyper-local street-canyon gusts. Model initialization time is not exposed by the forecast endpoint.',
     };
 
     // Only cache when active city wind is genuinely available

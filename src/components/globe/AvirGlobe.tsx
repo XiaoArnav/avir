@@ -22,6 +22,7 @@ import type { SatelliteComparisonPair } from '@/domain/imagery-types';
 import {
   buildSatelliteComparison,
   getAvailableImageryDates,
+  probeWvsRegionalCoverage,
   verifyImageryAvailability,
 } from '@/services/environment/satellite-imagery-service';
 import { SatelliteComparisonSlider } from '@/components/environment/SatelliteComparisonSlider';
@@ -634,8 +635,28 @@ export function AvirGlobe({
         date: dateB,
         bbox: extent,
       }),
-    ]).then(([entryA, entryB]) => {
+    ]).then(async ([domainA, domainB]) => {
       if (cancelled || reqId !== satelliteReqIdRef.current) return;
+
+      const [wvsA, wvsB] = await Promise.all([
+        domainA.availability === 'unavailable'
+          ? Promise.resolve(domainA)
+          : probeWvsRegionalCoverage({ product: 'VIIRS', date: dateA, bbox: extent }),
+        domainB.availability === 'unavailable'
+          ? Promise.resolve(domainB)
+          : probeWvsRegionalCoverage({ product: 'VIIRS', date: dateB, bbox: extent }),
+      ]);
+      if (cancelled || reqId !== satelliteReqIdRef.current) return;
+
+      const resolveFinalEntry = (domainEntry: typeof domainA, wvsEntry: typeof wvsA) => {
+        if (wvsEntry.availability === 'verified_regional' || wvsEntry.availability === 'unavailable') {
+          return wvsEntry;
+        }
+        return domainEntry;
+      };
+
+      const entryA = resolveFinalEntry(domainA, wvsA);
+      const entryB = resolveFinalEntry(domainB, wvsB);
 
       const updatedComparison = buildSatelliteComparison({
         city: activeCityTarget.name,
@@ -647,6 +668,8 @@ export function AvirGlobe({
         productB: 'VIIRS',
         availabilityA: entryA.availability,
         availabilityB: entryB.availability,
+        verifiedDateA: entryA.verifiedObservationDate,
+        verifiedDateB: entryB.verifiedObservationDate,
       });
 
       setSatelliteComparison(updatedComparison);
@@ -654,7 +677,15 @@ export function AvirGlobe({
       if (entryA.availability === 'unavailable' || entryB.availability === 'unavailable') {
         setSatelliteInfo({
           state: 'unavailable',
-          detail: `GIBS date unavailable (${dateA} / ${dateB})`,
+          detail: `Imagery unavailable for bbox (${dateA} / ${dateB})`,
+        });
+      } else if (
+        entryA.availability === 'verified_regional' &&
+        entryB.availability === 'verified_regional'
+      ) {
+        setSatelliteInfo({
+          state: 'live',
+          detail: `${dateA} vs ${dateB} • Swath Verified`,
         });
       } else if (
         entryA.availability === 'global_date_listed' &&

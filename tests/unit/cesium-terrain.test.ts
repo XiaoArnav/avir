@@ -4,8 +4,10 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   REEARTH_KEYLESS_TERRAIN_URL,
   TERRAIN_ATTRIBUTION,
+  TERRAIN_RETRY_ATTEMPTS,
   createKeylessTerrainProvider,
   createCesiumTerrainController,
+  createTerrainRetryPolicy,
   formatSanitizedTerrainError,
 } from '@/components/globe/cesium/cesium-terrain';
 import { AvirCesiumGlobe } from '@/components/globe/cesium/AvirCesiumGlobe';
@@ -485,5 +487,55 @@ describe('Cesium 3D Elevation Terrain Provider (Phase 5 Part B)', () => {
     expect(html).toContain('Map Attribution');
     expect(html).toContain('Imagery: Tiles © Esri, Maxar, Earthstar Geographics');
     expect(html).not.toContain('Re:Earth / Mapterhorn');
+  });
+
+  it('Fix 3 regression: attaches shared-cooldown retry policy on Cesium.Resource and retries 429/503 without premature fallback', async () => {
+    const waits: number[] = [];
+    let currentMs = 1000;
+    const policy = createTerrainRetryPolicy({
+      now: () => currentMs,
+      wait: async (ms) => {
+        waits.push(ms);
+        currentMs += ms;
+      },
+      random: () => 0,
+    });
+
+    const tileResource = { request: { cancelled: false } };
+    expect(policy.shouldRetry({ statusCode: 429 })).toBe(true);
+    expect(policy.shouldRetry({ statusCode: 503 })).toBe(true);
+    expect(policy.shouldRetry({ statusCode: 404 })).toBe(false);
+
+    // Retry honors Retry-After header cleanly
+    const allowRetry = await policy.retryCallback(tileResource, {
+      statusCode: 429,
+      responseHeaders: { 'retry-after': '2' },
+    });
+    expect(allowRetry).toBe(true);
+    expect(waits[0]).toBeGreaterThanOrEqual(2000);
+
+    // Cancelled resource aborts retry immediately
+    expect(
+      await policy.retryCallback({ request: { cancelled: true } }, { statusCode: 429 })
+    ).toBe(false);
+
+    // Passes Cesium.Resource instance when Resource constructor is available
+    const constructed: unknown[] = [];
+    const mockCesiumWithResource = {
+      Resource: function MockResource(opts: unknown) {
+        constructed.push(opts);
+        return { ...(opts as object), isMockResource: true };
+      },
+      CesiumTerrainProvider: {
+        fromUrl: vi.fn().mockResolvedValue({ isRealQuantizedMesh: true }),
+      },
+      EllipsoidTerrainProvider: vi.fn(),
+    };
+
+    const loaded = await createKeylessTerrainProvider(mockCesiumWithResource);
+    expect(loaded.isRealTerrain).toBe(true);
+    expect(constructed).toHaveLength(1);
+    expect((constructed[0] as any).url).toBe(REEARTH_KEYLESS_TERRAIN_URL);
+    expect((constructed[0] as any).retryAttempts).toBe(TERRAIN_RETRY_ATTEMPTS);
   });
 });

@@ -11,6 +11,7 @@ import {
   clearFirmsCache,
   computeFirmsBoundingBoxes,
   fetchFirmsHotspots,
+  selectPublicFirmsRegions,
 } from '@/services/environment/firms-service';
 import { ThreeFireLayer, classifySpotVisualization } from '@/components/globe/three-fire-layer';
 
@@ -170,20 +171,42 @@ describe('NASA FIRMS Active-Fire Hotspots Service, Parser, Physics & Layer (Phas
     }
   });
 
-  it('returns unconfigured status when FIRMS_MAP_KEY is absent, never inventing fake fires', async () => {
-    const res = await fetchFirmsHotspots({
+  it('uses official keyless NASA FIRMS 24h regional CSV archive when FIRMS_MAP_KEY is absent, and still returns explicit unconfigured when public fallback is disabled', async () => {
+    expect(selectPublicFirmsRegions(28.6139, 77.209, 500)).toEqual(['South_Asia']);
+    expect(selectPublicFirmsRegions(39.9042, 116.4074, 500)).toEqual(['Russia_Asia']);
+    expect(selectPublicFirmsRegions(51.5074, -0.1278, 300)).toEqual(['Europe']);
+
+    const keylessActive = await fetchFirmsHotspots({
+      latitude: 28.6139,
+      longitude: 77.209,
+      radiusKm: 500,
+      apiKey: '',
+      fetchImpl: vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: async () => sampleViirsCsv,
+      }) as any,
+    });
+    expect(keylessActive.configured).toBe(false);
+    expect(keylessActive.isAvailable).toBe(true);
+    expect(keylessActive.status).toBe('active');
+    expect(keylessActive.dataset).toBe('VIIRS_NOAA20_C2_24H');
+    expect(keylessActive.count).toBe(2);
+
+    const explicitUnconfigured = await fetchFirmsHotspots({
       latitude: 28.61,
       longitude: 77.21,
       apiKey: '',
+      allowPublicArchive: false,
     });
 
-    expect(res.configured).toBe(false);
-    expect(res.isAvailable).toBe(false);
-    expect(res.status).toBe('unconfigured');
-    expect(res.count).toBe(0);
-    expect(res.hotspots).toHaveLength(0);
-    expect(res.message).toContain('FIRMS_MAP_KEY is not configured');
-    expect(res.disclaimer).toBe(FIRMS_SCIENTIFIC_DISCLAIMER);
+    expect(explicitUnconfigured.configured).toBe(false);
+    expect(explicitUnconfigured.isAvailable).toBe(false);
+    expect(explicitUnconfigured.status).toBe('unconfigured');
+    expect(explicitUnconfigured.count).toBe(0);
+    expect(explicitUnconfigured.hotspots).toHaveLength(0);
+    expect(explicitUnconfigured.message).toContain('FIRMS_MAP_KEY is not configured');
+    expect(explicitUnconfigured.disclaimer).toBe(FIRMS_SCIENTIFIC_DISCLAIMER);
   });
 
   it('preserves ThreeFireLayer unknown-FRP visual distinction, world-space occlusion, and clean GPU disposal', () => {

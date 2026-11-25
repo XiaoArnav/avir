@@ -319,8 +319,8 @@ export async function verifyImageryAvailability(params: {
     };
   }
 
-  // Per NASA GIBS docs, DescribeDomains BBOX parameter has no effect on returned layer temporal domains.
-  const domainsUrl = `https://gibs.earthdata.nasa.gov/wmts/epsg4326/best/1.0.0/${encodeURIComponent(prod.gibsLayer)}/default/${encodeURIComponent(prod.gibsTileMatrixSet)}/all/all.xml`;
+  // Official NASA GIBS OGC WMTS KVP DescribeDomains endpoint (BBOX has no effect in GIBS global domains).
+  const domainsUrl = `https://gibs.earthdata.nasa.gov/wmts/epsg4326/best/wmts.cgi?SERVICE=WMTS&REQUEST=DescribeDomains&TileMatrixSet=${encodeURIComponent(prod.gibsTileMatrixSet)}&Layer=${encodeURIComponent(prod.gibsLayer)}`;
 
   try {
     const res = await fetchImpl(domainsUrl, {
@@ -406,6 +406,115 @@ export async function verifyImageryAvailability(params: {
       verifiedObservationDate: null,
       source: 'nasa_gibs_describe_domains',
       note: `Unable to reach NASA GIBS DescribeDomains metadata; availability for ${validDate} remains unverified.`,
+    };
+  }
+}
+
+/**
+ * Probes NASA Worldview Snapshots (WVS) for real per-bounding-box pixel presence
+ * (`Data-Present` and `Acquisition-Time` CORS-exposed response headers, adapted from
+ * bilawalsidhu/gods-eye-view). Never assumes data presence from HTTP 200 alone.
+ */
+export async function probeWvsRegionalCoverage(params: {
+  product: ImageryProductId | string;
+  date: string;
+  bbox: GeographicBoundingBox;
+  fetchImpl?: typeof fetch;
+  referenceNow?: Date;
+}): Promise<ImageryDateEntry> {
+  const { product, date, bbox, fetchImpl = fetch, referenceNow } = params;
+  const prod = resolveImageryProduct(product);
+  const validDate = validateImageryDate(date, { referenceNow });
+  const validBbox = validateGeographicBoundingBox(bbox);
+
+  const probeUrl = buildGibsSnapshotUrl({
+    product: prod.id,
+    date: validDate,
+    bbox: validBbox,
+    width: 256,
+    height: 256,
+    referenceNow,
+  });
+
+  try {
+    const res = await fetchImpl(probeUrl, {
+      signal: AbortSignal.timeout(8000),
+    });
+
+    const dataPresentRaw = res.headers?.get?.('Data-Present')?.trim().toLowerCase() ?? '';
+    const acquisitionTimeRaw = res.headers?.get?.('Acquisition-Time')?.trim() ?? '';
+
+    if (typeof res.body?.cancel === 'function') {
+      await res.body.cancel().catch(() => {});
+    }
+
+    if (!res.ok) {
+      return {
+        date: validDate,
+        availability: 'unverified',
+        globalDateListed: false,
+        regionalCoverageVerified: false,
+        productId: prod.id,
+        verifiedObservationDate: null,
+        source: 'nasa_gibs_capabilities',
+        note: `NASA WVS snapshot probe returned HTTP ${res.status}; regional pixel coverage remains unverified.`,
+      };
+    }
+
+    if (dataPresentRaw === 'false') {
+      return {
+        date: validDate,
+        availability: 'unavailable',
+        globalDateListed: false,
+        regionalCoverageVerified: false,
+        productId: prod.id,
+        verifiedObservationDate: null,
+        source: 'nasa_gibs_capabilities',
+        note: `NASA WVS reported Data-Present: false for this bounding box on ${validDate} (outside swath or empty pass).`,
+      };
+    }
+
+    if (dataPresentRaw === 'true') {
+      const parsedAcquisition = parseStrictIsoDateToken(acquisitionTimeRaw);
+      const verifiedDate =
+        parsedAcquisition && parsedAcquisition >= prod.temporalCoverageStart
+          ? parsedAcquisition
+          : null;
+
+      return {
+        date: validDate,
+        availability: 'verified_regional',
+        globalDateListed: true,
+        regionalCoverageVerified: true,
+        productId: prod.id,
+        verifiedObservationDate: verifiedDate,
+        source: 'nasa_gibs_capabilities',
+        note: verifiedDate
+          ? `NASA WVS confirmed Data-Present: true for this bounding box (Acquisition-Time: ${verifiedDate}). Cloud cover not excluded.`
+          : `NASA WVS confirmed Data-Present: true for this bounding box on ${validDate}. Cloud cover not excluded.`,
+      };
+    }
+
+    return {
+      date: validDate,
+      availability: 'unverified',
+      globalDateListed: false,
+      regionalCoverageVerified: false,
+      productId: prod.id,
+      verifiedObservationDate: null,
+      source: 'nasa_gibs_capabilities',
+      note: `NASA WVS omitted Data-Present header for ${validDate}; regional swath coverage remains unverified.`,
+    };
+  } catch {
+    return {
+      date: validDate,
+      availability: 'unverified',
+      globalDateListed: false,
+      regionalCoverageVerified: false,
+      productId: prod.id,
+      verifiedObservationDate: null,
+      source: 'nasa_gibs_capabilities',
+      note: `Unable to probe NASA WVS pixel headers for ${validDate}; regional coverage remains unverified.`,
     };
   }
 }

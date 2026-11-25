@@ -406,4 +406,50 @@ describe('Global Wind-Flow API Route & Service Integrity (/api/environment/wind)
     expect(staleRes.isStale).toBe(true);
     expect(staleRes.cityWind?.speedKmh).toBe(14);
   });
+
+  it('Fix 2 regression: aligns IST half-hour UTC instants (:30Z) to nearest upstream hourly frame cleanly while rejecting out-of-window timestamps', async () => {
+    const payload = buildBatchOpenMeteoPayload(28.6139, 77.209, {
+      dateStr: '2026-11-25',
+      activeSpeedAtHour: { 3: 11, 4: 17 },
+      activeDirAtHour: { 3: 290, 4: 310 },
+    });
+
+    // India IST 09:00 (+05:30) = 2026-11-25T03:30:00.000Z (exact 30-min tie between 03:00Z and 04:00Z -> aligns forward to 04:00Z)
+    const istHalfHour = await fetchWindForecast({
+      latitude: 28.6139,
+      longitude: 77.209,
+      hour: 3,
+      targetValidTimeUtc: '2026-11-25T03:30:00.000Z',
+      fetchImpl: vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => payload,
+      }) as any,
+    });
+
+    expect(istHalfHour.status).toBe('available');
+    expect(istHalfHour.isAvailable).toBe(true);
+    expect(istHalfHour.validTimeUtc).toBe('2026-11-25T04:00:00.000Z');
+    expect(istHalfHour.cityWind?.speedKmh).toBe(17);
+    expect(istHalfHour.uncertaintyDisclosure).toContain('Aligned requested UTC instant');
+
+    clearWindCache();
+
+    // Far out-of-window date (> 60 minutes outside upstream time series) -> still unavailable honestly
+    const outOfWindow = await fetchWindForecast({
+      latitude: 28.6139,
+      longitude: 77.209,
+      hour: 3,
+      targetValidTimeUtc: '2026-12-10T03:30:00.000Z',
+      fetchImpl: vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => payload,
+      }) as any,
+    });
+
+    expect(outOfWindow.status).toBe('invalid_upstream_response');
+    expect(outOfWindow.isAvailable).toBe(false);
+    expect(outOfWindow.cityWind).toBeNull();
+  });
 });

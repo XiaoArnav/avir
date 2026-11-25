@@ -247,9 +247,9 @@ describe('Phase 6: NASA GIBS Satellite Imagery & Comparison Service', () => {
       referenceNow: refNow,
       fetchImpl: fetchMock as any,
     });
-    // Verifies request targets global domains cleanly (`all/all.xml`) since BBOX has no effect in GIBS
+    // Verifies request targets GIBS OGC WMTS KVP DescribeDomains endpoint cleanly
     expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringContaining('/default/250m/all/all.xml'),
+      expect.stringContaining('wmts.cgi?SERVICE=WMTS&REQUEST=DescribeDomains&TileMatrixSet=250m&Layer=VIIRS_NOAA21_CorrectedReflectance_TrueColor'),
       expect.anything()
     );
     expect(globalListed.availability).toBe('global_date_listed');
@@ -345,5 +345,43 @@ describe('Phase 6: NASA GIBS Satellite Imagery & Comparison Service', () => {
     expect(comparison.disclaimer).toBe(SATELLITE_IMAGERY_DISCLAIMER);
     expect(comparison.disclaimer).toContain('PM2.5, PM10, AQI');
     expect(comparison.disclaimer).toContain('does not independently prove pollution trends');
+  });
+
+  it('Fix 4 regression: probes NASA WVS Data-Present and Acquisition-Time headers for real regional swath verification', async () => {
+    const { probeWvsRegionalCoverage } = await import('@/services/environment/satellite-imagery-service');
+    const refNow = new Date('2026-11-25T05:00:00Z');
+    const bbox = getBoundingBoxForCoordinates(28.6139, 77.209, 50);
+
+    const presentRes = await probeWvsRegionalCoverage({
+      product: 'VIIRS',
+      date: '2026-11-24',
+      bbox,
+      referenceNow: refNow,
+      fetchImpl: vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Headers({
+          'Data-Present': 'true',
+          'Acquisition-Time': '2026-11-24',
+        }),
+      }) as any,
+    });
+    expect(presentRes.availability).toBe('verified_regional');
+    expect(presentRes.regionalCoverageVerified).toBe(true);
+    expect(presentRes.verifiedObservationDate).toBe('2026-11-24');
+
+    const emptyRes = await probeWvsRegionalCoverage({
+      product: 'VIIRS',
+      date: '2026-11-25',
+      bbox,
+      referenceNow: refNow,
+      fetchImpl: vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'Data-Present': 'false' }),
+      }) as any,
+    });
+    expect(emptyRes.availability).toBe('unavailable');
+    expect(emptyRes.verifiedObservationDate).toBeNull();
   });
 });

@@ -435,6 +435,23 @@ test.describe('Avir Flagship Earth Command Center & Planetary Telemetry E2E', ()
       });
     });
 
+    await page.route('**/*wvs.earthdata.nasa.gov/**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'image/png',
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Expose-Headers': 'Content-Length, Data-Present, Acquisition-Time',
+          'Data-Present': 'true',
+          'Acquisition-Time': '2026-11-24',
+        },
+        body: Buffer.from(
+          'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+          'base64'
+        ),
+      });
+    });
+
     // 1. Default CesiumJS loads; open Layers popover and verify honest OFF states, enabled Terrain, and disabled Three.js-only Wind
     await expect(page.locator('.cesium-widget')).toBeVisible({ timeout: 15000 });
     const layersButton = page.getByRole('button', { name: 'Environmental Intelligence Layers' });
