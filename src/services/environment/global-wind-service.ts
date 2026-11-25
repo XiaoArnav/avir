@@ -237,19 +237,47 @@ export function cycleRunMs(cycle: { date: string; hour: number }): number {
   );
 }
 
+export function cycleAtOrBefore(timestampMs: number): { date: string; hour: number } {
+  const d = new Date(timestampMs);
+  return {
+    date: d.toISOString().slice(0, 10).replaceAll('-', ''),
+    hour: Math.floor(d.getUTCHours() / 6) * 6,
+  };
+}
+
+/** Maximum half-cadence valid-time offset allowed when snapping to a model forecast step. */
+export function maxWindCadenceToleranceHours(
+  model: GlobalWindModelId,
+  hoursElapsed: number
+): number {
+  if (model === 'ifs') {
+    return hoursElapsed <= 144 ? 1.5 : 3;
+  }
+  return hoursElapsed <= 120 ? 0.5 : 1.5;
+}
+
 /** GFS 0.25° is hourly through f120, then 3-hourly through f384. */
 export function nearestGfsStep(hoursElapsed: number): number {
-  const val = Math.max(0, Number.isFinite(hoursElapsed) ? hoursElapsed : 0);
-  const step = val <= 120 ? Math.round(val) : Math.round(val / 3) * 3;
-  return Math.max(0, Math.min(384, step));
+  if (!Number.isFinite(hoursElapsed) || hoursElapsed < 0) {
+    throw new RangeError(
+      `Negative or invalid GFS forecast lead time (${hoursElapsed}h) cannot be clamped to f000.`
+    );
+  }
+  const step = hoursElapsed <= 120 ? Math.round(hoursElapsed) : Math.round(hoursElapsed / 3) * 3;
+  return Math.min(384, step);
 }
 
 /** IFS 0.25° oper is 3-hourly through f144, then 6-hourly through f360 on 00/12z. */
 export function nearestIfsStep(hoursElapsed: number, cycleHour: number): number {
+  if (!Number.isFinite(hoursElapsed) || hoursElapsed < 0) {
+    throw new RangeError(
+      `Negative or invalid IFS forecast lead time (${hoursElapsed}h) cannot be clamped to f000.`
+    );
+  }
   const maxStep = cycleHour === 6 || cycleHour === 18 ? 144 : 360;
-  const val = Math.max(0, Number.isFinite(hoursElapsed) ? hoursElapsed : 0);
-  const step = val <= 144 ? Math.round(val / 3) * 3 : Math.round(val / 6) * 6;
-  return Math.max(0, Math.min(maxStep, step));
+  const step =
+    hoursElapsed <= 144 ? Math.round(hoursElapsed / 3) * 3 : Math.round(hoursElapsed / 6) * 6;
+  return Math.min(maxStep, step);
 }
 
 export function gfsObjectUrl(cycle: GlobalWindCycleInfo): string {
@@ -636,7 +664,7 @@ function resolveGlobalFreshness(params: {
   if (validMs - nowMs > 30 * 60_000) {
     return { freshness: 'forecast', ageMinutes: Math.abs(diffMinutes) };
   }
-  if (nowMs - validMs > 180 * 60_000) {
+  if (nowMs - validMs > 90 * 60_000) {
     return { freshness: 'historical', ageMinutes: Math.abs(diffMinutes) };
   }
   return { freshness: 'current', ageMinutes: Math.max(0, Math.abs(diffMinutes)) };
@@ -890,14 +918,14 @@ export function validateForecastTargetTime(params: {
   maxValidTimeUtc: string;
 } {
   const { model, targetValidTimeUtc, nowMs } = params;
-  const primaryCycle =
+  const latestPublishedCycle =
     model === 'ifs' ? selectLatestIfsCycle(nowMs) : selectLatestGfsCycle(nowMs);
-  const fallbackCycle = stepBackSynopticCycle(primaryCycle, 6);
-  const baseCandidates = [primaryCycle, fallbackCycle];
+  const latestFallbackCycle = stepBackSynopticCycle(latestPublishedCycle, 6);
+  const latestBaseCandidates = [latestPublishedCycle, latestFallbackCycle];
 
   const minMs = nowMs - GLOBAL_WIND_PAST_HORIZON_MS;
   const maxMs = Math.max(
-    ...baseCandidates.map(
+    ...latestBaseCandidates.map(
       (c) => cycleRunMs(c) + maxModelForecastHours(model, c.hour) * 3600_000
     )
   );
@@ -909,8 +937,8 @@ export function validateForecastTargetTime(params: {
       ok: true,
       targetMs: nowMs,
       hasExplicitTarget: false,
-      primaryCycle,
-      candidates: baseCandidates,
+      primaryCycle: latestPublishedCycle,
+      candidates: latestBaseCandidates,
       minValidTimeUtc,
       maxValidTimeUtc,
     };
@@ -938,16 +966,39 @@ export function validateForecastTargetTime(params: {
     };
   }
 
-  const coveredCandidates = baseCandidates.filter(
-    (c) => parsedMs <= cycleRunMs(c) + maxModelForecastHours(model, c.hour) * 3600_000
-  );
+  // Only cycles initialized AT OR BEFORE the requested valid time can supply non-negative lead steps.
+  const latestPublishedMs = cycleRunMs(latestPublishedCycle);
+  const rawPool =
+    parsedMs < latestPublishedMs
+      ? (() => {
+          const histPrimary = cycleAtOrBefore(parsedMs);
+          return [histPrimary, stepBackSynopticCycle(histPrimary, 6)];
+        })()
+      : latestBaseCandidates;
+
+  const eligibleCandidates = rawPool.filter((c) => {
+    const runMs = cycleRunMs(c);
+    return (
+      runMs <= parsedMs &&
+      parsedMs <= runMs + maxModelForecastHours(model, c.hour) * 3600_000
+    );
+  });
+
+  if (eligibleCandidates.length === 0) {
+    return {
+      ok: false,
+      reason: `No ${model.toUpperCase()} synoptic initialization cycle covers requested validTimeUtc (${new Date(parsedMs).toISOString()}).`,
+      minValidTimeUtc,
+      maxValidTimeUtc,
+    };
+  }
 
   return {
     ok: true,
     targetMs: parsedMs,
     hasExplicitTarget: true,
-    primaryCycle,
-    candidates: coveredCandidates.length > 0 ? coveredCandidates : [fallbackCycle],
+    primaryCycle: eligibleCandidates[0],
+    candidates: eligibleCandidates,
     minValidTimeUtc,
     maxValidTimeUtc,
   };
@@ -1258,6 +1309,9 @@ export async function fetchGlobalWindSnapshot(params: {
           if (newEntry.cancelledBySubscribers) break;
           const runMs = cycleRunMs(baseCycle);
           const elapsedHours = (targetMs - runMs) / 3600_000;
+          if (!Number.isFinite(elapsedHours) || elapsedHours < 0) {
+            continue;
+          }
           const forecastHour = resolveModelStep(model, elapsedHours, baseCycle.hour);
           const cycle: GlobalWindCycleInfo = { ...baseCycle, forecastHour };
           try {
@@ -1276,6 +1330,27 @@ export async function fetchGlobalWindSnapshot(params: {
                 status: 'temporarily_unavailable',
                 reason: 'Global wind request cancelled by caller.',
               });
+            }
+            const decodedValidMs = snapshot.manifest.validTimeUtc
+              ? Date.parse(snapshot.manifest.validTimeUtc)
+              : Number.NaN;
+            if (Number.isNaN(decodedValidMs)) {
+              throw new Error(`${model.toUpperCase()} forecast returned invalid validTimeUtc`);
+            }
+            if (hasExplicitTarget) {
+              const expectedValidMs = runMs + forecastHour * 3600_000;
+              if (Math.abs(decodedValidMs - expectedValidMs) > 60_000) {
+                throw new Error(
+                  `${model.toUpperCase()} forecast validTimeUtc mismatch (${snapshot.manifest.validTimeUtc ?? 'missing'} !== ${new Date(expectedValidMs).toISOString()})`
+                );
+              }
+              const maxToleranceMs =
+                maxWindCadenceToleranceHours(model, elapsedHours) * 3600_000 + 60_000;
+              if (Math.abs(decodedValidMs - targetMs) > maxToleranceMs) {
+                throw new Error(
+                  `Returned ${model.toUpperCase()} validTimeUtc (${snapshot.manifest.validTimeUtc}) exceeds cadence tolerance for requested ${new Date(targetMs).toISOString()}`
+                );
+              }
             }
             const fetchedAtMs = now();
             const canonicalKey = canonicalCycleKey(model, fetchOverlay, cycle);
@@ -1337,6 +1412,9 @@ export async function fetchGlobalWindSnapshot(params: {
             },
           };
         }
+        const defaultReason = hasExplicitTarget
+          ? `Unable to retrieve ${model.toUpperCase()} global wind forecast valid near ${new Date(targetMs).toISOString()} from eligible initialization cycles.`
+          : `Unable to retrieve ${model.toUpperCase()} global wind forecast GRIB2 field.`;
         return buildUnavailableGlobalSnapshot({
           model,
           overlay: fetchOverlay,
@@ -1344,7 +1422,7 @@ export async function fetchGlobalWindSnapshot(params: {
           reason:
             err instanceof Error && !err.message.startsWith('HTTP_404')
               ? err.message
-              : `Unable to retrieve ${model.toUpperCase()} global wind forecast GRIB2 field.`,
+              : defaultReason,
         });
       } finally {
         clearTimeout(timer);

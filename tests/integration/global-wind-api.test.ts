@@ -1274,3 +1274,343 @@ describe('PR #42 Blocker 2: Bounded Forecast Caches & Horizon Validation', () =>
     expect(expired.manifest.freshness).toBe('unavailable');
   });
 });
+
+function encodeDistinctWindPayloadU(dateStr: string, initHour: number, stepHour: number): number {
+  const day = Number(dateStr.slice(6, 8));
+  // Unique positive wind m/s encoding day, cycle hour, and forecast lead
+  return Number((day + initHour / 100 + stepHour / 10000).toFixed(4));
+}
+
+function createHistoricalCycleAwareFetch(options?: {
+  mode?: 'gfs' | 'ifs';
+  unavailableCycles?: Set<string>;
+}) {
+  const mode = options?.mode ?? 'gfs';
+  const requests: Array<{ date: string; hour: number; step: number }> = [];
+
+  const mock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+
+    if (mode === 'gfs') {
+      const fMatch = url.match(/\.f(\d{3})(?:\.idx)?$/);
+      const stepHour = fMatch ? Number(fMatch[1]) : 0;
+      const cycleMatch = url.match(/\/gfs\.(\d{8})\/(\d{2})\//);
+      const dateStr = cycleMatch ? cycleMatch[1] : '20261125';
+      const hourNum = cycleMatch ? Number(cycleMatch[2]) : 0;
+      const cycleTag = `${dateStr}-${String(hourNum).padStart(2, '0')}`;
+
+      if (options?.unavailableCycles?.has(cycleTag)) {
+        if (url.endsWith('.idx')) {
+          requests.push({ date: dateStr, hour: hourNum, step: stepHour });
+        }
+        return new Response('', { status: 404 });
+      }
+
+      const distinctU = encodeDistinctWindPayloadU(dateStr, hourNum, stepHour);
+      const uBuf = buildSyntheticGrib2Message({
+        template: 0,
+        initYear: Number(dateStr.slice(0, 4)),
+        initMonth: Number(dateStr.slice(4, 6)),
+        initDay: Number(dateStr.slice(6, 8)),
+        initHour: hourNum,
+        forecastHours: stepHour,
+        values: Array(8).fill(distinctU),
+      });
+      const vBuf = buildSyntheticGrib2Message({
+        template: 0,
+        initYear: Number(dateStr.slice(0, 4)),
+        initMonth: Number(dateStr.slice(4, 6)),
+        initDay: Number(dateStr.slice(6, 8)),
+        initHour: hourNum,
+        forecastHours: stepHour,
+        values: Array(8).fill(-3),
+      });
+
+      if (url.endsWith('.idx')) {
+        requests.push({ date: dateStr, hour: hourNum, step: stepHour });
+        const idxText = [
+          `1:0:d=${dateStr}00:UGRD:10 m above ground:${stepHour} hour fcst:`,
+          `2:${uBuf.byteLength}:d=${dateStr}00:VGRD:10 m above ground:${stepHour} hour fcst:`,
+          `3:${uBuf.byteLength + vBuf.byteLength}:d=${dateStr}00:EOF:surface:${stepHour} hour fcst:`,
+        ].join('\n');
+        return new Response(idxText, { status: 200 });
+      }
+
+      const rangeHeader = (init?.headers as Record<string, string>)?.Range;
+      if (rangeHeader === `bytes=0-${uBuf.byteLength - 1}`) {
+        return new Response(Buffer.from(uBuf), { status: 206 });
+      }
+      return new Response(Buffer.from(vBuf), { status: 206 });
+    }
+
+    // IFS cycle-aware mock
+    const fMatch = url.match(/-(\d+)h-oper-fc\.(index|grib2)$/);
+    const stepHour = fMatch ? Number(fMatch[1]) : 0;
+    const cycleMatch = url.match(/\/(\d{8})\/(\d{2})z\//);
+    const dateStr = cycleMatch ? cycleMatch[1] : '20261125';
+    const hourNum = cycleMatch ? Number(cycleMatch[2]) : 0;
+    const cycleTag = `${dateStr}-${String(hourNum).padStart(2, '0')}`;
+
+    if (options?.unavailableCycles?.has(cycleTag)) {
+      if (url.endsWith('.index')) {
+        requests.push({ date: dateStr, hour: hourNum, step: stepHour });
+      }
+      return new Response('', { status: 404 });
+    }
+
+    const distinctU = encodeDistinctWindPayloadU(dateStr, hourNum, stepHour);
+    const uBuf = buildSyntheticGrib2Message({
+      template: 0,
+      lo1Deg: 180,
+      initYear: Number(dateStr.slice(0, 4)),
+      initMonth: Number(dateStr.slice(4, 6)),
+      initDay: Number(dateStr.slice(6, 8)),
+      initHour: hourNum,
+      forecastHours: stepHour,
+      values: Array(8).fill(distinctU),
+    });
+    const vBuf = buildSyntheticGrib2Message({
+      template: 0,
+      lo1Deg: 180,
+      initYear: Number(dateStr.slice(0, 4)),
+      initMonth: Number(dateStr.slice(4, 6)),
+      initDay: Number(dateStr.slice(6, 8)),
+      initHour: hourNum,
+      forecastHours: stepHour,
+      values: Array(8).fill(-2),
+    });
+
+    if (url.endsWith('.index')) {
+      requests.push({ date: dateStr, hour: hourNum, step: stepHour });
+      const body = [
+        JSON.stringify({ param: '10u', _offset: 0, _length: uBuf.byteLength }),
+        JSON.stringify({ param: '10v', _offset: uBuf.byteLength, _length: vBuf.byteLength }),
+      ].join('\n');
+      return new Response(body, { status: 200 });
+    }
+
+    const rangeHeader = (init?.headers as Record<string, string>)?.Range;
+    if (rangeHeader === `bytes=0-${uBuf.byteLength - 1}`) {
+      return new Response(Buffer.from(uBuf), { status: 206 });
+    }
+    return new Response(Buffer.from(vBuf), { status: 206 });
+  });
+
+  return { mock, requests };
+}
+
+describe('PR #42 Final Fix: Historical Wind Forecast Cycle Accuracy', () => {
+  beforeEach(() => {
+    clearGlobalWindCache();
+    clearGlobalWindClientCache();
+    vi.restoreAllMocks();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('Test 1: previously failing historical request (2026-11-24T17:00Z at now=2026-11-25T11:00Z) selects historical 2026-11-24T12:00Z f005 instead of 2026-11-25T06:00Z f000', async () => {
+    const fixedNow = Date.UTC(2026, 10, 25, 11, 0, 0);
+    const harness = createHistoricalCycleAwareFetch({ mode: 'gfs' });
+
+    const snap = await fetchGlobalWindSnapshot({
+      model: 'gfs',
+      targetValidTimeUtc: '2026-11-24T17:00:00Z',
+      now: () => fixedNow,
+      fetchImpl: harness.mock as any,
+    });
+
+    expect(snap.manifest.isAvailable).toBe(true);
+    expect(snap.manifest.initTimeUtc).toBe('2026-11-24T12:00:00.000Z');
+    expect(snap.manifest.forecastHour).toBe(5);
+    expect(snap.manifest.validTimeUtc).toBe('2026-11-24T17:00:00.000Z');
+    expect(snap.manifest.freshness).toBe('historical');
+    expect(snap.manifest.model).toBe('gfs');
+    expect(snap.manifest.cycle).toEqual({ date: '20261124', hour: 12, forecastHour: 5 });
+    expect(snap.u[0]).toBeCloseTo(encodeDistinctWindPayloadU('20261124', 12, 5), 2);
+    // Negative forecast lead time must fail closed rather than clamping silently to f000
+    expect(() => nearestGfsStep(-1)).toThrow(RangeError);
+    expect(() => nearestIfsStep(-3, 0)).toThrow(RangeError);
+  });
+
+  it('Test 2: same-day historical request (2026-11-25T03:00Z at now=2026-11-25T11:00Z) selects 00:00Z f003 instead of newer 06:00Z f000', async () => {
+    const fixedNow = Date.UTC(2026, 10, 25, 11, 0, 0);
+    const harness = createHistoricalCycleAwareFetch({ mode: 'gfs' });
+
+    const snap = await fetchGlobalWindSnapshot({
+      model: 'gfs',
+      targetValidTimeUtc: '2026-11-25T03:00:00Z',
+      now: () => fixedNow,
+      fetchImpl: harness.mock as any,
+    });
+
+    expect(snap.manifest.isAvailable).toBe(true);
+    expect(snap.manifest.initTimeUtc).toBe('2026-11-25T00:00:00.000Z');
+    expect(snap.manifest.forecastHour).toBe(3);
+    expect(snap.manifest.validTimeUtc).toBe('2026-11-25T03:00:00.000Z');
+    expect(snap.manifest.freshness).toBe('historical');
+    expect(snap.u[0]).toBeCloseTo(encodeDistinctWindPayloadU('20261125', 0, 3), 2);
+  });
+
+  it('Test 3: UTC midnight boundary historical request uses strict UTC calendar date, init hour, and lead time', async () => {
+    const fixedNow = Date.UTC(2026, 10, 25, 11, 0, 0);
+    const harness = createHistoricalCycleAwareFetch({ mode: 'gfs' });
+
+    // Request just before UTC midnight: 2026-11-24T23:00Z -> cycle 2026-11-24 18z + f005
+    const preMidnight = await fetchGlobalWindSnapshot({
+      model: 'gfs',
+      targetValidTimeUtc: '2026-11-24T23:00:00+00:00',
+      now: () => fixedNow,
+      fetchImpl: harness.mock as any,
+    });
+
+    expect(preMidnight.manifest.initTimeUtc).toBe('2026-11-24T18:00:00.000Z');
+    expect(preMidnight.manifest.forecastHour).toBe(5);
+    expect(preMidnight.manifest.validTimeUtc).toBe('2026-11-24T23:00:00.000Z');
+    expect(preMidnight.manifest.cycle).toEqual({ date: '20261124', hour: 18, forecastHour: 5 });
+
+    // Even with a +05:30 IST offset representing 2026-11-25T04:30+05:30 (= 2026-11-24T23:00:00Z)
+    const istEquiv = await fetchGlobalWindSnapshot({
+      model: 'gfs',
+      targetValidTimeUtc: '2026-11-25T04:30:00+05:30',
+      now: () => fixedNow,
+      fetchImpl: harness.mock as any,
+    });
+    expect(istEquiv.manifest.initTimeUtc).toBe('2026-11-24T18:00:00.000Z');
+    expect(istEquiv.manifest.validTimeUtc).toBe('2026-11-24T23:00:00.000Z');
+  });
+
+  it('Test 4: current forecast request without explicit timestamp preserves latest cycle behavior', async () => {
+    const fixedNow = Date.UTC(2026, 10, 25, 11, 0, 0);
+    const harness = createHistoricalCycleAwareFetch({ mode: 'gfs' });
+
+    const current = await fetchGlobalWindSnapshot({
+      model: 'gfs',
+      now: () => fixedNow,
+      fetchImpl: harness.mock as any,
+    });
+
+    expect(current.manifest.isAvailable).toBe(true);
+    expect(current.manifest.initTimeUtc).toBe('2026-11-25T06:00:00.000Z');
+    expect(current.manifest.forecastHour).toBe(5);
+    expect(current.manifest.validTimeUtc).toBe('2026-11-25T11:00:00.000Z');
+    expect(current.manifest.freshness).toBe('current');
+    expect(current.u[0]).toBeCloseTo(encodeDistinctWindPayloadU('20261125', 6, 5), 2);
+  });
+
+  it('Test 5: supported future forecast selects latest published cycle and exact lead step', async () => {
+    const fixedNow = Date.UTC(2026, 10, 25, 11, 0, 0);
+    const harness = createHistoricalCycleAwareFetch({ mode: 'gfs' });
+
+    const future = await fetchGlobalWindSnapshot({
+      model: 'gfs',
+      targetValidTimeUtc: '2026-11-26T18:00:00Z', // 36h past 2026-11-25T06:00Z
+      now: () => fixedNow,
+      fetchImpl: harness.mock as any,
+    });
+
+    expect(future.manifest.isAvailable).toBe(true);
+    expect(future.manifest.initTimeUtc).toBe('2026-11-25T06:00:00.000Z');
+    expect(future.manifest.forecastHour).toBe(36);
+    expect(future.manifest.validTimeUtc).toBe('2026-11-26T18:00:00.000Z');
+    expect(future.manifest.freshness).toBe('forecast');
+    expect(future.u[0]).toBeCloseTo(encodeDistinctWindPayloadU('20261125', 6, 36), 2);
+  });
+
+  it('Test 6: ECMWF IFS historical requests follow 3-hourly cadence and stay within resolution tolerance', async () => {
+    const fixedNow = Date.UTC(2026, 10, 25, 11, 0, 0);
+    const harness = createHistoricalCycleAwareFetch({ mode: 'ifs' });
+
+    // Target 2026-11-24T17:00Z -> cycle 2026-11-24T12:00Z, nearest 3h IFS step is f006 (18:00Z, diff 1.0h <= 1.5h)
+    const ifsHist = await fetchGlobalWindSnapshot({
+      model: 'ifs',
+      targetValidTimeUtc: '2026-11-24T17:00:00Z',
+      now: () => fixedNow,
+      fetchImpl: harness.mock as any,
+    });
+
+    expect(ifsHist.manifest.isAvailable).toBe(true);
+    expect(ifsHist.manifest.model).toBe('ifs');
+    expect(ifsHist.manifest.initTimeUtc).toBe('2026-11-24T12:00:00.000Z');
+    expect(ifsHist.manifest.forecastHour).toBe(6);
+    expect(ifsHist.manifest.validTimeUtc).toBe('2026-11-24T18:00:00.000Z');
+    expect(ifsHist.manifest.freshness).toBe('historical');
+    expect(
+      Math.abs(Date.parse(ifsHist.manifest.validTimeUtc!) - Date.parse('2026-11-24T17:00:00Z'))
+    ).toBeLessThanOrEqual(1.5 * 3600_000);
+    expect(ifsHist.u[0]).toBeCloseTo(encodeDistinctWindPayloadU('20261124', 12, 6), 2);
+  });
+
+  it('Test 7: missing historical cycles report unavailability honestly without falling back to newer cycles', async () => {
+    const fixedNow = Date.UTC(2026, 10, 25, 11, 0, 0);
+    // Both eligible historical cycles (20261124-12 and 20261124-06) 404, while newer 20261125-06 IS available!
+    const harness = createHistoricalCycleAwareFetch({
+      mode: 'gfs',
+      unavailableCycles: new Set(['20261124-12', '20261124-06']),
+    });
+
+    // Ensure newer forecast does NOT get queried or substituted for historical request
+    const missingHist = await fetchGlobalWindSnapshot({
+      model: 'gfs',
+      targetValidTimeUtc: '2026-11-24T17:00:00Z',
+      now: () => fixedNow,
+      fetchImpl: harness.mock as any,
+    });
+
+    expect(missingHist.manifest.isAvailable).toBe(false);
+    expect(missingHist.manifest.freshness).toBe('unavailable');
+    expect(missingHist.manifest.validTimeUtc).toBeNull();
+    expect(missingHist.manifest.unavailableReason).toContain('2026-11-24T17:00:00.000Z');
+    expect(harness.requests.some((r) => r.date === '20261125')).toBe(false);
+  });
+
+  it('Test 8: historical request uses distinct canonical cache key and never reuses newer cached forecasts', async () => {
+    const fixedNow = Date.UTC(2026, 10, 25, 11, 0, 0);
+    const harness = createHistoricalCycleAwareFetch({ mode: 'gfs' });
+
+    // Step 1: Warm cache with newer forecasts (current 11:00Z & 06:00Z f000)
+    const latestSnap = await fetchGlobalWindSnapshot({
+      model: 'gfs',
+      now: () => fixedNow,
+      fetchImpl: harness.mock as any,
+    });
+    const init06Snap = await fetchGlobalWindSnapshot({
+      model: 'gfs',
+      targetValidTimeUtc: '2026-11-25T06:00:00Z',
+      now: () => fixedNow,
+      fetchImpl: harness.mock as any,
+    });
+    expect(latestSnap.manifest.validTimeUtc).toBe('2026-11-25T11:00:00.000Z');
+    expect(init06Snap.manifest.validTimeUtc).toBe('2026-11-25T06:00:00.000Z');
+
+    // Step 2: Request historical 2026-11-24T17:00Z -> MUST miss newer cached entries and fetch 2026-11-24 12z f005
+    const callsBeforeHist = harness.requests.length;
+    const histSnap = await fetchGlobalWindSnapshot({
+      model: 'gfs',
+      targetValidTimeUtc: '2026-11-24T17:00:00Z',
+      now: () => fixedNow + 1000,
+      fetchImpl: harness.mock as any,
+    });
+
+    expect(harness.requests.length).toBeGreaterThan(callsBeforeHist);
+    expect(histSnap.manifest.isCached).toBe(false);
+    expect(histSnap.manifest.initTimeUtc).toBe('2026-11-24T12:00:00.000Z');
+    expect(histSnap.manifest.forecastHour).toBe(5);
+    expect(histSnap.manifest.validTimeUtc).toBe('2026-11-24T17:00:00.000Z');
+
+    // Step 3: Re-request same historical time (or nearby 17:15Z) -> reuses the cached historical snapshot!
+    const callsAfterHist = harness.requests.length;
+    const cachedHistSnap = await fetchGlobalWindSnapshot({
+      model: 'gfs',
+      targetValidTimeUtc: '2026-11-24T17:15:00Z',
+      now: () => fixedNow + 2000,
+      fetchImpl: harness.mock as any,
+    });
+    expect(harness.requests.length).toBe(callsAfterHist);
+    expect(cachedHistSnap.manifest.isCached).toBe(true);
+    expect(cachedHistSnap.manifest.validTimeUtc).toBe('2026-11-24T17:00:00.000Z');
+    expect(getGlobalWindCacheStats().snapshotCount).toBe(3);
+  });
+});
