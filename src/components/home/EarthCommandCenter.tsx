@@ -406,6 +406,8 @@ export function EarthCommandCenter({
             points={points}
             selectedPointId={selectedGlobePointId || activeGlobePoint?.id}
             activeCityName={currentCity.name}
+            activeCityLatitude={currentCity.latitude}
+            activeCityLongitude={currentCity.longitude}
             onSelectPoint={handleGlobeSelectPoint}
             onClearInspectedPoint={() => setSelectedGlobePointId(null)}
             onSetActiveCity={handleGlobeSetActiveCity}

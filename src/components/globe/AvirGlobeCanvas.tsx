@@ -21,6 +21,10 @@ import {
   calculatePinchDistance,
   interpolateCameraDistance,
 } from './three-camera-controller';
+import { ThreeWindLayer } from './three-wind-layer';
+import { ThreeFireLayer } from './three-fire-layer';
+import type { WindVectorPoint } from '@/domain/wind-types';
+import type { FirmsHotspot } from '@/domain/firms-types';
 
 export interface AvirGlobeCanvasProps {
   points: GeographicObservationPoint[];
@@ -32,6 +36,10 @@ export interface AvirGlobeCanvasProps {
   selectedHour?: number; // 0-23 diurnal hour
   validAtUtc?: string | null;
   themeMode?: 'dark' | 'light';
+  isWindEnabled?: boolean;
+  windVectors?: WindVectorPoint[];
+  isFiresEnabled?: boolean;
+  fireHotspots?: FirmsHotspot[];
   className?: string;
 }
 
@@ -45,6 +53,10 @@ export function AvirGlobeCanvas({
   selectedHour = 12,
   validAtUtc,
   themeMode = 'dark',
+  isWindEnabled = false,
+  windVectors = [],
+  isFiresEnabled = false,
+  fireHotspots = [],
   className = '',
 }: AvirGlobeCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -61,6 +73,18 @@ export function AvirGlobeCanvas({
   const activeCityNameRef = useRef(activeCityName);
   activeCityNameRef.current = activeCityName;
 
+  const isWindEnabledRef = useRef(isWindEnabled);
+  isWindEnabledRef.current = isWindEnabled;
+
+  const windVectorsRef = useRef(windVectors);
+  windVectorsRef.current = windVectors;
+
+  const isFiresEnabledRef = useRef(isFiresEnabled);
+  isFiresEnabledRef.current = isFiresEnabled;
+
+  const fireHotspotsRef = useRef(fireHotspots);
+  fireHotspotsRef.current = fireHotspots;
+
   // Three.js instances ref
   const instancesRef = useRef<{
     scene: THREE.Scene;
@@ -71,6 +95,8 @@ export function AvirGlobeCanvas({
     earthMat: THREE.MeshPhongMaterial;
     atmosMesh: THREE.Mesh;
     markersGroup: THREE.Group;
+    windLayer: ThreeWindLayer;
+    fireLayer: ThreeFireLayer;
     starfield: THREE.Points;
     sunLight: THREE.DirectionalLight;
     targetSunPos: THREE.Vector3;
@@ -204,9 +230,21 @@ export function AvirGlobeCanvas({
     fillLight.position.set(-180, -60, -100);
     scene.add(fillLight);
 
-    // 8. 3D Beacons & Markers Group
+    // 8. 3D Beacons & Markers Group + Environmental Visualization Layers
     const markersGroup = new THREE.Group();
     globeGroup.add(markersGroup);
+
+    const windLayer = new ThreeWindLayer(globeGroup, { radius: EARTH_RADIUS + 0.35 });
+    windLayer.setVisible(isWindEnabledRef.current);
+    if (isWindEnabledRef.current && windVectorsRef.current.length > 0) {
+      windLayer.setWindVectors(windVectorsRef.current);
+    }
+
+    const fireLayer = new ThreeFireLayer(globeGroup, { radius: EARTH_RADIUS + 0.25 });
+    fireLayer.setVisible(isFiresEnabledRef.current);
+    if (isFiresEnabledRef.current && fireHotspotsRef.current.length > 0) {
+      fireLayer.setHotspots(fireHotspotsRef.current);
+    }
 
     const targetSunPos = new THREE.Vector3(
       Math.sin(initialSunAngle) * 350,
@@ -223,6 +261,8 @@ export function AvirGlobeCanvas({
       earthMat,
       atmosMesh,
       markersGroup,
+      windLayer,
+      fireLayer,
       starfield,
       sunLight,
       targetSunPos,
@@ -349,7 +389,7 @@ export function AvirGlobeCanvas({
         child.visible = normal.dot(toCam) > 0.08;
       });
 
-      // Animate pulsing AQI beacon rings on surface
+      // Animate pulsing AQI beacon rings & active environmental layers on globe surface
       if (!prefersReducedMotion) {
         markersGroup.children.forEach((child) => {
           if (child.visible && child.userData?.isPulseRing) {
@@ -362,6 +402,12 @@ export function AvirGlobeCanvas({
             }
           }
         });
+        if (isWindEnabledRef.current) {
+          windLayer.update(deltaSeconds);
+        }
+      }
+      if (isFiresEnabledRef.current) {
+        fireLayer.update(camera.position, instances.elapsedTime);
       }
 
       renderer.render(scene, camera);
@@ -411,6 +457,8 @@ export function AvirGlobeCanvas({
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       if (observer) observer.disconnect();
       cancelAnimationFrame(instances.animFrameId);
+      windLayer.dispose();
+      fireLayer.dispose();
       earthGeo.dispose();
       earthMat.dispose();
       earthTex.dispose();
@@ -448,7 +496,33 @@ export function AvirGlobeCanvas({
     inst.targetSunPos.set(Math.sin(sunAngle) * 350, 90, Math.cos(sunAngle) * 350);
   }, [selectedHour, validAtUtc]);
 
-  // Dynamically swap NASA Satellite texture on Theme switch (Black Marble / Blue Marble)
+  // Synchronize Three.js Wind Flow particle streamlines with validated API vectors
+  useEffect(() => {
+    const inst = instancesRef.current;
+    if (!inst) return;
+    if (isWindEnabled && windVectors.length > 0) {
+      inst.windLayer.setVisible(true);
+      inst.windLayer.setWindVectors(windVectors);
+    } else {
+      inst.windLayer.setVisible(false);
+      inst.windLayer.setWindVectors([]);
+    }
+  }, [isWindEnabled, windVectors, webGLAvailable]);
+
+  // Synchronize Three.js NASA FIRMS active-fire thermal anomaly markers
+  useEffect(() => {
+    const inst = instancesRef.current;
+    if (!inst) return;
+    if (isFiresEnabled && fireHotspots.length > 0) {
+      inst.fireLayer.setVisible(true);
+      inst.fireLayer.setHotspots(fireHotspots);
+    } else {
+      inst.fireLayer.setVisible(false);
+      inst.fireLayer.clear();
+    }
+  }, [isFiresEnabled, fireHotspots, webGLAvailable]);
+
+  // Adjust scene styling and swap NASA Satellite texture on Theme switch (Black Marble / Blue Marble)
   useEffect(() => {
     const inst = instancesRef.current;
     if (!inst) return;

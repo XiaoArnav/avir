@@ -1,13 +1,15 @@
 'use client';
 
-import React, { useEffect, useRef, useState, useTransition } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import type { GeographicObservationPoint, AqiStandard } from '@/services/geo/geographic-observation-adapter';
+import type { FirmsHotspot } from '@/domain/firms-types';
 import {
   createCesiumTerrainController,
   type CesiumTerrainController,
 } from './cesium-terrain';
 
 export type ViewerLifecycle = 'idle' | 'initializing' | 'ready' | 'failed' | 'destroyed';
+export type CesiumTerrainLoadState = 'off' | 'loading' | 'active' | 'fallback';
 
 export interface CameraAction {
   type: 'zoomIn' | 'zoomOut' | 'reset';
@@ -28,6 +30,9 @@ export interface AvirCesiumGlobeProps {
   isAutoRotating?: boolean;
   cameraAction?: CameraAction | null;
   isTerrainEnabled?: boolean;
+  isFiresEnabled?: boolean;
+  fireHotspots?: FirmsHotspot[];
+  onTerrainStatusChange?: (status: CesiumTerrainLoadState) => void;
   onReady?: () => void;
   onFallbackToThree?: (reason: string) => void;
 }
@@ -45,6 +50,9 @@ export function AvirCesiumGlobe({
   isAutoRotating = true,
   cameraAction = null,
   isTerrainEnabled = false,
+  isFiresEnabled = false,
+  fireHotspots = [],
+  onTerrainStatusChange,
   onReady,
   onFallbackToThree,
 }: AvirCesiumGlobeProps) {
@@ -73,8 +81,12 @@ export function AvirCesiumGlobe({
   const pointsRef = useRef(points);
   pointsRef.current = points;
 
+  const onTerrainStatusChangeRef = useRef(onTerrainStatusChange);
+  onTerrainStatusChangeRef.current = onTerrainStatusChange;
+
   const isUserInteractingRef = useRef(false);
   const entitiesMapRef = useRef<Map<string, any>>(new Map());
+  const fireEntitiesMapRef = useRef<Map<string, any>>(new Map());
   const terrainControllerRef = useRef<CesiumTerrainController | null>(null);
 
   // Main Cesium Viewer Lifecycle Effect (Mount & StrictMode clean initialization)
@@ -275,6 +287,7 @@ export function AvirCesiumGlobe({
         viewerRef.current = null;
       }
       entitiesMapRef.current.clear();
+      fireEntitiesMapRef.current.clear();
     };
   }, []);
 
@@ -442,6 +455,59 @@ export function AvirCesiumGlobe({
     );
   }, [themeMode, lifecycle]);
 
+  // Synchronize NASA FIRMS thermal-anomaly entities cleanly on Cesium globe
+  useEffect(() => {
+    if (lifecycle !== 'ready' || !viewerRef.current) return;
+    const { viewer, Cesium } = viewerRef.current;
+    if (viewer.isDestroyed()) return;
+
+    const fireMap = fireEntitiesMapRef.current;
+    const validSpots =
+      isFiresEnabled && Array.isArray(fireHotspots)
+        ? fireHotspots
+            .filter(
+              (spot) =>
+                Boolean(spot) &&
+                Number.isFinite(spot.latitude) &&
+                spot.latitude >= -90 &&
+                spot.latitude <= 90 &&
+                Number.isFinite(spot.longitude) &&
+                spot.longitude >= -180 &&
+                spot.longitude <= 180
+            )
+            .slice(0, 500)
+        : [];
+
+    const activeIds = new Set(validSpots.map((s) => s.id));
+    for (const [id, entity] of fireMap.entries()) {
+      if (!activeIds.has(id)) {
+        viewer.entities.remove(entity);
+        fireMap.delete(id);
+      }
+    }
+
+    for (const spot of validSpots) {
+      if (fireMap.has(spot.id)) continue;
+      const hasFrp = typeof spot.frp === 'number' && Number.isFinite(spot.frp) && spot.frp >= 0;
+      const cssHex = !hasFrp ? '#fbbf24' : spot.frp! > 50 ? '#ef4444' : '#f97316';
+      const entity = viewer.entities.add({
+        id: `firms-${spot.id}`,
+        position: Cesium.Cartesian3.fromDegrees(spot.longitude, spot.latitude, 0),
+        point: {
+          pixelSize: hasFrp && spot.frp! > 50 ? 9 : 7,
+          color: Cesium.Color.fromCssColorString(cssHex),
+          outlineColor: Cesium.Color.fromCssColorString('#ffffff'),
+          outlineWidth: 1,
+          heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+        },
+        properties: {
+          firmsHotspot: spot,
+        },
+      });
+      fireMap.set(spot.id, entity);
+    }
+  }, [isFiresEnabled, fireHotspots, lifecycle]);
+
   // Dynamically load Re:Earth keyless 3D elevation terrain or fall back to ellipsoid
   useEffect(() => {
     if (lifecycle !== 'ready' || !viewerRef.current) return;
@@ -452,14 +518,39 @@ export function AvirCesiumGlobe({
       terrainControllerRef.current ??
       (terrainControllerRef.current = createCesiumTerrainController());
 
-    void controller.sync({
-      viewer,
-      Cesium,
-      enabled: isTerrainEnabled,
-      onAttributionChange: setTerrainAttribution,
-    });
+    let cancelled = false;
+    let observedActive = false;
+
+    if (isTerrainEnabled) {
+      onTerrainStatusChangeRef.current?.('loading');
+    } else {
+      onTerrainStatusChangeRef.current?.('off');
+    }
+
+    void controller
+      .sync({
+        viewer,
+        Cesium,
+        enabled: isTerrainEnabled,
+        onAttributionChange: (attr) => {
+          setTerrainAttribution(attr);
+          if (cancelled || !isTerrainEnabled) return;
+          if (attr !== null) {
+            observedActive = true;
+            onTerrainStatusChangeRef.current?.('active');
+          } else if (observedActive) {
+            onTerrainStatusChangeRef.current?.('fallback');
+          }
+        },
+      })
+      .then(() => {
+        if (!cancelled && isTerrainEnabled && !observedActive) {
+          onTerrainStatusChangeRef.current?.('fallback');
+        }
+      });
 
     return () => {
+      cancelled = true;
       controller.cancelPending();
     };
   }, [isTerrainEnabled, lifecycle]);
