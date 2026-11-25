@@ -1,9 +1,15 @@
 'use client';
 
-import React, { useEffect, useRef, useState, useTransition } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import type { GeographicObservationPoint, AqiStandard } from '@/services/geo/geographic-observation-adapter';
+import type { FirmsHotspot } from '@/domain/firms-types';
+import {
+  createCesiumTerrainController,
+  type CesiumTerrainController,
+} from './cesium-terrain';
 
 export type ViewerLifecycle = 'idle' | 'initializing' | 'ready' | 'failed' | 'destroyed';
+export type CesiumTerrainLoadState = 'off' | 'loading' | 'active' | 'fallback';
 
 export interface CameraAction {
   type: 'zoomIn' | 'zoomOut' | 'reset';
@@ -23,6 +29,10 @@ export interface AvirCesiumGlobeProps {
   // Dynamic controls & lifecycle signals
   isAutoRotating?: boolean;
   cameraAction?: CameraAction | null;
+  isTerrainEnabled?: boolean;
+  isFiresEnabled?: boolean;
+  fireHotspots?: FirmsHotspot[];
+  onTerrainStatusChange?: (status: CesiumTerrainLoadState) => void;
   onReady?: () => void;
   onFallbackToThree?: (reason: string) => void;
 }
@@ -39,12 +49,17 @@ export function AvirCesiumGlobe({
   className = '',
   isAutoRotating = true,
   cameraAction = null,
+  isTerrainEnabled = false,
+  isFiresEnabled = false,
+  fireHotspots = [],
+  onTerrainStatusChange,
   onReady,
   onFallbackToThree,
 }: AvirCesiumGlobeProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [lifecycle, setLifecycle] = useState<ViewerLifecycle>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [terrainAttribution, setTerrainAttribution] = useState<string | null>(null);
 
   // Mutable refs to prevent stale closures inside Cesium asynchronous callbacks and event listeners
   const viewerRef = useRef<{
@@ -66,8 +81,13 @@ export function AvirCesiumGlobe({
   const pointsRef = useRef(points);
   pointsRef.current = points;
 
+  const onTerrainStatusChangeRef = useRef(onTerrainStatusChange);
+  onTerrainStatusChangeRef.current = onTerrainStatusChange;
+
   const isUserInteractingRef = useRef(false);
   const entitiesMapRef = useRef<Map<string, any>>(new Map());
+  const fireEntitiesMapRef = useRef<Map<string, any>>(new Map());
+  const terrainControllerRef = useRef<CesiumTerrainController | null>(null);
 
   // Main Cesium Viewer Lifecycle Effect (Mount & StrictMode clean initialization)
   useEffect(() => {
@@ -122,7 +142,14 @@ export function AvirCesiumGlobe({
           baseLayer = new Cesium.ImageryLayer(osmProvider);
         }
 
-        // 6. Initialize streamlined Cesium Viewer tailored for Avir aerospace UI
+        // 6. Remove unnecessary Cesium ion branding since no Cesium ion services are used at runtime
+        try {
+          (Cesium.CreditDisplay as any).cesiumCredit = undefined;
+        } catch {
+          // Fallback handled by scoped styling
+        }
+
+        // 7. Initialize streamlined Cesium Viewer tailored for Avir aerospace UI
         const viewer = new Cesium.Viewer(containerRef.current, {
           animation: false,
           baseLayerPicker: false,
@@ -230,6 +257,7 @@ export function AvirCesiumGlobe({
         };
 
         if (isMounted) {
+          terrainControllerRef.current = createCesiumTerrainController();
           setLifecycle('ready');
           onReady?.();
         }
@@ -248,6 +276,8 @@ export function AvirCesiumGlobe({
 
     return () => {
       isMounted = false;
+      terrainControllerRef.current?.dispose();
+      terrainControllerRef.current = null;
       setLifecycle('destroyed');
       if (viewerRef.current) {
         const { viewer, handler, removeTickListener } = viewerRef.current;
@@ -257,6 +287,7 @@ export function AvirCesiumGlobe({
         viewerRef.current = null;
       }
       entitiesMapRef.current.clear();
+      fireEntitiesMapRef.current.clear();
     };
   }, []);
 
@@ -424,6 +455,106 @@ export function AvirCesiumGlobe({
     );
   }, [themeMode, lifecycle]);
 
+  // Synchronize NASA FIRMS thermal-anomaly entities cleanly on Cesium globe
+  useEffect(() => {
+    if (lifecycle !== 'ready' || !viewerRef.current) return;
+    const { viewer, Cesium } = viewerRef.current;
+    if (viewer.isDestroyed()) return;
+
+    const fireMap = fireEntitiesMapRef.current;
+    const validSpots =
+      isFiresEnabled && Array.isArray(fireHotspots)
+        ? fireHotspots
+            .filter(
+              (spot) =>
+                Boolean(spot) &&
+                Number.isFinite(spot.latitude) &&
+                spot.latitude >= -90 &&
+                spot.latitude <= 90 &&
+                Number.isFinite(spot.longitude) &&
+                spot.longitude >= -180 &&
+                spot.longitude <= 180
+            )
+            .slice(0, 500)
+        : [];
+
+    const activeIds = new Set(validSpots.map((s) => s.id));
+    for (const [id, entity] of fireMap.entries()) {
+      if (!activeIds.has(id)) {
+        viewer.entities.remove(entity);
+        fireMap.delete(id);
+      }
+    }
+
+    for (const spot of validSpots) {
+      if (fireMap.has(spot.id)) continue;
+      const hasFrp = typeof spot.frp === 'number' && Number.isFinite(spot.frp) && spot.frp >= 0;
+      const cssHex = !hasFrp ? '#fbbf24' : spot.frp! > 50 ? '#ef4444' : '#f97316';
+      const entity = viewer.entities.add({
+        id: `firms-${spot.id}`,
+        position: Cesium.Cartesian3.fromDegrees(spot.longitude, spot.latitude, 0),
+        point: {
+          pixelSize: hasFrp && spot.frp! > 50 ? 9 : 7,
+          color: Cesium.Color.fromCssColorString(cssHex),
+          outlineColor: Cesium.Color.fromCssColorString('#ffffff'),
+          outlineWidth: 1,
+          heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+        },
+        properties: {
+          firmsHotspot: spot,
+        },
+      });
+      fireMap.set(spot.id, entity);
+    }
+  }, [isFiresEnabled, fireHotspots, lifecycle]);
+
+  // Dynamically load Re:Earth keyless 3D elevation terrain or fall back to ellipsoid
+  useEffect(() => {
+    if (lifecycle !== 'ready' || !viewerRef.current) return;
+    const { viewer, Cesium } = viewerRef.current;
+    if (viewer.isDestroyed()) return;
+
+    const controller =
+      terrainControllerRef.current ??
+      (terrainControllerRef.current = createCesiumTerrainController());
+
+    let cancelled = false;
+    let observedActive = false;
+
+    if (isTerrainEnabled) {
+      onTerrainStatusChangeRef.current?.('loading');
+    } else {
+      onTerrainStatusChangeRef.current?.('off');
+    }
+
+    void controller
+      .sync({
+        viewer,
+        Cesium,
+        enabled: isTerrainEnabled,
+        onAttributionChange: (attr) => {
+          setTerrainAttribution(attr);
+          if (cancelled || !isTerrainEnabled) return;
+          if (attr !== null) {
+            observedActive = true;
+            onTerrainStatusChangeRef.current?.('active');
+          } else if (observedActive) {
+            onTerrainStatusChangeRef.current?.('fallback');
+          }
+        },
+      })
+      .then(() => {
+        if (!cancelled && isTerrainEnabled && !observedActive) {
+          onTerrainStatusChangeRef.current?.('fallback');
+        }
+      });
+
+    return () => {
+      cancelled = true;
+      controller.cancelPending();
+    };
+  }, [isTerrainEnabled, lifecycle]);
+
   if (lifecycle === 'failed') {
     return (
       <div className={`w-full h-full flex flex-col items-center justify-center bg-black/80 text-rose-300 p-6 ${className}`}>
@@ -444,10 +575,39 @@ export function AvirCesiumGlobe({
       )}
       <div ref={containerRef} className="w-full h-full" />
 
-      {/* Honest Provider Attribution Badge */}
-      <div className="absolute bottom-1 left-2 z-10 pointer-events-none text-[9px] text-slate-400/70 telemetry-mono">
-        Imagery: Tiles © Esri, Maxar, Earthstar Geographics | © OpenStreetMap | CesiumJS
-      </div>
+      {/* Scoped CSS: Remove unnecessary Cesium ion branding logo while retaining clean UI */}
+      <style jsx global>{`
+        .cesium-credit-logoContainer {
+          display: none !important;
+        }
+        .cesium-viewer-bottom {
+          display: none !important;
+        }
+      `}</style>
+
+      {/* Legally Required Satellite & Map Data Attribution Badge (Compact & Non-overlapping) */}
+      <aside
+        role="contentinfo"
+        aria-label="Satellite imagery and map data attribution"
+        className="absolute bottom-[11.5rem] sm:bottom-20 left-3 sm:left-6 z-20 pointer-events-auto max-w-[260px] sm:max-w-md bg-slate-950/80 backdrop-blur-md px-2.5 py-1.5 rounded-lg border border-slate-700/50 shadow-lg text-[9px] sm:text-[10px] text-slate-300 telemetry-mono leading-tight flex flex-col gap-0.5 select-none"
+      >
+        <div className="flex items-center gap-1.5 text-slate-400">
+          <span className="font-semibold text-slate-200 uppercase tracking-wider text-[8px] sm:text-[9px]">Map Attribution</span>
+          <span className="text-slate-500">•</span>
+          <span className="text-slate-400">CesiumJS</span>
+        </div>
+        <div className="text-slate-300/90 text-[8.5px] sm:text-[9.5px]">
+          Imagery: Tiles © Esri, Maxar, Earthstar Geographics | © OpenStreetMap contributors
+        </div>
+        {terrainAttribution && (
+          <div
+            className="text-slate-300/90 text-[8.5px] sm:text-[9.5px]"
+            data-testid="cesium-terrain-attribution"
+          >
+            {terrainAttribution}
+          </div>
+        )}
+      </aside>
     </div>
   );
 }

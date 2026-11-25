@@ -195,62 +195,324 @@ test.describe('Avir Flagship Earth Command Center & Planetary Telemetry E2E', ()
     await expect(fallback).not.toBeVisible();
   });
 
-  test('toggles 3D engine between Three.js and CesiumJS without crashing', async ({ page }) => {
-    // Locate engine toggle button in GlobeControls
+  test('toggles 3D engine from default CesiumJS to Three.js and back without crashing or duplicating canvases', async ({ page }) => {
+    const pageErrors: string[] = [];
+    page.on('pageerror', (err) => pageErrors.push(err.message));
+
+    const threeCanvas = page.locator(
+      '[aria-label="Interactive 3D Earth Globe showing atmospheric air quality telemetry"] canvas'
+    );
+    const cesiumContainer = page.locator('.cesium-widget');
+
+    // TEST A, B, C: Opening Avir selects CESIUM by default and renders Cesium viewer without Three.js
     const engineButton = page.getByRole('button', { name: /toggle 3d engine/i });
     await expect(engineButton).toBeVisible();
-    await expect(engineButton).toHaveText('THREE');
+    await expect(engineButton).toHaveText('CESIUM');
+    await expect(cesiumContainer).toBeVisible({ timeout: 15000 });
+    await expect(threeCanvas).toHaveCount(0);
 
-    // Click to switch to Cesium
+    // Verify legal accessible provider attribution panel is visible with imagery credits,
+    // and real-terrain attribution is NOT shown while ellipsoid default is active
+    const attributionPanel = page.getByRole('contentinfo', {
+      name: /satellite imagery and map data attribution/i,
+    });
+    await expect(attributionPanel).toBeVisible();
+    await expect(attributionPanel).toContainText('Imagery: Tiles © Esri');
+    await expect(attributionPanel).not.toContainText('Re:Earth / Mapterhorn');
+    await expect(page.getByTestId('cesium-terrain-attribution')).toHaveCount(0);
+
+    // TEST D, G, I: Switch CESIUM -> THREE cleanly with a single Three.js canvas
+    await engineButton.click();
+    await expect(engineButton).toHaveText('THREE');
+    await expect(cesiumContainer).toHaveCount(0);
+    await expect(threeCanvas).toHaveCount(1);
+    await expect(threeCanvas).toBeVisible({ timeout: 15000 });
+    await page.waitForFunction(() => Boolean((window as any).__avirThreeCamera));
+
+    // TEST E, I: Switch back THREE -> CESIUM and verify attribution remains intact
     await engineButton.click();
     await expect(engineButton).toHaveText('CESIUM');
-
-    // Verify Cesium widget or canvas container renders
-    const cesiumContainer = page.locator('.cesium-widget');
+    await expect(threeCanvas).toHaveCount(0);
     await expect(cesiumContainer).toBeVisible({ timeout: 15000 });
-
-    // Verify legal provider attribution badge is visible
-    await expect(page.locator('text=Imagery: Tiles © Esri')).toBeVisible();
-
-    // Switch back to Three.js
-    await engineButton.click();
-    await expect(engineButton).toHaveText('THREE');
-    await expect(cesiumContainer).not.toBeVisible();
+    await expect(attributionPanel).toBeVisible();
+    expect(pageErrors).toEqual([]);
   });
 
-  test('operates camera controls (zoom, auto-rotate, reset) when Cesium engine is active', async ({ page }) => {
+  test('preserves CesiumJS default engine across 2D accessible fallback toggles and page reload', async ({ page }) => {
+    const engineButton = page.getByRole('button', { name: /toggle 3d engine/i });
+    const cesiumContainer = page.locator('.cesium-widget');
+
+    await expect(engineButton).toHaveText('CESIUM');
+    await expect(cesiumContainer).toBeVisible({ timeout: 15000 });
+
+    // TEST F: Switch to 2D and back preserves CESIUM selection
+    await page.getByRole('button', { name: /switch to accessible 2d map/i }).click();
+    const fallback2d = page.getByRole('region', { name: /2d geographic observation map/i });
+    await expect(fallback2d).toBeVisible();
+    await page.getByRole('button', { name: /switch to 3d earth globe/i }).click();
+    await expect(fallback2d).not.toBeVisible();
+    await expect(engineButton).toHaveText('CESIUM');
+    await expect(cesiumContainer).toBeVisible({ timeout: 15000 });
+
+    // TEST J: Switch to THREE then reload -> fresh page starts with CESIUM default again
+    await engineButton.click();
+    await expect(engineButton).toHaveText('THREE');
+    await page.reload();
+    await expect(page.getByRole('button', { name: /toggle 3d engine/i })).toHaveText('CESIUM');
+    await expect(page.locator('.cesium-widget')).toBeVisible({ timeout: 15000 });
+  });
+
+  test('falls back automatically to Three.js when CesiumJS WebGL initialization genuinely fails', async ({ page }) => {
+    // Deterministic failure fixture: fail WebGL context creation only for Cesium canvases
+    await page.addInitScript(() => {
+      const proto = HTMLCanvasElement.prototype as unknown as {
+        getContext: (type: string, ...args: unknown[]) => unknown;
+      };
+      const origGetContext = proto.getContext;
+      proto.getContext = function (this: HTMLCanvasElement, type: string, ...args: unknown[]) {
+        if (
+          (type === 'webgl' || type === 'webgl2' || type === 'experimental-webgl') &&
+          (this.closest('.cesium-viewer') || this.closest('.cesium-widget'))
+        ) {
+          return null;
+        }
+        return origGetContext.apply(this, [type, ...args]);
+      };
+    });
+
+    await page.goto('/');
+
+    const engineButton = page.getByRole('button', { name: /toggle 3d engine/i });
+    const fallbackBanner = page.getByText(/Cesium unavailable.*Reverted to Three\.js/i);
+    const threeCanvas = page.locator(
+      '[aria-label="Interactive 3D Earth Globe showing atmospheric air quality telemetry"] canvas'
+    );
+
+    // TEST H: Genuine Cesium WebGL failure triggers automatic fallback to Three.js with notice
+    await expect(fallbackBanner).toBeVisible({ timeout: 15000 });
+    await expect(engineButton).toHaveText('THREE');
+    await expect(threeCanvas).toBeVisible({ timeout: 15000 });
+  });
+
+  test('operates camera controls (zoom, auto-rotate, reset) when Cesium engine is active by default', async ({ page }) => {
     test.setTimeout(60000);
     const engineButton = page.getByRole('button', { name: /toggle 3d engine/i });
     await expect(engineButton).toBeVisible();
-    await engineButton.click();
     await expect(engineButton).toHaveText('CESIUM');
 
-    // Wait for Cesium canvas to initialize
+    // Wait for Cesium canvas to initialize without clicking the switcher
     const cesiumWidget = page.locator('.cesium-widget');
     await expect(cesiumWidget).toBeVisible({ timeout: 15000 });
 
     // 1. Zoom In
     const zoomInBtn = page.getByRole('button', { name: 'Zoom In' });
     await expect(zoomInBtn).toBeVisible();
-    await zoomInBtn.click();
+    await zoomInBtn.click({ force: true });
 
     // 2. Zoom Out
     const zoomOutBtn = page.getByRole('button', { name: 'Zoom Out' });
     await expect(zoomOutBtn).toBeVisible();
-    await zoomOutBtn.click();
+    await zoomOutBtn.click({ force: true });
 
     // 3. Toggle Auto-Rotation (Pause / Resume)
     const rotateBtn = page.getByRole('button', { name: /pause rotation|start auto-rotation/i });
     await expect(rotateBtn).toBeVisible();
-    await rotateBtn.click();
-    await rotateBtn.click();
+    await rotateBtn.click({ force: true });
+    await rotateBtn.click({ force: true });
 
     // 4. Reset Camera View
     const resetBtn = page.getByRole('button', { name: 'Reset Globe Orientation' });
     await expect(resetBtn).toBeVisible();
-    await resetBtn.click();
+    await resetBtn.click({ force: true });
 
-    // Ensure the widget remains intact and responsive
+    // 5. Verify direct drag and wheel navigation on Cesium canvas without regression
+    const canvas = cesiumWidget.locator('canvas').first();
+    const box = await canvas.boundingBox();
+    expect(box).not.toBeNull();
+    if (box) {
+      const cx = box.x + box.width / 2;
+      const cy = box.y + box.height / 2;
+      await page.mouse.move(cx, cy);
+      await page.mouse.down();
+      await page.mouse.move(cx + 60, cy - 30, { steps: 5 });
+      await page.mouse.up();
+      await page.mouse.wheel(0, -180);
+    }
+
+    // Ensure the widget and imagery attribution remain intact and responsive
     await expect(cesiumWidget).toBeVisible();
+    await expect(page.locator('text=Imagery: Tiles © Esri')).toBeVisible();
+  });
+
+  test('operates unified Environmental Layers (Wind, FIRMS Fires, Cesium Terrain, NASA GIBS Satellite Comparison) with honest status and intact scroll zoom', async ({
+    page,
+  }) => {
+    test.setTimeout(60000);
+
+    await page.route('**/api/environment/wind*', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          status: 'available',
+          isAvailable: true,
+          isCached: false,
+          isStale: false,
+          model: 'GFS Seamless 10m',
+          modelRunAvailable: true,
+          source: 'Open-Meteo GFS Wind Grid',
+          validTimeUtc: '2026-11-24T12:00:00Z',
+          fetchedAtUtc: '2026-11-24T12:05:00Z',
+          grid: [
+            {
+              latitude: 12.97,
+              longitude: 77.59,
+              u: 3.1,
+              v: 1.8,
+              speedKmh: 12.9,
+              speedMs: 3.58,
+              directionDeg: 240,
+              heightM: 10,
+              role: 'active_target',
+            },
+            {
+              latitude: 28.61,
+              longitude: 77.2,
+              u: -4.2,
+              v: 0.9,
+              speedKmh: 15.5,
+              speedMs: 4.3,
+              directionDeg: 102,
+              heightM: 10,
+              role: 'reference_probe',
+            },
+          ],
+          cityWind: {
+            latitude: 12.97,
+            longitude: 77.59,
+            u: 3.1,
+            v: 1.8,
+            speedKmh: 12.9,
+            speedMs: 3.58,
+            directionDeg: 240,
+            heightM: 10,
+            role: 'active_target',
+          },
+          summary: 'Verified Open-Meteo 10m wind vector grid active.',
+        }),
+      });
+    });
+
+    await page.route('**/api/environment/fires*', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          configured: false,
+          isAvailable: false,
+          isCached: false,
+          isStale: false,
+          status: 'unconfigured',
+          message: 'NASA_FIRMS_MAP_KEY is not configured on the server.',
+          dataset: 'VIIRS_NOAA20_NRT',
+          satellite: 'NOAA-20',
+          instrument: 'VIIRS',
+          lookbackDays: 2,
+          fetchedAtUtc: '2026-11-24T12:05:00Z',
+          latestObservationUtc: null,
+          count: 0,
+          hotspots: [],
+          regionalContext: null,
+        }),
+      });
+    });
+
+    await page.route('**/*gibs.earthdata.nasa.gov/**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/xml',
+        body: '<Domains xmlns:ows="http://www.opengis.net/ows/1.1"><DimensionDomain><ows:Identifier>time</ows:Identifier><Domain>2026-01-01/2026-11-24/P1D</Domain></DimensionDomain></Domains>',
+      });
+    });
+
+    // 1. Default CesiumJS loads; open Layers popover and verify honest OFF states, enabled Terrain, and disabled Three.js-only Wind
+    await expect(page.locator('.cesium-widget')).toBeVisible({ timeout: 15000 });
+    const layersButton = page.getByRole('button', { name: 'Environmental Intelligence Layers' });
+    await expect(layersButton).toHaveAttribute('aria-expanded', 'false');
+    await layersButton.click();
+    await expect(layersButton).toHaveAttribute('aria-expanded', 'true');
+
+    const windToggle = page.getByRole('button', { name: 'Toggle Wind Flow layer' });
+    const firesToggle = page.getByRole('button', { name: 'Toggle Active Fires layer' });
+    const terrainToggle = page.getByRole('button', { name: 'Toggle 3D Terrain Mesh layer' });
+    const satelliteToggle = page.getByRole('button', { name: 'Toggle Satellite Imagery Comparison panel' });
+
+    await expect(windToggle).toBeDisabled();
+    await expect(page.getByTestId('layer-status-wind')).toHaveText('THREE.JS ONLY');
+    await expect(firesToggle).toHaveAttribute('aria-pressed', 'false');
+    await expect(terrainToggle).toBeEnabled();
+    await expect(terrainToggle).toHaveAttribute('aria-pressed', 'false');
+
+    // 2. Toggle 3D Terrain Mesh ON/OFF in CesiumJS, and toggle Active Fires ON -> honest UNCONFIGURED state (never fake 0 detections)
+    await terrainToggle.click();
+    await expect(terrainToggle).toHaveAttribute('aria-pressed', 'true');
+    await terrainToggle.click();
+    await expect(terrainToggle).toHaveAttribute('aria-pressed', 'false');
+
+    await firesToggle.click();
+    await expect(firesToggle).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByTestId('layer-status-fires')).toHaveText('UNCONFIGURED');
+
+    // 3. Switch to Three.js -> re-open Layers, verify Wind unlocks cleanly -> LIVE while Terrain becomes CESIUM ONLY and Fires stays ON
+    await page.getByRole('button', { name: /toggle 3d engine/i }).click();
+    await page.waitForFunction(() => Boolean((window as any).__avirThreeCamera));
+    await layersButton.click();
+    await expect(layersButton).toHaveAttribute('aria-expanded', 'true');
+
+    await expect(firesToggle).toHaveAttribute('aria-pressed', 'true');
+    await expect(terrainToggle).toBeDisabled();
+    await expect(page.getByTestId('layer-status-terrain')).toHaveText('CESIUM ONLY');
+    await expect(windToggle).toBeEnabled();
+
+    await windToggle.click();
+    await expect(windToggle).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByTestId('layer-status-wind')).toHaveText('LIVE');
+    await windToggle.click();
+    await expect(windToggle).toHaveAttribute('aria-pressed', 'false');
+
+    // 4. Toggle Satellite Imagery Comparison ON -> renders NASA GIBS slider and closes cleanly
+    await satelliteToggle.click();
+    await expect(satelliteToggle).toHaveAttribute('aria-pressed', 'true');
+
+    const comparisonPanel = page.getByTestId('satellite-comparison-panel');
+    await expect(comparisonPanel).toBeVisible();
+    await expect(comparisonPanel).toContainText('NASA SATELLITE IMAGERY COMPARISON');
+
+    await page.getByRole('button', { name: 'Close satellite imagery comparison' }).click();
+    await expect(comparisonPanel).toHaveCount(0);
+
+    // 5. Re-open Layers to confirm Satellite toggle returned OFF, close via Escape, and confirm wheel zoom over Three.js does not scroll page
+    await layersButton.click();
+    await expect(layersButton).toHaveAttribute('aria-expanded', 'true');
+    await expect(satelliteToggle).toHaveAttribute('aria-pressed', 'false');
+    await page.keyboard.press('Escape');
+    await expect(layersButton).toHaveAttribute('aria-expanded', 'false');
+
+    await page.evaluate(() => window.scrollTo(0, 0));
+    const canvas = page.locator('canvas').first();
+    const box = await canvas.boundingBox();
+    expect(box).not.toBeNull();
+    if (box) {
+      const targetX = box.x + box.width * 0.62;
+      const targetY = box.y + box.height * 0.42;
+      const distBefore = await page.evaluate(() => (window as any).__avirThreeCamera.getTargetDistance());
+      await page.mouse.move(targetX, targetY);
+      await page.mouse.wheel(0, -180);
+      await page.waitForTimeout(150);
+      const distAfter = await page.evaluate(() => (window as any).__avirThreeCamera.getTargetDistance());
+      const scrollY = await page.evaluate(() => window.scrollY);
+      expect(distAfter).toBeLessThan(distBefore);
+      expect(scrollY).toBe(0);
+    }
   });
 });

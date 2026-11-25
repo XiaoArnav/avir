@@ -8,8 +8,11 @@ import {
   ChevronRight,
   ShieldCheck,
   Radio,
+  Database,
+  Sliders,
 } from 'lucide-react';
 import { AqiStandard } from '@/services/geo/geographic-observation-adapter';
+import { ResolvedSourceData } from '@/services/source-control/source-control-types';
 
 export interface CompactCityCardProps {
   cityName: string;
@@ -28,6 +31,8 @@ export interface CompactCityCardProps {
   onRefresh?: () => void;
   isLoading?: boolean;
   className?: string;
+  resolvedSource?: ResolvedSourceData | null;
+  onOpenSourceControl?: () => void;
 }
 
 export function CompactCityCard({
@@ -47,6 +52,8 @@ export function CompactCityCard({
   onRefresh,
   isLoading = false,
   className = '',
+  resolvedSource,
+  onOpenSourceControl,
 }: CompactCityCardProps) {
   const displayAqi = aqiValue !== null && aqiValue !== undefined ? Math.round(aqiValue) : '--';
 
@@ -121,6 +128,49 @@ export function CompactCityCard({
             {primaryPollutant}
           </span>
         </div>
+
+        {/* Source Control Indicator */}
+        <div className="flex items-center justify-between text-[11px]">
+          <span className="text-ink-muted dark:text-slate-400">Data Source:</span>
+          {onOpenSourceControl ? (
+            <button
+              type="button"
+              onClick={onOpenSourceControl}
+              className="inline-flex items-center gap-1 font-medium text-sky-600 dark:text-sky-300 hover:text-sky-700 dark:hover:text-white transition-colors cursor-pointer group"
+              title="Change environmental data source in Avir Source Control"
+              aria-label={`Current data source: ${resolvedSource?.stationName || provenanceLabel}. Click to configure source.`}
+            >
+              <Database className="w-3 h-3 text-sky-500 group-hover:scale-110 transition-transform" />
+              <span className="truncate max-w-[140px] underline decoration-dotted underline-offset-2">
+                {resolvedSource?.stationName || provenanceLabel}
+              </span>
+            </button>
+          ) : (
+            <span className="font-medium text-ink-primary dark:text-sky-200 telemetry-mono truncate max-w-[150px]">
+              {resolvedSource?.stationName || provenanceLabel}
+            </span>
+          )}
+        </div>
+
+        {/* Fallback Active Disclosure (Phase 4.2) */}
+        {resolvedSource?.isFallback && (
+          <div className="flex items-center justify-between text-[10px] text-amber-600 dark:text-amber-400 font-semibold bg-amber-500/10 dark:bg-amber-950/30 px-1.5 py-0.5 rounded border border-amber-500/20">
+            <span>Fallback Applied:</span>
+            <span className="truncate max-w-[160px]" title={resolvedSource.fallbackReason || undefined}>
+              Atmospheric Model Active
+            </span>
+          </div>
+        )}
+
+        {/* Unavailable Status Disclosure (No silent fallback) */}
+        {resolvedSource?.resolutionStatus === 'unavailable' && (
+          <div className="flex items-center justify-between text-[10px] text-rose-600 dark:text-rose-400 font-bold bg-rose-500/10 dark:bg-rose-950/30 px-1.5 py-0.5 rounded border border-rose-500/20">
+            <span>Source Status:</span>
+            <span className="truncate max-w-[150px]" title={resolvedSource.selectionReason || undefined}>
+              Offline / Data Unavailable
+            </span>
+          </div>
+        )}
 
         <div className="flex items-center justify-between text-[11px]">
           <span className="text-ink-muted dark:text-slate-400">Provenance:</span>

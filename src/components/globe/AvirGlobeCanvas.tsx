@@ -12,33 +12,78 @@ import {
   createAtmosphericRimShaderMaterial,
   createDeepSpaceStarfield,
 } from './earth-textures';
+import type { CameraAction } from './cesium/AvirCesiumGlobe';
+import {
+  EARTH_RADIUS,
+  DEFAULT_CAMERA_DISTANCE,
+  calculateNextDistance,
+  calculateWheelDistance,
+  calculatePinchDistance,
+  interpolateCameraDistance,
+} from './three-camera-controller';
+import { ThreeWindLayer } from './three-wind-layer';
+import { ThreeFireLayer } from './three-fire-layer';
+import type { WindVectorPoint } from '@/domain/wind-types';
+import type { FirmsHotspot } from '@/domain/firms-types';
 
 export interface AvirGlobeCanvasProps {
   points: GeographicObservationPoint[];
   selectedPointId?: string | null;
+  activeCityName?: string;
   onSelectPoint: (point: GeographicObservationPoint) => void;
   isAutoRotating?: boolean;
-  zoomLevel?: number;
+  cameraAction?: CameraAction | null;
   selectedHour?: number; // 0-23 diurnal hour
   validAtUtc?: string | null;
   themeMode?: 'dark' | 'light';
+  isWindEnabled?: boolean;
+  windVectors?: WindVectorPoint[];
+  isFiresEnabled?: boolean;
+  fireHotspots?: FirmsHotspot[];
   className?: string;
 }
 
 export function AvirGlobeCanvas({
   points,
   selectedPointId,
+  activeCityName,
   onSelectPoint,
   isAutoRotating = true,
-  zoomLevel = 260,
+  cameraAction = null,
   selectedHour = 12,
   validAtUtc,
   themeMode = 'dark',
+  isWindEnabled = false,
+  windVectors = [],
+  isFiresEnabled = false,
+  fireHotspots = [],
   className = '',
 }: AvirGlobeCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [webGLAvailable, setWebGLAvailable] = useState<boolean>(true);
   const [hoveredPoint, setHoveredPoint] = useState<GeographicObservationPoint | null>(null);
+
+  // Mutable refs for stable event and loop closures
+  const isAutoRotatingRef = useRef(isAutoRotating);
+  isAutoRotatingRef.current = isAutoRotating;
+
+  const pointsRef = useRef(points);
+  pointsRef.current = points;
+
+  const activeCityNameRef = useRef(activeCityName);
+  activeCityNameRef.current = activeCityName;
+
+  const isWindEnabledRef = useRef(isWindEnabled);
+  isWindEnabledRef.current = isWindEnabled;
+
+  const windVectorsRef = useRef(windVectors);
+  windVectorsRef.current = windVectors;
+
+  const isFiresEnabledRef = useRef(isFiresEnabled);
+  isFiresEnabledRef.current = isFiresEnabled;
+
+  const fireHotspotsRef = useRef(fireHotspots);
+  fireHotspotsRef.current = fireHotspots;
 
   // Three.js instances ref
   const instancesRef = useRef<{
@@ -50,6 +95,8 @@ export function AvirGlobeCanvas({
     earthMat: THREE.MeshPhongMaterial;
     atmosMesh: THREE.Mesh;
     markersGroup: THREE.Group;
+    windLayer: ThreeWindLayer;
+    fireLayer: ThreeFireLayer;
     starfield: THREE.Points;
     sunLight: THREE.DirectionalLight;
     targetSunPos: THREE.Vector3;
@@ -59,10 +106,16 @@ export function AvirGlobeCanvas({
     targetRotation: { x: number; y: number };
     currentRotation: { x: number; y: number };
     isDragging: boolean;
+    dragDistance: number;
+    wasPinching: boolean;
     previousMousePosition: { x: number; y: number };
     cameraDistance: number;
     targetCameraDistance: number;
     elapsedTime: number;
+    isVisible: boolean;
+    activePointers: Map<number, { x: number; y: number }>;
+    initialPinchDistance: number | null;
+    initialCameraDistanceOnPinch: number | null;
   } | null>(null);
 
   // Check WebGL availability
@@ -79,7 +132,7 @@ export function AvirGlobeCanvas({
     }
   }, []);
 
-  // Initialize Three.js scene
+  // Initialize Three.js scene (Stable lifecycle: depends only on webGLAvailable)
   useEffect(() => {
     if (!webGLAvailable || !containerRef.current) return;
 
@@ -87,10 +140,10 @@ export function AvirGlobeCanvas({
     const width = container.clientWidth || 800;
     const height = container.clientHeight || 600;
 
-    // 1. Scene & Camera
+    // 1. Scene & Camera (near = 0.5, far = 3000 to cleanly support close inspection and deep orbit)
     const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(45, width / height, 1, 2000);
-    camera.position.set(0, 0, 260);
+    const camera = new THREE.PerspectiveCamera(45, width / height, 0.5, 3000);
+    camera.position.set(0, 0, DEFAULT_CAMERA_DISTANCE);
 
     // 2. WebGL Renderer
     let renderer: THREE.WebGLRenderer;
@@ -122,8 +175,7 @@ export function AvirGlobeCanvas({
     scene.add(globeGroup);
 
     // 5. Earth Sphere with High-Definition Atmospheric Surface
-    const earthRadius = 90;
-    const earthGeo = new THREE.SphereGeometry(earthRadius, 64, 64);
+    const earthGeo = new THREE.SphereGeometry(EARTH_RADIUS, 64, 64);
     const earthTex = createAtmosphericEarthTexture();
     const earthMat = new THREE.MeshPhongMaterial({
       map: earthTex,
@@ -153,7 +205,7 @@ export function AvirGlobeCanvas({
     );
 
     // 6. Atmospheric Rayleigh Outer Rim Glow Shell (closely hugs the planet surface)
-    const atmosGeo = new THREE.SphereGeometry(earthRadius * 1.012, 64, 64);
+    const atmosGeo = new THREE.SphereGeometry(EARTH_RADIUS * 1.012, 64, 64);
     const atmosMat = createAtmosphericRimShaderMaterial();
     const atmosMesh = new THREE.Mesh(atmosGeo, atmosMat);
     globeGroup.add(atmosMesh);
@@ -178,9 +230,21 @@ export function AvirGlobeCanvas({
     fillLight.position.set(-180, -60, -100);
     scene.add(fillLight);
 
-    // 8. 3D Beacons & Markers Group
+    // 8. 3D Beacons & Markers Group + Environmental Visualization Layers
     const markersGroup = new THREE.Group();
     globeGroup.add(markersGroup);
+
+    const windLayer = new ThreeWindLayer(globeGroup, { radius: EARTH_RADIUS + 0.35 });
+    windLayer.setVisible(isWindEnabledRef.current);
+    if (isWindEnabledRef.current && windVectorsRef.current.length > 0) {
+      windLayer.setWindVectors(windVectorsRef.current);
+    }
+
+    const fireLayer = new ThreeFireLayer(globeGroup, { radius: EARTH_RADIUS + 0.25 });
+    fireLayer.setVisible(isFiresEnabledRef.current);
+    if (isFiresEnabledRef.current && fireHotspotsRef.current.length > 0) {
+      fireLayer.setHotspots(fireHotspotsRef.current);
+    }
 
     const targetSunPos = new THREE.Vector3(
       Math.sin(initialSunAngle) * 350,
@@ -197,6 +261,8 @@ export function AvirGlobeCanvas({
       earthMat,
       atmosMesh,
       markersGroup,
+      windLayer,
+      fireLayer,
       starfield,
       sunLight,
       targetSunPos,
@@ -206,11 +272,16 @@ export function AvirGlobeCanvas({
       targetRotation: { x: globeGroup.rotation.x, y: globeGroup.rotation.y },
       currentRotation: { x: globeGroup.rotation.x, y: globeGroup.rotation.y },
       isDragging: false,
+      dragDistance: 0,
+      wasPinching: false,
       previousMousePosition: { x: 0, y: 0 },
-      cameraDistance: zoomLevel || 260,
-      targetCameraDistance: zoomLevel || 260,
+      cameraDistance: DEFAULT_CAMERA_DISTANCE,
+      targetCameraDistance: DEFAULT_CAMERA_DISTANCE,
       elapsedTime: 0,
       isVisible: true,
+      activePointers: new Map<number, { x: number; y: number }>(),
+      initialPinchDistance: null,
+      initialCameraDistanceOnPinch: null,
     };
     instancesRef.current = instances;
 
@@ -237,14 +308,22 @@ export function AvirGlobeCanvas({
       observer.observe(containerRef.current);
     }
 
-    // Animation Render Loop
+    // Animation Render Loop with Frame-Rate-Independent Delta Timing
+    let lastTime = performance.now();
+
     const animate = () => {
       instances.animFrameId = requestAnimationFrame(animate);
 
       // Skip heavy GPU render calls if canvas is offscreen or document is hidden
-      if (!instances.isVisible) return;
+      if (!instances.isVisible) {
+        lastTime = performance.now();
+        return;
+      }
 
-      instances.elapsedTime += 0.016;
+      const now = performance.now();
+      const deltaSeconds = Math.min((now - lastTime) / 1000, 0.1); // Clamp to 100ms max
+      lastTime = now;
+      instances.elapsedTime += deltaSeconds;
 
       const prefersReducedMotion =
         typeof window !== 'undefined' &&
@@ -255,21 +334,43 @@ export function AvirGlobeCanvas({
         // Slow starfield drift
         starfield.rotation.y += 0.0001;
 
-        // Auto-rotation when user is not dragging
-        if (isAutoRotating && !instances.isDragging) {
+        // Auto-rotation when user is not dragging and not pinching
+        if (
+          isAutoRotatingRef.current &&
+          !instances.isDragging &&
+          instances.activePointers.size === 0
+        ) {
           instances.targetRotation.y += 0.0014;
         }
       }
 
-      // Smooth damping on rotation
-      instances.currentRotation.x += (instances.targetRotation.x - instances.currentRotation.x) * 0.07;
-      instances.currentRotation.y += (instances.targetRotation.y - instances.currentRotation.y) * 0.07;
+      // Smooth damping on rotation (delta-aware)
+      const rotAlpha = prefersReducedMotion ? 1 : 1 - Math.exp(-8.0 * deltaSeconds);
+      instances.currentRotation.x += (instances.targetRotation.x - instances.currentRotation.x) * rotAlpha;
+      instances.currentRotation.y += (instances.targetRotation.y - instances.currentRotation.y) * rotAlpha;
       globeGroup.rotation.x = instances.currentRotation.x;
       globeGroup.rotation.y = instances.currentRotation.y;
 
-      // Smooth damping on camera zoom
-      instances.cameraDistance += (instances.targetCameraDistance - instances.cameraDistance) * 0.1;
+      // Smooth proportional damping on camera zoom (Cesium-style frame-rate independent)
+      instances.cameraDistance = interpolateCameraDistance(
+        instances.cameraDistance,
+        instances.targetCameraDistance,
+        deltaSeconds,
+        prefersReducedMotion
+      );
       camera.position.z = instances.cameraDistance;
+
+      if (containerRef.current) {
+        containerRef.current.dataset.cameraDistance = instances.cameraDistance.toFixed(1);
+        containerRef.current.dataset.targetCameraDistance = instances.targetCameraDistance.toFixed(1);
+      }
+      if (typeof window !== 'undefined') {
+        (window as any).__avirThreeCamera = {
+          getDistance: () => instances.cameraDistance,
+          getTargetDistance: () => instances.targetCameraDistance,
+          getOrientation: () => ({ x: instances.currentRotation.x, y: instances.currentRotation.y }),
+        };
+      }
 
       // Smooth lerp on dynamic sunlight position according to diurnal hour
       sunLight.position.lerp(instances.targetSunPos, 0.06);
@@ -288,7 +389,7 @@ export function AvirGlobeCanvas({
         child.visible = normal.dot(toCam) > 0.08;
       });
 
-      // Animate pulsing AQI beacon rings on surface
+      // Animate pulsing AQI beacon rings & active environmental layers on globe surface
       if (!prefersReducedMotion) {
         markersGroup.children.forEach((child) => {
           if (child.visible && child.userData?.isPulseRing) {
@@ -301,11 +402,43 @@ export function AvirGlobeCanvas({
             }
           }
         });
+        if (isWindEnabledRef.current) {
+          windLayer.update(deltaSeconds);
+        }
+      }
+      if (isFiresEnabledRef.current) {
+        fireLayer.update(camera.position, instances.elapsedTime);
       }
 
       renderer.render(scene, camera);
     };
     animate();
+
+    // Native non-passive wheel listener isolated to the Three.js canvas container
+    // Cancels native browser page/pinch scrolling cleanly over the globe without affecting outside scroll
+    const handleNativeWheel = (event: WheelEvent) => {
+      const target = event.target as Node | null;
+      if (target && target !== container && !container.contains(target)) {
+        return;
+      }
+
+      if (event.cancelable) {
+        event.preventDefault();
+      }
+      event.stopPropagation();
+
+      if (!Number.isFinite(event.deltaY)) return;
+
+      const inst = instancesRef.current;
+      if (!inst) return;
+
+      inst.targetCameraDistance = calculateWheelDistance(
+        inst.targetCameraDistance,
+        event.deltaY,
+        event.deltaMode
+      );
+    };
+    container.addEventListener('wheel', handleNativeWheel, { passive: false });
 
     // Responsive Resize Handler
     const handleResize = () => {
@@ -319,10 +452,13 @@ export function AvirGlobeCanvas({
     window.addEventListener('resize', handleResize);
 
     return () => {
+      container.removeEventListener('wheel', handleNativeWheel);
       window.removeEventListener('resize', handleResize);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       if (observer) observer.disconnect();
       cancelAnimationFrame(instances.animFrameId);
+      windLayer.dispose();
+      fireLayer.dispose();
       earthGeo.dispose();
       earthMat.dispose();
       earthTex.dispose();
@@ -339,8 +475,11 @@ export function AvirGlobeCanvas({
         container.removeChild(renderer.domElement);
       }
       instancesRef.current = null;
+      if (typeof window !== 'undefined') {
+        delete (window as any).__avirThreeCamera;
+      }
     };
-  }, [webGLAvailable, isAutoRotating]);
+  }, [webGLAvailable]);
 
   // Update dynamic sunlight position whenever selectedHour or validAtUtc changes
   useEffect(() => {
@@ -357,7 +496,33 @@ export function AvirGlobeCanvas({
     inst.targetSunPos.set(Math.sin(sunAngle) * 350, 90, Math.cos(sunAngle) * 350);
   }, [selectedHour, validAtUtc]);
 
-  // Dynamically swap NASA Satellite texture on Theme switch (Black Marble / Blue Marble)
+  // Synchronize Three.js Wind Flow particle streamlines with validated API vectors
+  useEffect(() => {
+    const inst = instancesRef.current;
+    if (!inst) return;
+    if (isWindEnabled && windVectors.length > 0) {
+      inst.windLayer.setVisible(true);
+      inst.windLayer.setWindVectors(windVectors);
+    } else {
+      inst.windLayer.setVisible(false);
+      inst.windLayer.setWindVectors([]);
+    }
+  }, [isWindEnabled, windVectors, webGLAvailable]);
+
+  // Synchronize Three.js NASA FIRMS active-fire thermal anomaly markers
+  useEffect(() => {
+    const inst = instancesRef.current;
+    if (!inst) return;
+    if (isFiresEnabled && fireHotspots.length > 0) {
+      inst.fireLayer.setVisible(true);
+      inst.fireLayer.setHotspots(fireHotspots);
+    } else {
+      inst.fireLayer.setVisible(false);
+      inst.fireLayer.clear();
+    }
+  }, [isFiresEnabled, fireHotspots, webGLAvailable]);
+
+  // Adjust scene styling and swap NASA Satellite texture on Theme switch (Black Marble / Blue Marble)
   useEffect(() => {
     const inst = instancesRef.current;
     if (!inst) return;
@@ -378,12 +543,31 @@ export function AvirGlobeCanvas({
     );
   }, [themeMode]);
 
-  // Update camera target distance whenever zoomLevel changes
+  // Handle external camera actions (Zoom In, Zoom Out, Reset) from GlobeControls
   useEffect(() => {
     const inst = instancesRef.current;
-    if (!inst || zoomLevel === undefined) return;
-    inst.targetCameraDistance = zoomLevel;
-  }, [zoomLevel]);
+    if (!inst || !cameraAction) return;
+
+    if (cameraAction.type === 'zoomIn') {
+      inst.targetCameraDistance = calculateNextDistance(inst.targetCameraDistance, 'in');
+    } else if (cameraAction.type === 'zoomOut') {
+      inst.targetCameraDistance = calculateNextDistance(inst.targetCameraDistance, 'out');
+    } else if (cameraAction.type === 'reset') {
+      inst.targetCameraDistance = DEFAULT_CAMERA_DISTANCE;
+      const currentPoints = pointsRef.current;
+      const cityName = activeCityNameRef.current;
+      if (cityName) {
+        const pt = currentPoints.find((p) => p.name.toLowerCase() === cityName.toLowerCase());
+        if (pt) {
+          inst.targetRotation.y = -((pt.longitude + 90) * (Math.PI / 180));
+          inst.targetRotation.x = pt.latitude * (Math.PI / 180) * 0.55;
+          return;
+        }
+      }
+      inst.targetRotation.x = 0.22;
+      inst.targetRotation.y = -Math.PI * 0.42;
+    }
+  }, [cameraAction]);
 
   // Construct Refined 3D AQI Beacons & Surface Markers
   useEffect(() => {
@@ -401,10 +585,8 @@ export function AvirGlobeCanvas({
       inst.markersGroup.remove(child);
     }
 
-    const earthRadius = 90;
-
     points.forEach((point, idx) => {
-      const surfacePos = latLongToVector3(point.latitude, point.longitude, earthRadius);
+      const surfacePos = latLongToVector3(point.latitude, point.longitude, EARTH_RADIUS);
       const normal = new THREE.Vector3(surfacePos.x, surfacePos.y, surfacePos.z).normalize();
       const isSelected = selectedPointId === point.id;
       const markerColor = new THREE.Color(point.categoryColor);
@@ -511,21 +693,63 @@ export function AvirGlobeCanvas({
     inst.targetRotation.x = targetX;
   }, [selectedPointId, points]);
 
-  // Interactive Pointer Events (Drag / Orbit / Hover)
+  // Interactive Pointer Events (Drag / Orbit / Pinch / Hover)
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     const inst = instancesRef.current;
     if (!inst) return;
-    inst.isDragging = true;
-    inst.previousMousePosition = { x: e.clientX, y: e.clientY };
+
+    inst.activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    try {
+      (e.target as HTMLElement)?.setPointerCapture?.(e.pointerId);
+    } catch {
+      // Safe ignore
+    }
+
+    if (inst.activePointers.size === 1) {
+      inst.isDragging = true;
+      inst.dragDistance = 0;
+      inst.wasPinching = false;
+      inst.previousMousePosition = { x: e.clientX, y: e.clientY };
+    } else if (inst.activePointers.size === 2) {
+      // Transition to two-finger touch pinch zoom
+      inst.isDragging = false;
+      inst.wasPinching = true;
+      const pts = Array.from(inst.activePointers.values());
+      inst.initialPinchDistance = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+      inst.initialCameraDistanceOnPinch = inst.targetCameraDistance;
+    }
   };
 
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     const inst = instancesRef.current;
     if (!inst) return;
 
-    if (inst.isDragging) {
+    if (inst.activePointers.has(e.pointerId)) {
+      inst.activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    }
+
+    // Two-finger touch pinch zoom
+    if (
+      inst.activePointers.size === 2 &&
+      inst.initialPinchDistance &&
+      inst.initialPinchDistance > 0 &&
+      inst.initialCameraDistanceOnPinch !== null
+    ) {
+      const pts = Array.from(inst.activePointers.values());
+      const currentPinchDistance = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+      const scaleRatio = currentPinchDistance / inst.initialPinchDistance;
+      inst.targetCameraDistance = calculatePinchDistance(
+        inst.initialCameraDistanceOnPinch,
+        scaleRatio
+      );
+      return;
+    }
+
+    // Single-finger drag rotation
+    if (inst.isDragging && inst.activePointers.size === 1) {
       const deltaX = e.clientX - inst.previousMousePosition.x;
       const deltaY = e.clientY - inst.previousMousePosition.y;
+      inst.dragDistance += Math.abs(deltaX) + Math.abs(deltaY);
 
       inst.targetRotation.y += deltaX * 0.005;
       inst.targetRotation.x = Math.max(
@@ -536,7 +760,8 @@ export function AvirGlobeCanvas({
       inst.previousMousePosition = { x: e.clientX, y: e.clientY };
     }
 
-    if (containerRef.current) {
+    // Raycast hover detection (when not dragging or pinching)
+    if (containerRef.current && !inst.isDragging && inst.activePointers.size === 0) {
       const rect = containerRef.current.getBoundingClientRect();
       inst.mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
       inst.mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
@@ -560,14 +785,37 @@ export function AvirGlobeCanvas({
     }
   };
 
-  const handlePointerUp = () => {
+  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
     const inst = instancesRef.current;
-    if (inst) inst.isDragging = false;
+    if (!inst) return;
+
+    inst.activePointers.delete(e.pointerId);
+    try {
+      (e.target as HTMLElement)?.releasePointerCapture?.(e.pointerId);
+    } catch {
+      // Safe ignore
+    }
+
+    if (inst.activePointers.size === 0) {
+      inst.isDragging = false;
+      inst.initialPinchDistance = null;
+      inst.initialCameraDistanceOnPinch = null;
+    } else if (inst.activePointers.size === 1) {
+      inst.isDragging = false;
+      inst.initialPinchDistance = null;
+      inst.initialCameraDistanceOnPinch = null;
+    }
   };
 
   const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const inst = instancesRef.current;
     if (!inst || !containerRef.current) return;
+
+    // Suppress clicks if user dragged more than 6px or was pinching
+    if (inst.dragDistance > 6 || inst.wasPinching) {
+      inst.wasPinching = false;
+      return;
+    }
 
     const rect = containerRef.current.getBoundingClientRect();
     inst.mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
@@ -583,14 +831,6 @@ export function AvirGlobeCanvas({
         onSelectPoint(hit.userData.point);
       }
     }
-  };
-
-  const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    const inst = instancesRef.current;
-    if (!inst) return;
-    const newDist = inst.targetCameraDistance + e.deltaY * 0.18;
-    inst.targetCameraDistance = Math.max(140, Math.min(380, newDist));
   };
 
   if (!webGLAvailable) {
@@ -610,8 +850,8 @@ export function AvirGlobeCanvas({
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerUp}
       onClick={handleClick}
-      onWheel={handleWheel}
       aria-label="Interactive 3D Earth Globe showing atmospheric air quality telemetry"
     >
       <div ref={containerRef} className="w-full h-full cursor-grab active:cursor-grabbing" />
