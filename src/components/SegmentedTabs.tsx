@@ -93,7 +93,7 @@ export const SegmentedTabs: React.FC<SegmentedTabsProps> = ({
       <div 
         role="tablist"
         aria-orientation="horizontal"
-        className="w-full max-w-3xl p-1 rounded-xl bg-stone-200/90 dark:bg-zinc-950 border border-stone-300 dark:border-zinc-800 flex items-center gap-1 overflow-x-auto no-scrollbar shadow-sm dark:shadow-lg transition-colors"
+        className="w-full max-w-3xl p-1 rounded-xl bg-stone-200/90 dark:bg-zinc-950 border border-stone-300 dark:border-zinc-800 flex flex-wrap sm:flex-nowrap items-center justify-center gap-1 shadow-sm dark:shadow-lg transition-colors"
       >
         {tabs.map((tab, idx) => {
           const isActive = activeTab === tab.id;
@@ -110,7 +110,7 @@ export const SegmentedTabs: React.FC<SegmentedTabsProps> = ({
               tabIndex={isActive ? 0 : -1}
               onClick={() => onChangeTab(tab.id)}
               onKeyDown={(e) => handleKeyDown(e, idx)}
-              className={`relative flex-1 min-w-[110px] sm:min-w-0 py-2.5 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 select-none touch-target focus-visible-ring cursor-pointer transition-colors ${
+              className={`relative sm:flex-1 py-2 sm:py-2.5 px-2.5 sm:px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 sm:gap-2 whitespace-nowrap select-none touch-target focus-visible-ring cursor-pointer transition-colors ${
                 isActive
                   ? 'text-ink dark:text-black font-bold'
                   : 'text-ink-muted hover:text-ink hover:bg-white/60 dark:text-zinc-400 dark:hover:text-white dark:hover:bg-zinc-900/60'
@@ -126,7 +126,7 @@ export const SegmentedTabs: React.FC<SegmentedTabsProps> = ({
               <span className={`relative z-10 ${isActive ? 'text-ink dark:text-black' : 'text-ink-muted dark:text-zinc-500'}`}>
                 {tab.icon}
               </span>
-              <span className="relative z-10 truncate">{tab.label}</span>
+              <span className="relative z-10">{tab.label}</span>
               {tab.badge && (
                 <span
                   className={`relative z-10 text-[10px] px-1.5 py-0.5 rounded font-mono hidden sm:inline-block ${

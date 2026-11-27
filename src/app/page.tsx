@@ -473,7 +473,7 @@ export default function Home() {
         />
 
         {/* Futuristic Floating Navigation Dock */}
-        <div className="flex justify-center my-2">
+        <div className="hidden sm:flex justify-center my-2">
           <FloatingDock
             activeTab={activeTab}
             onChangeTab={setActiveTab}

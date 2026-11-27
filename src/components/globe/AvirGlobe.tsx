@@ -946,7 +946,7 @@ export function AvirGlobe({
           aria-modal="false"
           aria-label="NASA Satellite Imagery Comparison Panel"
           data-testid="satellite-comparison-panel"
-          className="absolute inset-x-3 top-3 sm:inset-x-auto sm:right-4 sm:top-4 sm:w-[min(92vw,680px)] max-h-[85%] overflow-y-auto z-30 rounded-2xl bg-slate-950/95 border border-slate-700/70 shadow-2xl"
+          className="absolute inset-x-3 top-3 sm:inset-x-auto sm:right-4 sm:top-4 sm:w-[min(92vw,680px)] max-h-[85%] overflow-y-auto z-40 rounded-2xl bg-slate-950/95 border border-slate-700/70 shadow-2xl"
         >
           <div className="flex items-center justify-between px-4 py-2 border-b border-slate-800">
             <span className="text-[10px] font-bold telemetry-mono text-purple-300">
@@ -1042,7 +1042,7 @@ export function AvirGlobe({
       )}
 
       {/* Floating Bottom Globe Controls */}
-      <div className="absolute bottom-16 right-4 sm:bottom-20 sm:right-6 z-30">
+      <div className="absolute bottom-20 right-3 sm:bottom-20 sm:right-6 z-30 max-w-[calc(100vw-1.5rem)]">
         <GlobeControls
           is3D={is3D}
           onToggle3D={() => setIs3D((prev) => !prev)}

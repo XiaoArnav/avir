@@ -272,7 +272,7 @@ export const WorldDataExplorer: React.FC<WorldDataExplorerProps> = ({
         {/* Filter Controls Row */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pt-2 text-xs">
           {/* Region Filter Pills */}
-          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
+          <div className="flex flex-wrap items-center gap-1.5 py-0.5">
             {(['All', 'Asia', 'Europe', 'Americas', 'Middle East & Africa', 'Oceania'] as WorldRegion[]).map(
               (reg) => (
                 <button

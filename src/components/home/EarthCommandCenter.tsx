@@ -401,7 +401,7 @@ export function EarthCommandCenter({
       {/* 2. Panoramic Atmospheric Earth Command Center (70-80% globe-first viewport) */}
       <div className="relative w-full min-h-[600px] lg:min-h-[720px] overflow-hidden flex flex-col justify-between">
         {/* Full-Bleed 3D Earth Globe Canvas Background */}
-        <div className="absolute inset-0 w-full h-full z-0">
+        <div className="absolute inset-0 w-full h-full">
           <AvirGlobe
             points={points}
             selectedPointId={selectedGlobePointId || activeGlobePoint?.id}
@@ -464,10 +464,10 @@ export function EarthCommandCenter({
         />
 
         {/* Bottom Quick-Access Metro Selector Bar */}
-        <div className="relative z-10 w-full p-4 sm:p-5 bg-gradient-to-t from-black/90 via-black/50 to-transparent pointer-events-auto">
+        <div className="relative z-10 w-full p-4 sm:p-5 bg-gradient-to-t from-black/90 via-black/50 to-transparent pointer-events-none">
           <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3 text-xs">
             {/* Quick Metro City Switcher */}
-            <div className="flex items-center gap-1.5 overflow-x-auto py-1 no-scrollbar">
+            <div className="flex items-center gap-1.5 overflow-x-auto py-1 no-scrollbar pointer-events-auto max-w-full">
               <span className="text-[10px] font-bold text-slate-400 telemetry-mono uppercase tracking-wider mr-1 hidden sm:inline">
                 METROS:
               </span>

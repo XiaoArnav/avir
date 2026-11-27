@@ -56,7 +56,9 @@ export const ImpactScorecard: React.FC<ImpactScorecardProps> = ({ plan }) => {
             <TrendingDown className="w-4 h-4 text-sage-600 dark:text-zinc-300" />
           </div>
           <div className="text-3xl font-extrabold text-ink dark:text-white font-mono tracking-tight tabular-nums">
-            {impactMetrics.netAvoidedPM25Ug !== null ? impactMetrics.netAvoidedPM25Ug : '—'}{' '}
+            {typeof impactMetrics.netAvoidedPM25Ug === 'number' && Number.isFinite(impactMetrics.netAvoidedPM25Ug)
+              ? impactMetrics.netAvoidedPM25Ug
+              : '—'}{' '}
             <span className="text-xs font-sans font-normal text-ink-muted dark:text-zinc-400">µg / day</span>
           </div>
           <div className="text-xs text-stone-500 dark:text-zinc-500 mt-2">
@@ -71,7 +73,10 @@ export const ImpactScorecard: React.FC<ImpactScorecardProps> = ({ plan }) => {
             <Cigarette className="w-4 h-4 text-terracotta-600 dark:text-zinc-300" />
           </div>
           <div className="text-3xl font-extrabold text-ink dark:text-white font-mono tracking-tight tabular-nums">
-            {impactMetrics.avoidedCigarettesMonthly !== null ? impactMetrics.avoidedCigarettesMonthly : '—'}{' '}
+            {typeof impactMetrics.avoidedCigarettesMonthly === 'number' &&
+            Number.isFinite(impactMetrics.avoidedCigarettesMonthly)
+              ? impactMetrics.avoidedCigarettesMonthly
+              : '—'}{' '}
             <span className="text-xs font-sans font-normal text-ink-muted dark:text-zinc-400">cigs / mo</span>
           </div>
           <div className="text-xs text-stone-500 dark:text-zinc-500 mt-2">
