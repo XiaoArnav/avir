@@ -223,14 +223,23 @@ test.describe('Three.js Advanced Cesium-Style Zoom & Camera System E2E', () => {
     expect(resetTarget).toBe(260);
 
     // Wait for damped camera distance to settle back to 260
-    await page.waitForTimeout(600);
-    const settledDistance = await page.evaluate(() => (window as any).__avirThreeCamera.getDistance());
-    expect(settledDistance).toBeCloseTo(260, 0);
+    await expect
+      .poll(() => page.evaluate(() => (window as any).__avirThreeCamera.getDistance()), {
+        timeout: 2500,
+      })
+      .toBeCloseTo(260, 0);
   });
 
   test('Test G: Drag rotation followed by zoom preserves orientation', async ({ page }) => {
     const zoomInBtn = page.getByRole('button', { name: 'Zoom In' });
+    const rotateBtn = page.getByRole('button', { name: /pause rotation|start auto-rotation/i });
     await page.waitForFunction(() => (window as any).__avirThreeCamera !== undefined);
+
+    // Pause continuous auto-rotation so orientation assertion isolates drag + zoom preservation
+    const rotateLabel = await rotateBtn.getAttribute('aria-label');
+    if (rotateLabel?.toLowerCase().includes('pause')) {
+      await rotateBtn.click();
+    }
 
     const canvas = page.locator('canvas').first();
     const box = await canvas.boundingBox();
@@ -242,10 +251,12 @@ test.describe('Three.js Advanced Cesium-Style Zoom & Camera System E2E', () => {
     await page.mouse.move(box!.x + box!.width / 2 + 80, box!.y + box!.height / 2, { steps: 5 });
     await page.mouse.up();
 
+    // Allow exponential drag damping to settle before recording reference orientation
+    await page.waitForTimeout(400);
     const orientationAfterDrag = await page.evaluate(() => (window as any).__avirThreeCamera.getOrientation());
 
-    // Zoom in
-    await zoomInBtn.click({ force: true });
+    // Zoom in with normal click (no force bypass)
+    await zoomInBtn.click();
 
     // Verify orientation was preserved and not reset to default
     const orientationAfterZoom = await page.evaluate(() => (window as any).__avirThreeCamera.getOrientation());

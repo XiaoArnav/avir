@@ -105,6 +105,8 @@ export function AvirGlobeCanvas({
   const fireHotspotsRef = useRef(fireHotspots);
   fireHotspotsRef.current = fireHotspots;
 
+  const lastFlownTargetRef = useRef<{ name: string; latitude: number; longitude: number } | null>(null);
+
   // Three.js instances ref
   const instancesRef = useRef<{
     scene: THREE.Scene;
@@ -364,13 +366,13 @@ export function AvirGlobeCanvas({
         // Slow starfield drift
         starfield.rotation.y += 0.0001;
 
-        // Auto-rotation when user is not dragging and not pinching
+        // Auto-rotation when user is not dragging and not pinching (0.084 rad/s ≈ 0.0014 rad @ 60Hz)
         if (
           isAutoRotatingRef.current &&
           !instances.isDragging &&
           instances.activePointers.size === 0
         ) {
-          instances.targetRotation.y += 0.0014;
+          instances.targetRotation.y += 0.084 * deltaSeconds;
         }
       }
 
@@ -506,6 +508,7 @@ export function AvirGlobeCanvas({
         container.removeChild(renderer.domElement);
       }
       instancesRef.current = null;
+      lastFlownTargetRef.current = null;
       if (typeof window !== 'undefined') {
         delete (window as any).__avirThreeCamera;
       }
@@ -724,14 +727,33 @@ export function AvirGlobeCanvas({
     });
   }, [points, selectedPointId]);
 
-  // Smooth Camera Fly-To-City Transition on Selection
+  // Smooth Camera Fly-To-City Transition on Selection (only when destination city changes, never on telemetry ID switches or refreshes)
   useEffect(() => {
+    if (!selectedPointId) {
+      lastFlownTargetRef.current = null;
+      return;
+    }
     const inst = instancesRef.current;
-    if (!inst || !selectedPointId) return;
+    if (!inst) return;
 
     const selectedPt = points.find((p) => p.id === selectedPointId);
     if (!selectedPt) return;
 
+    const prevTarget = lastFlownTargetRef.current;
+    if (prevTarget !== null) {
+      const dLat = Math.abs(prevTarget.latitude - selectedPt.latitude);
+      const dLon = Math.abs(prevTarget.longitude - selectedPt.longitude);
+      const sameName = prevTarget.name.trim().toLowerCase() === selectedPt.name.trim().toLowerCase();
+      if ((sameName && dLat < 0.5 && dLon < 0.5) || (dLat < 0.05 && dLon < 0.05)) {
+        return;
+      }
+    }
+
+    lastFlownTargetRef.current = {
+      name: selectedPt.name,
+      latitude: selectedPt.latitude,
+      longitude: selectedPt.longitude,
+    };
     const targetY = -((selectedPt.longitude + 90) * (Math.PI / 180));
     const targetX = selectedPt.latitude * (Math.PI / 180) * 0.55;
 
