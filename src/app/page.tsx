@@ -323,6 +323,7 @@ export default function Home() {
 
     planGenIdRef.current += 1;
     activeManualPlanGenRef.current += 1;
+    coordinatorRef.current.invalidatePendingTelemetry();
     coordinatorRef.current.invalidatePendingPlans();
     setIsPlanGenerating(false);
     setPlannerMessage('');
@@ -788,9 +789,7 @@ export default function Home() {
       <FirstVisitLocationModal
         isOpen={isFirstVisitModalOpen}
         onClose={() => setIsFirstVisitModalOpen(false)}
-        onSelectCity={(loc) => {
-          setSelectedCity(loc);
-        }}
+        onSelectCity={handleCitySelect}
       />
       <SettingsModal
         isOpen={isSettingsOpen}

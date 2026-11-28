@@ -206,4 +206,32 @@ describe('Phase A — Group E: Synchronization & Race Protection (81-100)', () =
     expect(resB).toBe('mumbai_data');
     expect(callCount).toBe(2);
   });
+
+  it('101. invalidatePendingTelemetry immediately aborts active signal and invalidates prior city before next city starts', () => {
+    const coordinator = new RequestCoordinator();
+    const delhiReq = coordinator.beginTelemetryRequest(28.61, 77.23, 'Delhi-NCR');
+    const planCtx = coordinator.beginPlanRequest({
+      cityName: 'Delhi-NCR',
+      metricsTimestamp: '2026-11-28T10:00:00Z',
+      usAqi: 249,
+      pm25: 199,
+    });
+
+    expect(delhiReq.signal.aborted).toBe(false);
+    expect(coordinator.isTelemetryResponseValid(delhiReq)).toBe(true);
+
+    // Switch city handler invalidates outgoing telemetry synchronously before new effect runs
+    coordinator.invalidatePendingTelemetry();
+    coordinator.invalidatePendingPlans();
+
+    expect(delhiReq.signal.aborted).toBe(true);
+    expect(coordinator.isTelemetryResponseValid(delhiReq)).toBe(false);
+    expect(coordinator.isPlanResponseValid(planCtx)).toBe(false);
+
+    // Next city starts cleanly with fresh signal & generation
+    const bengaluruReq = coordinator.beginTelemetryRequest(12.97, 77.59, 'Bengaluru');
+    expect(bengaluruReq.signal.aborted).toBe(false);
+    expect(coordinator.isTelemetryResponseValid(bengaluruReq)).toBe(true);
+    expect(coordinator.isTelemetryResponseValid(delhiReq)).toBe(false);
+  });
 });

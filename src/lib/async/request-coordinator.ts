@@ -151,6 +151,24 @@ export class RequestCoordinator {
   }
 
   /**
+   * Immediately invalidates and aborts any active telemetry request.
+   * Call inside city-switching handlers before effects flush so late
+   * responses from the previous city cannot pass validation.
+   */
+  invalidatePendingTelemetry(): void {
+    if (this.activeTelemetryController) {
+      try {
+        this.activeTelemetryController.abort();
+      } catch {
+        // Ignore already aborted controllers
+      }
+      this.activeTelemetryController = null;
+    }
+    this.currentTelemetryGeneration += 1;
+    this.activeCityKey = '';
+  }
+
+  /**
    * Begins a coordinated AI plan generation request.
    */
   beginPlanRequest(params: PlanFingerprintParams): PlanGenerationContext {
@@ -207,16 +225,8 @@ export class RequestCoordinator {
    * Invalidate and abort all active requests (e.g. on unmount).
    */
   abortAll(): void {
-    if (this.activeTelemetryController) {
-      try {
-        this.activeTelemetryController.abort();
-      } catch {
-        // Ignore
-      }
-      this.activeTelemetryController = null;
-    }
-    this.currentTelemetryGeneration += 1;
-    this.currentPlanGeneration += 1;
+    this.invalidatePendingTelemetry();
+    this.invalidatePendingPlans();
     this.inFlightTelemetry.clear();
   }
 

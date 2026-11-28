@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Navigation,
   Search,
@@ -13,6 +13,7 @@ import {
 import { GeocodedLocation, PREDEFINED_INDIAN_CITIES } from '@/services/telemetry-service';
 import { WORLD_METROS } from '@/services/world-telemetry-service';
 import { LocationSelectionSource } from '@/domain/types';
+import { createGpsFallbackLocation } from './gps-location-fallback';
 
 export interface FirstVisitLocationModalProps {
   isOpen: boolean;
@@ -31,6 +32,40 @@ export function FirstVisitLocationModal({
   const [searchQuery, setSearchQuery] = useState('');
   const [, setIsSearchActive] = useState(false);
 
+  const gpsRequestGenRef = useRef(0);
+  const gpsAbortControllerRef = useRef<AbortController | null>(null);
+  const gpsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const invalidatePendingGps = useCallback(() => {
+    gpsRequestGenRef.current += 1;
+    if (gpsAbortControllerRef.current) {
+      try {
+        gpsAbortControllerRef.current.abort();
+      } catch {
+        // Ignore already-aborted controller
+      }
+      gpsAbortControllerRef.current = null;
+    }
+    if (gpsTimerRef.current !== null) {
+      clearTimeout(gpsTimerRef.current);
+      gpsTimerRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isOpen) {
+      invalidatePendingGps();
+      setGeoStatus('idle');
+      setErrorMessage('');
+    }
+  }, [isOpen, invalidatePendingGps]);
+
+  useEffect(() => {
+    return () => {
+      invalidatePendingGps();
+    };
+  }, [invalidatePendingGps]);
+
   if (!isOpen) return null;
 
   // 1. Explicit User-Initiated Geolocation Request
@@ -41,29 +76,32 @@ export function FirstVisitLocationModal({
       return;
     }
 
+    invalidatePendingGps();
+    const requestGen = gpsRequestGenRef.current;
+    const controller = new AbortController();
+    gpsAbortControllerRef.current = controller;
+
     setGeoStatus('requesting');
     setErrorMessage('');
 
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
+        if (gpsRequestGenRef.current !== requestGen) return;
         try {
           const lat = Number(pos.coords.latitude.toFixed(3));
           const lon = Number(pos.coords.longitude.toFixed(3));
 
           // Call secure, cached reverse geocoding API route
-          let detectedLocation: GeocodedLocation = {
-            id: Math.abs(Math.round(lat * 1000) * 10000 + (Math.round(lon * 1000) % 10000)),
-            name: `Near ${lat >= 0 ? `${lat.toFixed(2)}°N` : `${Math.abs(lat).toFixed(2)}°S`}, ${lon >= 0 ? `${lon.toFixed(2)}°E` : `${Math.abs(lon).toFixed(2)}°W`}`,
-            country: 'Detected Location',
-            countryCode: 'IN',
-            latitude: lat,
-            longitude: lon,
-          };
+          let detectedLocation = createGpsFallbackLocation(lat, lon);
 
           try {
-            const res = await fetch(`/api/geo/reverse?lat=${lat}&lon=${lon}`);
+            const res = await fetch(`/api/geo/reverse?lat=${lat}&lon=${lon}`, {
+              signal: controller.signal,
+            });
+            if (gpsRequestGenRef.current !== requestGen) return;
             if (res.ok) {
               const data = await res.json();
+              if (gpsRequestGenRef.current !== requestGen) return;
               if (data?.name) {
                 detectedLocation = {
                   id: data.id ?? detectedLocation.id,
@@ -77,8 +115,11 @@ export function FirstVisitLocationModal({
               }
             }
           } catch {
+            if (gpsRequestGenRef.current !== requestGen) return;
             // Falls back to coarse coordinates gracefully
           }
+
+          if (gpsRequestGenRef.current !== requestGen) return;
 
           setGeoStatus('success');
           try {
@@ -87,16 +128,20 @@ export function FirstVisitLocationModal({
             localStorage.setItem('avir_location_onboarded_v1', 'true');
           } catch {}
 
-          setTimeout(() => {
+          gpsTimerRef.current = setTimeout(() => {
+            gpsTimerRef.current = null;
+            if (gpsRequestGenRef.current !== requestGen) return;
             onSelectCity(detectedLocation, 'ephemeral_gps');
             onClose();
           }, 400);
         } catch {
+          if (gpsRequestGenRef.current !== requestGen) return;
           setGeoStatus('error');
           setErrorMessage('Failed to resolve coordinates. Please choose a city below.');
         }
       },
       (err) => {
+        if (gpsRequestGenRef.current !== requestGen) return;
         if (err.code === err.PERMISSION_DENIED) {
           setGeoStatus('denied');
           setErrorMessage('Location permission was denied. You can search for your city below.');
@@ -115,11 +160,23 @@ export function FirstVisitLocationModal({
 
   // 2. Explore without Location (Default Example City)
   const handleExploreWithoutLocation = () => {
+    invalidatePendingGps();
     try {
       localStorage.setItem('avir_location_onboarded_v1', 'true');
     } catch {}
     // Clearly marked as Example City (Delhi-NCR)
     onSelectCity(PREDEFINED_INDIAN_CITIES[0]);
+    onClose();
+  };
+
+  // 3. Explicit Manual City Selection (Predefined Indian or World Metro)
+  const handleManualCitySelect = (location: GeocodedLocation) => {
+    invalidatePendingGps();
+    try {
+      localStorage.setItem('avir_location_onboarded_v1', 'true');
+      localStorage.setItem('avir_selected_city_v1', JSON.stringify(location));
+    } catch {}
+    onSelectCity(location, 'manual_predefined');
     onClose();
   };
 
@@ -243,14 +300,7 @@ export function FirstVisitLocationModal({
                 <button
                   key={city.id}
                   type="button"
-                  onClick={() => {
-                    try {
-                      localStorage.setItem('avir_location_onboarded_v1', 'true');
-                      localStorage.setItem('avir_selected_city_v1', JSON.stringify(city));
-                    } catch {}
-                    onSelectCity(city, 'manual_predefined');
-                    onClose();
-                  }}
+                  onClick={() => handleManualCitySelect(city)}
                   className="px-2.5 py-1 rounded-lg text-xs font-medium bg-white/10 hover:bg-sky-500 hover:text-black transition-colors cursor-pointer"
                 >
                   {city.name}
@@ -260,22 +310,16 @@ export function FirstVisitLocationModal({
                 <button
                   key={city.id}
                   type="button"
-                  onClick={() => {
-                    const loc: GeocodedLocation = {
+                  onClick={() =>
+                    handleManualCitySelect({
                       id: city.id,
                       name: city.name,
                       country: city.country,
                       countryCode: city.countryCode,
                       latitude: city.latitude,
                       longitude: city.longitude,
-                    };
-                    try {
-                      localStorage.setItem('avir_location_onboarded_v1', 'true');
-                      localStorage.setItem('avir_selected_city_v1', JSON.stringify(loc));
-                    } catch {}
-                    onSelectCity(loc, 'manual_predefined');
-                    onClose();
-                  }}
+                    })
+                  }
                   className="px-2.5 py-1 rounded-lg text-xs font-medium bg-sky-950/60 border border-sky-500/20 text-sky-200 hover:bg-sky-500 hover:text-black transition-colors cursor-pointer"
                 >
                   {city.name} ({city.countryCode})
