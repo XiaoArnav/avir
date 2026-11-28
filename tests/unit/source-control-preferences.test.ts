@@ -4,7 +4,6 @@ import {
   loadSourcePreference,
   saveSourcePreference,
   resetSourcePreference,
-  validateSourcePreference,
   isValidSourcePreference,
 } from '@/services/source-control/source-preferences';
 import { SourcePreference } from '@/services/source-control/source-control-types';

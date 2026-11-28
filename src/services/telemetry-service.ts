@@ -8,9 +8,67 @@ import {
   TelemetryCacheMetadata,
   TelemetryStatus,
   EnvironmentalSourceRecord,
-  SourceComparison,
   AqiEvidence,
 } from '@/domain/types';
+
+interface HttpStatusError extends Error {
+  status?: number;
+}
+
+interface OpenMeteoGeocodingItem {
+  id: number;
+  name: string;
+  admin1?: string;
+  country?: string;
+  country_code?: string;
+  latitude: number;
+  longitude: number;
+}
+
+interface OpenMeteoCurrentPayload {
+  time?: string;
+  us_aqi?: unknown;
+  pm2_5?: unknown;
+  pm10?: unknown;
+  carbon_monoxide?: unknown;
+  nitrogen_dioxide?: unknown;
+  sulphur_dioxide?: unknown;
+  ozone?: unknown;
+  temperature_2m?: unknown;
+  relative_humidity_2m?: unknown;
+  wind_speed_10m?: unknown;
+  wind_direction_10m?: unknown;
+}
+
+interface OpenMeteoHourlyRawPayload {
+  time?: string[];
+  pm2_5?: (number | null)[];
+  boundary_layer_height?: (number | null)[];
+  temperature_2m?: (number | null)[];
+  relative_humidity_2m?: (number | null)[];
+  wind_speed_10m?: (number | null)[];
+  wind_direction_10m?: (number | null)[];
+}
+
+interface OpenMeteoApiResponse {
+  error?: boolean;
+  reason?: string;
+  timezone?: string;
+  current?: OpenMeteoCurrentPayload;
+  hourly?: OpenMeteoHourlyRawPayload;
+}
+
+function getTelemetryErrorInfo(err: unknown): { name?: string; status?: number; message?: string } {
+  if (typeof err !== 'object' || err === null) {
+    return { message: typeof err === 'string' ? err : undefined };
+  }
+  const e = err as { name?: unknown; status?: unknown; message?: unknown };
+  return {
+    name: typeof e.name === 'string' ? e.name : undefined,
+    status: typeof e.status === 'number' ? e.status : undefined,
+    message: typeof e.message === 'string' ? e.message : undefined,
+  };
+}
 import { isThermalInversion, calculateAQIFromPM25, calculateCpcbNaqi } from '@/domain/air-math';
 import { calculateComprehensiveCpcbNaqi } from '@/domain/cpcb-naqi';
 import { buildMultiSourceFeeds, calculateMultiSourceConsensus } from '@/domain/advanced-air-math';
@@ -67,7 +125,7 @@ export async function searchCities(query: string, signal?: AbortSignal): Promise
     const data = await res.json();
     if (!data.results || !Array.isArray(data.results)) return [];
 
-    const locations: GeocodedLocation[] = data.results.map((item: any) => ({
+    const locations: GeocodedLocation[] = data.results.map((item: OpenMeteoGeocodingItem) => ({
       id: item.id,
       name: item.name,
       admin1: item.admin1 || '',
@@ -79,8 +137,9 @@ export async function searchCities(query: string, signal?: AbortSignal): Promise
 
     telemetryCache.set(cacheKey, locations, 1000 * 60 * 60); // 1 hour TTL
     return locations;
-  } catch (error: any) {
-    if (error?.name === 'AbortError') throw error;
+  } catch (error: unknown) {
+    const { name } = getTelemetryErrorInfo(error);
+    if (name === 'AbortError') throw error;
     console.warn('Geocoding search error, filtering predefined list:', error);
     return PREDEFINED_INDIAN_CITIES.filter(c =>
       c.name.toLowerCase().includes(query.toLowerCase()) ||
@@ -235,7 +294,7 @@ export function validateWeatherValue(
  * Bounded fetch with exponential backoff for resilient telemetry retrieval
  */
 async function fetchWithRetry(url: string, signal?: AbortSignal, maxRetries = 2, delayMs = 300): Promise<Response> {
-  let lastError: any;
+  let lastError: unknown;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       if (signal?.aborted) {
@@ -245,8 +304,8 @@ async function fetchWithRetry(url: string, signal?: AbortSignal, maxRetries = 2,
       if (res.ok) return res;
 
       if (res.status === 429) {
-        const error = new Error('HTTP 429: Rate limit exceeded');
-        (error as any).status = 429;
+        const error: HttpStatusError = new Error('HTTP 429: Rate limit exceeded');
+        error.status = 429;
         throw error;
       }
 
@@ -254,12 +313,13 @@ async function fetchWithRetry(url: string, signal?: AbortSignal, maxRetries = 2,
         await new Promise(r => setTimeout(r, delayMs * Math.pow(2, attempt)));
         continue;
       }
-      const error = new Error(`HTTP ${res.status}: ${res.statusText}`);
-      (error as any).status = res.status;
+      const error: HttpStatusError = new Error(`HTTP ${res.status}: ${res.statusText}`);
+      error.status = res.status;
       throw error;
-    } catch (err: any) {
-      if (err?.name === 'AbortError') throw err;
-      if (err?.status === 429) throw err;
+    } catch (err: unknown) {
+      const { name, status } = getTelemetryErrorInfo(err);
+      if (name === 'AbortError') throw err;
+      if (status === 429) throw err;
       lastError = err;
       if (attempt < maxRetries) {
         await new Promise(r => setTimeout(r, delayMs * Math.pow(2, attempt)));
@@ -355,7 +415,7 @@ export async function fetchLiveAtmosphericMetrics(
       fetchWithRetry(weatherUrl, options?.signal, 2, 250).catch(() => null),
     ]);
 
-    let data: any;
+    let data: OpenMeteoApiResponse;
     try {
       data = await aqRes.json();
     } catch {
@@ -371,10 +431,10 @@ export async function fetchLiveAtmosphericMetrics(
       throw err;
     }
 
-    let weatherData: any = {};
+    let weatherData: OpenMeteoApiResponse = {};
     if (weatherRes && weatherRes.ok) {
       try {
-        const wJson = await weatherRes.json();
+        const wJson: OpenMeteoApiResponse = await weatherRes.json();
         if (wJson && typeof wJson === 'object' && !wJson.error) {
           weatherData = wJson;
         }
@@ -753,25 +813,27 @@ export async function fetchLiveAtmosphericMetrics(
     // Cache telemetry for 10 minutes
     telemetryCache.set(cacheKey, metrics, 1000 * 60 * 10);
     return metrics;
-  } catch (error: any) {
-    if (error?.name === 'AbortError') {
+  } catch (error: unknown) {
+    const errInfo = getTelemetryErrorInfo(error);
+    if (errInfo.name === 'AbortError') {
       throw error;
     }
-    console.warn('Live telemetry fetch failed, checking stale cache fallback:', error?.message || error);
+    console.warn('Live telemetry fetch failed, checking stale cache fallback:', errInfo.message || error);
 
     let errorType: 'network' | 'timeout' | 'rate_limit' | 'validation' | 'unknown' = 'unknown';
     let errorMessage = 'Atmospheric telemetry is currently unavailable from the provider. Please check your connection and retry.';
 
-    if (error?.status === 429 || error?.message?.includes('429') || error?.message?.toLowerCase().includes('rate limit')) {
+    const lowerMsg = errInfo.message?.toLowerCase();
+    if (errInfo.status === 429 || errInfo.message?.includes('429') || lowerMsg?.includes('rate limit')) {
       errorType = 'rate_limit';
       errorMessage = 'Provider rate limit encountered. Telemetry is temporarily unavailable.';
-    } else if (error?.name === 'TimeoutError' || error?.message?.toLowerCase().includes('timeout') || error?.message?.includes('504')) {
+    } else if (errInfo.name === 'TimeoutError' || lowerMsg?.includes('timeout') || errInfo.message?.includes('504')) {
       errorType = 'timeout';
       errorMessage = 'Atmospheric telemetry provider timed out. Telemetry is temporarily unavailable.';
-    } else if (error?.name === 'TypeError' || error?.message?.toLowerCase().includes('fetch') || error?.message?.toLowerCase().includes('network')) {
+    } else if (errInfo.name === 'TypeError' || lowerMsg?.includes('fetch') || lowerMsg?.includes('network')) {
       errorType = 'network';
       errorMessage = 'Network connection failure while contacting atmospheric telemetry providers. Telemetry is temporarily unavailable.';
-    } else if (error?.name === 'SyntaxError' || error?.name === 'ValidationError' || error?.message?.toLowerCase().includes('json')) {
+    } else if (errInfo.name === 'SyntaxError' || errInfo.name === 'ValidationError' || lowerMsg?.includes('json')) {
       errorType = 'validation';
       errorMessage = 'Malformed or invalid telemetry response received from provider. Telemetry is temporarily unavailable.';
     }

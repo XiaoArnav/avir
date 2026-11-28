@@ -36,10 +36,10 @@ describe('AVIR STEP 02 — Production UI Data Integrity & Zero-Fabrication Suite
 
     it('Scenario 3: Changing city clears previous city dependent plan', () => {
       let activePlan: { city: string } | null = { city: 'Delhi' };
-      const handleCitySelect = (newCity: string) => {
+      const handleCitySelect = () => {
         activePlan = null; // Step 2 mandate: immediately wipe previous city plan
       };
-      handleCitySelect('Mumbai');
+      handleCitySelect();
       expect(activePlan).toBeNull();
     });
 
@@ -338,8 +338,8 @@ describe('AVIR STEP 02 — Production UI Data Integrity & Zero-Fabrication Suite
   describe('Group 5: City vs City Smog Shootout', () => {
     it('Scenario 18: No hardcoded city readings appear in production presets', () => {
       for (const target of COMPARISON_TARGETS) {
-        expect((target as any).aqi).toBeUndefined();
-        expect((target as any).pm25).toBeUndefined();
+        expect((target as unknown as Record<string, unknown>).aqi).toBeUndefined();
+        expect((target as unknown as Record<string, unknown>).pm25).toBeUndefined();
         expect(typeof target.latitude).toBe('number');
         expect(typeof target.longitude).toBe('number');
       }

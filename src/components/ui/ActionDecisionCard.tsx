@@ -15,7 +15,6 @@ export interface ActionDecisionCardProps {
 
 export const ActionDecisionCard: React.FC<ActionDecisionCardProps> = ({
   metrics,
-  category,
   onOpenDailyPlan,
   className = '',
 }) => {

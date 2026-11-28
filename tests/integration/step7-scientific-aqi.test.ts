@@ -7,13 +7,11 @@ import {
   getAQICategory,
   calculateCpcbNaqi,
   getGrapStage,
-  calculateCigaretteEquivalence,
 } from '@/domain/air-math';
 import {
   calculateSubIndex,
   calculateComprehensiveCpcbNaqi,
   getCpcbCategory,
-  CPCB_BREAKPOINTS,
 } from '@/domain/cpcb-naqi';
 import { fetchLiveAtmosphericMetrics } from '@/services/telemetry-service';
 import { parseBatchTelemetryResponse, WORLD_METROS } from '@/services/world-telemetry-service';

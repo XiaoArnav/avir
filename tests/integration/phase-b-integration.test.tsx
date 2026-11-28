@@ -13,25 +13,17 @@ import { NextRequest } from 'next/server';
 import {
   createDefaultSchedule,
   addActivityToSchedule,
-  updateActivityInSchedule,
-  deleteActivityFromSchedule,
 } from '@/services/routines/routine-manager';
 import {
   saveScheduleToStorage,
   loadScheduleFromStorage,
 } from '@/services/routines/routine-storage';
-import {
-  calculateDailyScheduleExposure,
-  calculateActivityInhaledMass,
-} from '@/services/exposure/exposure-engine';
+import { calculateDailyScheduleExposure } from '@/services/exposure/exposure-engine';
 import {
   optimizeScheduleWithForecast,
   HourlyForecastPoint,
 } from '@/services/optimization/forecast-optimizer';
-import {
-  evaluateCommuteScenarios,
-  calculateCommuteModeExposure,
-} from '@/services/commute/commute-service';
+import { evaluateCommuteScenarios } from '@/services/commute/commute-service';
 import {
   calculateAch,
   calculateRoomDimensions,
@@ -121,9 +113,9 @@ describe('AVIR — Phase B Master Integration & User Journey Gate (Steps 11–16
 
       // Defect B-004 verification: zero arbitrary multipliers on mass
       // Defect B-005 verification: zero cigarette equivalences
-      expect((exposure as any).cigaretteFraction).toBeUndefined();
-      expect((exposure as any).cigarettes).toBeUndefined();
-      expect((exposure as any).riskScore).toBeUndefined();
+      expect((exposure as unknown as Record<string, unknown>).cigaretteFraction).toBeUndefined();
+      expect((exposure as unknown as Record<string, unknown>).cigarettes).toBeUndefined();
+      expect((exposure as unknown as Record<string, unknown>).riskScore).toBeUndefined();
     });
   });
 

@@ -1,9 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   toDisplayMeasurement,
-  resolveDataState,
   formatTimeAgo,
-  formatMeasurementValue,
   POLLUTANT_PRESENTATION_METADATA,
 } from '@/domain/presentation-contract';
 

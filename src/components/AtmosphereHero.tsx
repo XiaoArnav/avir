@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
+import { motion, useReducedMotion } from 'motion/react';
 import { AtmosphericMetrics, AQICategory, HourlyAtmosphericPoint } from '@/domain/types';
 import {
   calculateCigaretteEquivalence,
@@ -13,7 +13,7 @@ import { formatTimeAgo } from '@/domain/presentation-contract';
 import { CityPanoramicBackdrop } from './CityPanoramicBackdrop';
 import { GroundStationBadge } from './GroundStationBadge';
 import { ValueCrossfade } from '@/components/motion';
-import { springs, duration } from '@/lib/motion-tokens';
+import { springs } from '@/lib/motion-tokens';
 import {
   AlertTriangle,
   CloudFog,
@@ -695,7 +695,7 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
           <div className="flex items-center gap-2">
             <Sparkles className="w-4 h-4 text-sage-600 dark:text-emerald-400" />
             <h3 className="text-xs font-bold font-mono uppercase tracking-wider text-ink dark:text-white">
-              Today's Quick Health Guide • What to do
+              Today&apos;s Quick Health Guide • What to do
             </h3>
           </div>
           <span className="text-[10px] font-mono text-ink-muted dark:text-zinc-400 hidden sm:inline">
@@ -774,7 +774,18 @@ export const AtmosphereHero: React.FC<AtmosphereHeroProps> = ({
         {/* 24-Bar Heatmap Strip directly driven by Open-Meteo hourly forecast */}
         {forecastPoints.length > 0 ? (
           <>
-            <div className="grid grid-cols-24 gap-1 h-10 items-end" role="meter" aria-label="24-hour atmospheric boundary layer trend">
+            <div
+              className="grid grid-cols-24 gap-1 h-10 items-end"
+              role="meter"
+              aria-label="24-hour atmospheric boundary layer trend"
+              aria-valuemin={0}
+              aria-valuemax={5000}
+              aria-valuenow={Math.round(
+                (forecastPoints.find((p) => p.hour === selectedHour)?.boundaryLayerHeight ??
+                  metrics.boundaryLayerHeight) ??
+                  0
+              )}
+            >
               {forecastPoints.slice(0, 24).map((slot) => {
                 const isCurrent = slot.hour === currentCityHour;
                 const isSelected = slot.hour === selectedHour;

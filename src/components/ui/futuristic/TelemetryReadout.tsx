@@ -22,7 +22,6 @@ export function TelemetryReadout({
   provenance = 'modeled',
   uncertainty,
   categoryLabel,
-  categoryColor = 'cyan',
   className = '',
   testId,
 }: TelemetryReadoutProps) {

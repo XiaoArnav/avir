@@ -77,30 +77,48 @@ export type IntervalExposureResult =
 /**
  * Normalizes any forecast point into an EligibleForecastPoint with verified UTC timestamp and PM2.5.
  */
-export function normalizeForecastPoint(pt: any): NormalizedForecastPoint | null {
-  if (!pt || typeof pt !== 'object') return null;
+export function normalizeForecastPoint(pt: unknown): NormalizedForecastPoint | null {
+  if (!pt || typeof pt !== 'object' || Array.isArray(pt)) return null;
+  const rec = pt as Record<string, unknown>;
 
-  const validAtUtc = pt.validAtUtc || pt.timestamp;
-  if (!validAtUtc || typeof validAtUtc !== 'string') return null;
+  const validAtUtc =
+    typeof rec.validAtUtc === 'string' && rec.validAtUtc
+      ? rec.validAtUtc
+      : typeof rec.timestamp === 'string' && rec.timestamp
+        ? rec.timestamp
+        : null;
+  if (!validAtUtc) return null;
 
   const epoch = Date.parse(validAtUtc);
   if (isNaN(epoch)) return null;
 
-  const pm25Raw = pt.pm25UgM3 !== undefined ? pt.pm25UgM3 : pt.pm25;
+  const pm25Raw = rec.pm25UgM3 !== undefined ? rec.pm25UgM3 : rec.pm25;
   const pm25Val = typeof pm25Raw === 'number' && Number.isFinite(pm25Raw) ? pm25Raw : null;
+
+  const sourceKind =
+    rec.sourceKind === 'atmospheric_model' ||
+    rec.sourceKind === 'physical_observation' ||
+    rec.sourceKind === 'user_supplied'
+      ? rec.sourceKind
+      : 'atmospheric_model';
+  const units = rec.units === 'µg/m³' || rec.units === 'ug/m3' ? rec.units : 'µg/m³';
+  const status =
+    rec.status === 'valid' || rec.status === 'stale' || rec.status === 'unavailable'
+      ? rec.status
+      : 'valid';
 
   return {
     validAtUtc: new Date(epoch).toISOString(),
-    cityId: pt.cityId ? String(pt.cityId).toLowerCase().trim() : undefined,
-    timezone: pt.timezone || 'UTC',
+    cityId: typeof rec.cityId === 'string' && rec.cityId ? rec.cityId.toLowerCase().trim() : undefined,
+    timezone: typeof rec.timezone === 'string' && rec.timezone ? rec.timezone : 'UTC',
     pm25UgM3: pm25Val,
-    sourceKind: pt.sourceKind || 'atmospheric_model',
-    provider: pt.provider || 'Open-Meteo',
-    units: pt.units || 'µg/m³',
-    status: pt.status || 'valid',
-    modelRunAt: pt.modelRunAt || null,
+    sourceKind,
+    provider: typeof rec.provider === 'string' && rec.provider ? rec.provider : 'Open-Meteo',
+    units,
+    status,
+    modelRunAt: typeof rec.modelRunAt === 'string' ? rec.modelRunAt : null,
     timestamp: validAtUtc,
-    hour: pt.hour,
+    hour: typeof rec.hour === 'string' ? rec.hour : undefined,
     pm25: pm25Val !== null ? pm25Val : undefined,
   };
 }
@@ -239,7 +257,6 @@ export function calculateInhaledMassForIntervals(params: {
     intensity,
     environment,
     forecastPoints,
-    timezone = 'Asia/Kolkata',
     customMicroenvironmentRatio,
   } = params;
 
@@ -440,7 +457,7 @@ export function optimizeScheduleWithForecast(
         isSynthetic: false,
         sourceClassification: isUserSupplied ? 'user_supplied_scenario' : 'unavailable',
         isVerifiedAtmosphericModel: false,
-      } as any,
+      },
       limitations: [
         'Deterministic optimization requires continuous authentic hourly forecast data.',
         'Zero synthetic values substituted.',
@@ -605,7 +622,7 @@ export function optimizeScheduleWithForecast(
       isSynthetic: false,
       sourceClassification,
       isVerifiedAtmosphericModel,
-    } as any,
+    },
     limitations: [
       'Calculations assume authentic continuous forecast coverage and documented ventilation rates.',
       'Shifts respect user-specified allowable ranges and locked fixed activities.',

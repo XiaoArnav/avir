@@ -1,9 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  EnvironmentalSourceRecord,
-  SourceMeasurement,
-  EnvironmentalSourceKind,
-} from '@/domain/types';
+import { EnvironmentalSourceRecord } from '@/domain/types';
 import {
   createOpenMeteoModelRecord,
   deduplicateEnvironmentalSources,

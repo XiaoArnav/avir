@@ -16,37 +16,25 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   parseIndianStandardTime,
   parseCpcbPollutantValue,
-  normalizeCpcbPollutantId,
   resolveCpcbPollutantUnit,
   normalizeDataGovInRecords,
   fetchCpcbProviderResult,
   createCombinedAbortSignal,
   DataGovInRecord,
-  CPCB_OGD_ENDPOINT,
 } from '@/services/providers/cpcb-provider';
 import {
   calculateSubIndex,
   calculateComprehensiveCpcbNaqi,
-  getCpcbCategory,
-  CPCB_BREAKPOINTS,
 } from '@/domain/cpcb-naqi';
 import {
   getPhysicalStationDeduplicationKey,
   getActivePhysicalSources,
   evaluateMeasurementEligibility,
   registerVerifiedStationMapping,
-  VERIFIED_CROSS_PROVIDER_STATION_MAP,
 } from '@/config/environmental-sources';
-import {
-  OFFICIAL_CPCB_STATIONS,
-  findNearestCpcbStation,
-  calculateGroundModelDelta,
-} from '@/services/ground-station-service';
-import {
-  deduplicateEnvironmentalSources,
-  compareEnvironmentalSources,
-} from '@/domain/source-comparison';
-import { EnvironmentalSourceRecord, SourceMeasurement } from '@/domain/types';
+import { OFFICIAL_CPCB_STATIONS } from '@/services/ground-station-service';
+import { compareEnvironmentalSources } from '@/domain/source-comparison';
+import { EnvironmentalSourceRecord } from '@/domain/types';
 
 describe('AVIR Step 4 Critical Corrective Hotfix (Groups A–H)', () => {
   const originalEnv = process.env;
@@ -1224,7 +1212,12 @@ describe('AVIR Step 4 Critical Corrective Hotfix (Groups A–H)', () => {
       expect(noCoverageResult.isPartial).toBe(false);
 
       // Partial empty query (timed out before fetching)
-      const partialEmptyResult: any = {
+      const partialEmptyResult: {
+        providerId: string;
+        status: string;
+        sources: unknown[];
+        isPartial: boolean;
+      } = {
         providerId: 'cpcb',
         status: 'partial',
         sources: [],

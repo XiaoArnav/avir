@@ -23,7 +23,6 @@ import {
 } from '@/domain/types';
 import { calculateDistanceKm } from '@/services/ground-station-service';
 import {
-  MAX_OBSERVATION_AGE_HOURS,
   validateObservationTiming,
   getActivePhysicalSources,
 } from '@/config/environmental-sources';
@@ -510,8 +509,11 @@ export function createCombinedAbortSignal(
 
   let cleanupListeners = () => {};
 
-  if (typeof (AbortSignal as any).any === 'function' && externalSignal) {
-    const combined = (AbortSignal as any).any([externalSignal, timeoutController.signal]);
+  const abortSignalWithAny = AbortSignal as typeof AbortSignal & {
+    any?: (signals: AbortSignal[]) => AbortSignal;
+  };
+  if (typeof abortSignalWithAny.any === 'function' && externalSignal) {
+    const combined = abortSignalWithAny.any([externalSignal, timeoutController.signal]);
     cleanupListeners = () => {
       clearTimeout(timer);
     };
@@ -660,9 +662,13 @@ export async function fetchCpcbProviderResult(options: FetchCpcbOptions = {}): P
             'User-Agent': 'Avir-Environmental-Intelligence/1.0',
           },
         });
-      } catch (fetchErr: any) {
+      } catch (fetchErr: unknown) {
         cleanup();
-        if (fetchErr?.name === 'AbortError' || isTimeout()) {
+        const fetchErrName =
+          typeof fetchErr === 'object' && fetchErr !== null && 'name' in fetchErr
+            ? (fetchErr as { name?: unknown }).name
+            : undefined;
+        if (fetchErrName === 'AbortError' || isTimeout()) {
           if (isTimeout()) {
             if (pageIndex > 0) {
               isPartial = true;
@@ -897,8 +903,12 @@ export async function fetchCpcbProviderResult(options: FetchCpcbOptions = {}): P
         ? 'data.gov.in request timed out during pagination; partial results preserved.'
         : undefined,
     };
-  } catch (err: any) {
-    if (err?.name === 'AbortError') {
+  } catch (err: unknown) {
+    const errName =
+      typeof err === 'object' && err !== null && 'name' in err
+        ? (err as { name?: unknown }).name
+        : undefined;
+    if (errName === 'AbortError') {
       const isCallerCancellation = options.signal?.aborted;
       return {
         providerId: 'cpcb',
@@ -916,6 +926,12 @@ export async function fetchCpcbProviderResult(options: FetchCpcbOptions = {}): P
       };
     }
 
+    const errMessage =
+      err instanceof Error
+        ? err.message
+        : typeof err === 'object' && err !== null && 'message' in err && typeof (err as { message?: unknown }).message === 'string'
+        ? (err as { message: string }).message
+        : 'Failed to connect to data.gov.in official feed.';
     return {
       providerId: 'cpcb',
       status: 'unavailable',
@@ -928,7 +944,7 @@ export async function fetchCpcbProviderResult(options: FetchCpcbOptions = {}): P
       availableStationCount: 0,
       isPartial: false,
       errorCode: 'NETWORK_ERROR',
-      errorMessage: err?.message || 'Failed to connect to data.gov.in official feed.',
+      errorMessage: errMessage || 'Failed to connect to data.gov.in official feed.',
     };
   }
 }

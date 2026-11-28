@@ -9,7 +9,7 @@
  * - Upstream outage resilience: preserving original measurement timestamp on stale fallback
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { MemoryCache } from '@/lib/cache';
 import { CircuitBreaker } from '@/lib/reliability/circuit-breaker';
 import { TelemetryLogger } from '@/lib/monitoring/telemetry-logger';

@@ -7,7 +7,6 @@ import {
 } from '@/domain/indoor-air-types';
 import {
   calculateDiyPurifierBillOfMaterials,
-  DEFAULT_IAQ_COST_BASELINE,
   DIY_PURIFIER_PRESETS,
 } from '@/services/indoor-air/indoor-air-service';
 

@@ -11,7 +11,6 @@ import {
   DeviceTransportType,
   DeviceIdentityStatus,
   detectDeviceProfile,
-  VERIFIED_DEVICE_PROFILES,
 } from './device-profiles';
 import {
   DeviceCalibrationStatus,
@@ -210,7 +209,7 @@ export function normalizeDevicePacket(
 
   // Temperature: -40 to 85 °C (with Fahrenheit unit conversion if explicitly flagged)
   let temperature: number | null = null;
-  let tempUnit = 'celsius';
+  const tempUnit = 'celsius';
   if (rawTemp !== undefined && rawTemp !== null) {
     if (typeof rawTemp === 'boolean' || Array.isArray(rawTemp) || rawTemp === '') {
       validationErrors.push(`Invalid non-numeric temperature format rejected: ${String(rawTemp)}`);

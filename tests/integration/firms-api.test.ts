@@ -144,7 +144,7 @@ describe('NASA FIRMS Active-Fire API Route & Failure Integrity (/api/environment
         status: 200,
         text: async () =>
           'latitude,longitude,bright_ti4,scan,track,acq_date,acq_time,satellite,instrument,confidence,version,frp,daynight\n',
-      }) as any,
+      }) as unknown as typeof fetch,
     });
     expect(emptyRes.status).toBe('no_detections');
     expect(emptyRes.isAvailable).toBe(true);
@@ -158,7 +158,7 @@ describe('NASA FIRMS Active-Fire API Route & Failure Integrity (/api/environment
       latitude: 28.6139,
       longitude: 77.209,
       apiKey: secretKey,
-      fetchImpl: vi.fn().mockResolvedValue({ ok: false, status: 401 }) as any,
+      fetchImpl: vi.fn().mockResolvedValue({ ok: false, status: 401 }) as unknown as typeof fetch,
     });
     expect(authRes.status).toBe('invalid_credentials');
     expect(authRes.isAvailable).toBe(false);
@@ -171,7 +171,7 @@ describe('NASA FIRMS Active-Fire API Route & Failure Integrity (/api/environment
       latitude: 28.6139,
       longitude: 77.209,
       apiKey: secretKey,
-      fetchImpl: vi.fn().mockRejectedValue(timeoutErr) as any,
+      fetchImpl: vi.fn().mockRejectedValue(timeoutErr) as unknown as typeof fetch,
     });
     expect(timeoutRes.status).toBe('upstream_timeout');
     expect(timeoutRes.isAvailable).toBe(false);
@@ -182,7 +182,7 @@ describe('NASA FIRMS Active-Fire API Route & Failure Integrity (/api/environment
       latitude: 28.6139,
       longitude: 77.209,
       apiKey: secretKey,
-      fetchImpl: vi.fn().mockResolvedValue({ ok: false, status: 429 }) as any,
+      fetchImpl: vi.fn().mockResolvedValue({ ok: false, status: 429 }) as unknown as typeof fetch,
     });
     expect(rateRes.status).toBe('quota_exceeded');
     expect(rateRes.isAvailable).toBe(false);
@@ -192,7 +192,7 @@ describe('NASA FIRMS Active-Fire API Route & Failure Integrity (/api/environment
       latitude: 28.6139,
       longitude: 77.209,
       apiKey: secretKey,
-      fetchImpl: vi.fn().mockResolvedValue({ ok: false, status: 503 }) as any,
+      fetchImpl: vi.fn().mockResolvedValue({ ok: false, status: 503 }) as unknown as typeof fetch,
     });
     expect(errRes.status).toBe('upstream_error');
     expect(errRes.isAvailable).toBe(false);
@@ -206,7 +206,7 @@ describe('NASA FIRMS Active-Fire API Route & Failure Integrity (/api/environment
         ok: true,
         status: 200,
         text: async () => '<html>Service Error</html>',
-      }) as any,
+      }) as unknown as typeof fetch,
     });
     expect(malformedRes.status).toBe('malformed_csv');
     expect(malformedRes.isAvailable).toBe(false);
@@ -218,7 +218,7 @@ describe('NASA FIRMS Active-Fire API Route & Failure Integrity (/api/environment
       apiKey: secretKey,
       fetchImpl: vi.fn().mockRejectedValue(
         new Error(`ECONNREFUSED https://firms.modaps.eosdis.nasa.gov/api/area/csv/${secretKey}/VIIRS_NOAA20_NRT`)
-      ) as any,
+      ) as unknown as typeof fetch,
     });
     expect(thrownRes.status).toBe('upstream_error');
     expect(JSON.stringify(thrownRes)).not.toContain(secretKey);
@@ -242,7 +242,7 @@ describe('NASA FIRMS Active-Fire API Route & Failure Integrity (/api/environment
       longitude: 179.9,
       radiusKm: 200,
       apiKey: 'TEST_KEY',
-      fetchImpl: idlFetch as any,
+      fetchImpl: idlFetch as unknown as typeof fetch,
     });
     expect(idlFetch).toHaveBeenCalledTimes(2);
     expect(idlRes.count).toBe(1); // Deduplicated across split bboxes!
@@ -258,7 +258,7 @@ describe('NASA FIRMS Active-Fire API Route & Failure Integrity (/api/environment
       longitude: 77.209,
       radiusKm: 200,
       apiKey: 'TEST_KEY',
-      fetchImpl: delhiFetch as any,
+      fetchImpl: delhiFetch as unknown as typeof fetch,
     });
     expect(delhi200.isCached).toBe(false);
     expect(delhi200.count).toBe(2);
@@ -268,7 +268,7 @@ describe('NASA FIRMS Active-Fire API Route & Failure Integrity (/api/environment
       longitude: 77.209,
       radiusKm: 500,
       apiKey: 'TEST_KEY',
-      fetchImpl: delhiFetch as any,
+      fetchImpl: delhiFetch as unknown as typeof fetch,
     });
     expect(delhi500.isCached).toBe(false);
     expect(delhiFetch).toHaveBeenCalledTimes(2);
@@ -279,7 +279,7 @@ describe('NASA FIRMS Active-Fire API Route & Failure Integrity (/api/environment
       longitude: 77.209,
       radiusKm: 200,
       apiKey: 'TEST_KEY',
-      fetchImpl: delhiFetch as any,
+      fetchImpl: delhiFetch as unknown as typeof fetch,
     });
     expect(delhi200Cached.isCached).toBe(true);
     expect(delhi200Cached.isStale).toBe(false);
@@ -293,7 +293,7 @@ describe('NASA FIRMS Active-Fire API Route & Failure Integrity (/api/environment
       longitude: 77.209,
       radiusKm: 200,
       apiKey: 'TEST_KEY',
-      fetchImpl: vi.fn().mockResolvedValue({ ok: false, status: 503 }) as any,
+      fetchImpl: vi.fn().mockResolvedValue({ ok: false, status: 503 }) as unknown as typeof fetch,
     });
     expect(staleOutage.status).toBe('stale_cached');
     expect(staleOutage.isAvailable).toBe(true);

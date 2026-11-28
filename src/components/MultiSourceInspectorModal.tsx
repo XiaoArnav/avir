@@ -32,7 +32,6 @@ import {
   Scale,
   Cpu,
   Database,
-  Sliders,
   RotateCcw,
   Check,
   ArrowUpDown,
@@ -80,7 +79,6 @@ export const MultiSourceInspectorModal: React.FC<MultiSourceInspectorModalProps>
   sourcePreference: propPreference,
   onUpdateSourcePreference,
   resolvedSource: propResolvedSource,
-  initialTab = 'control',
 }) => {
   const dialogRef = useRef<HTMLDivElement>(null);
   const sourceControlSectionRef = useRef<HTMLDivElement>(null);
@@ -142,7 +140,10 @@ export const MultiSourceInspectorModal: React.FC<MultiSourceInspectorModalProps>
       : (typeof window !== 'undefined' ? hardwareDeviceService.getAsEnvironmentalSource() : null);
 
   // Zero-fabrication: Never invent fake fresh atmospheric records, synthetic 150 values, or artificial timestamps.
-  const effectiveSources: EnvironmentalSourceRecord[] = environmentalSources || [];
+  const effectiveSources = useMemo<EnvironmentalSourceRecord[]>(
+    () => environmentalSources || [],
+    [environmentalSources]
+  );
 
   // Pure selectors for honest source category separation
   const activePhysicalSources = getActivePhysicalSources(effectiveSources, 'pm25');

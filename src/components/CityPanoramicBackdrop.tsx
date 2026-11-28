@@ -24,13 +24,11 @@ function hashCity(str: string): number {
 
 export const CityPanoramicBackdrop: React.FC<CityPanoramicBackdropProps> = ({
   cityId,
-  country = '',
   skylineColor,
   isDark = false,
   className = 'w-full h-full',
 }) => {
   const normalizedId = (cityId || '').toLowerCase();
-  const normalizedCountry = (country || '').toLowerCase();
   const fill = skylineColor || (isDark ? '#F27A55' : '#C4512C');
 
   // Common floating atmospheric clouds (upper horizon)

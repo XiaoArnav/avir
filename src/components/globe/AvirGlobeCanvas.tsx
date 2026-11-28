@@ -105,6 +105,15 @@ export function AvirGlobeCanvas({
   const fireHotspotsRef = useRef(fireHotspots);
   fireHotspotsRef.current = fireHotspots;
 
+  const themeModeRef = useRef(themeMode);
+  themeModeRef.current = themeMode;
+
+  const selectedHourRef = useRef(selectedHour);
+  selectedHourRef.current = selectedHour;
+
+  const validAtUtcRef = useRef(validAtUtc);
+  validAtUtcRef.current = validAtUtc;
+
   const lastFlownTargetRef = useRef<{ name: string; latitude: number; longitude: number } | null>(null);
 
   // Three.js instances ref
@@ -210,7 +219,7 @@ export function AvirGlobeCanvas({
 
     // Load authentic NASA satellite texture (Black Marble for night / Blue Marble for day)
     const textureLoader = new THREE.TextureLoader();
-    const isDark = themeMode !== 'light';
+    const isDark = themeModeRef.current !== 'light';
     const satelliteTexturePath = isDark ? '/textures/earth-night.jpg' : '/textures/earth-blue-marble.jpg';
     textureLoader.load(
       satelliteTexturePath,
@@ -237,9 +246,9 @@ export function AvirGlobeCanvas({
     scene.add(ambientLight);
 
     const sunLight = new THREE.DirectionalLight(0xfff8ee, 1.2);
-    let initialUtcHour = selectedHour ?? 12;
-    if (validAtUtc) {
-      const parsed = new Date(validAtUtc);
+    let initialUtcHour = selectedHourRef.current ?? 12;
+    if (validAtUtcRef.current) {
+      const parsed = new Date(validAtUtcRef.current);
       if (!Number.isNaN(parsed.getTime())) {
         initialUtcHour = parsed.getUTCHours() + parsed.getUTCMinutes() / 60;
       }
@@ -397,7 +406,7 @@ export function AvirGlobeCanvas({
         containerRef.current.dataset.targetCameraDistance = instances.targetCameraDistance.toFixed(1);
       }
       if (typeof window !== 'undefined') {
-        (window as any).__avirThreeCamera = {
+        window.__avirThreeCamera = {
           getDistance: () => instances.cameraDistance,
           getTargetDistance: () => instances.targetCameraDistance,
           getOrientation: () => ({ x: instances.currentRotation.x, y: instances.currentRotation.y }),
@@ -510,7 +519,7 @@ export function AvirGlobeCanvas({
       instancesRef.current = null;
       lastFlownTargetRef.current = null;
       if (typeof window !== 'undefined') {
-        delete (window as any).__avirThreeCamera;
+        delete window.__avirThreeCamera;
       }
     };
   }, [webGLAvailable]);

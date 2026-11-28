@@ -220,7 +220,9 @@ export class ThreeWindLayer {
       hardwareConcurrency:
         typeof navigator !== 'undefined' ? navigator.hardwareConcurrency : 8,
       deviceMemory:
-        typeof navigator !== 'undefined' ? (navigator as any).deviceMemory ?? 8 : 8,
+        typeof navigator !== 'undefined'
+          ? (navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? 8
+          : 8,
     });
 
     const nextFieldKey = `${snapshot.manifest.model}|${snapshot.manifest.initTimeUtc}|${snapshot.manifest.validTimeUtc}|${budget}`;

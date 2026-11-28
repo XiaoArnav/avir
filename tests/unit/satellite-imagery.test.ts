@@ -133,7 +133,7 @@ describe('Phase 6: NASA GIBS Satellite Imagery & Comparison Service', () => {
 
     expect(() =>
       buildGibsSnapshotUrl({
-        product: 'INVALID_LAYER' as any,
+        product: 'INVALID_LAYER' as unknown as Parameters<typeof buildGibsSnapshotUrl>[0]['product'],
         date: '2026-11-20',
         bbox,
         referenceNow: refNow,
@@ -245,7 +245,7 @@ describe('Phase 6: NASA GIBS Satellite Imagery & Comparison Service', () => {
       date: '2026-11-20',
       bbox,
       referenceNow: refNow,
-      fetchImpl: fetchMock as any,
+      fetchImpl: fetchMock as unknown as typeof fetch,
     });
     // Verifies request targets GIBS OGC WMTS KVP DescribeDomains endpoint cleanly
     expect(fetchMock).toHaveBeenCalledWith(
@@ -267,7 +267,7 @@ describe('Phase 6: NASA GIBS Satellite Imagery & Comparison Service', () => {
         ok: false,
         status: 404,
         text: async () => 'Not Found',
-      }) as any,
+      }) as unknown as typeof fetch,
     });
     expect(bare404.availability).toBe('unverified');
 
@@ -282,7 +282,7 @@ describe('Phase 6: NASA GIBS Satellite Imagery & Comparison Service', () => {
         status: 404,
         text: async () =>
           '<DimensionDomain><ows:Identifier>time</ows:Identifier><Domain></Domain><Size>0</Size></DimensionDomain>',
-      }) as any,
+      }) as unknown as typeof fetch,
     });
     expect(explicit404.availability).toBe('unavailable');
 
@@ -292,7 +292,7 @@ describe('Phase 6: NASA GIBS Satellite Imagery & Comparison Service', () => {
       date: '2026-11-20',
       bbox,
       referenceNow: refNow,
-      fetchImpl: vi.fn().mockRejectedValue(new Error('Network offline')) as any,
+      fetchImpl: vi.fn().mockRejectedValue(new Error('Network offline')) as unknown as typeof fetch,
     });
     expect(offline.availability).toBe('unverified');
     expect(offline.globalDateListed).toBe(false);
@@ -364,7 +364,7 @@ describe('Phase 6: NASA GIBS Satellite Imagery & Comparison Service', () => {
           'Data-Present': 'true',
           'Acquisition-Time': '2026-11-24',
         }),
-      }) as any,
+      }) as unknown as typeof fetch,
     });
     expect(presentRes.availability).toBe('verified_regional');
     expect(presentRes.regionalCoverageVerified).toBe(true);
@@ -379,7 +379,7 @@ describe('Phase 6: NASA GIBS Satellite Imagery & Comparison Service', () => {
         ok: true,
         status: 200,
         headers: new Headers({ 'Data-Present': 'false' }),
-      }) as any,
+      }) as unknown as typeof fetch,
     });
     expect(emptyRes.availability).toBe('unavailable');
     expect(emptyRes.verifiedObservationDate).toBeNull();

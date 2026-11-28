@@ -60,11 +60,11 @@ describe('Phase B Critical Regression Suite: Legacy Planning Replacement (C16–
       profile: sampleProfile,
     });
 
-    expect((plan as any).avoidedCigarettesDaily).toBeUndefined();
-    expect((plan as any).avoidedCigarettesMonthly).toBeUndefined();
+    expect((plan as unknown as Record<string, unknown>).avoidedCigarettesDaily).toBeUndefined();
+    expect((plan as unknown as Record<string, unknown>).avoidedCigarettesMonthly).toBeUndefined();
     if (plan.impactMetrics) {
-      expect((plan.impactMetrics as any).avoidedCigarettesDaily).toBeUndefined();
-      expect((plan.impactMetrics as any).avoidedCigarettesMonthly).toBeUndefined();
+      expect((plan.impactMetrics as unknown as Record<string, unknown>).avoidedCigarettesDaily).toBeUndefined();
+      expect((plan.impactMetrics as unknown as Record<string, unknown>).avoidedCigarettesMonthly).toBeUndefined();
     }
   });
 

@@ -804,7 +804,6 @@ async function fetchCycleFromProvider(params: {
   const retrievedAtUtc = new Date(nowMs).toISOString();
   const fresh = resolveGlobalFreshness({ validTimeUtc, nowMs, isStale: false });
 
-  const id = `${model}-${cycle.date}-${cycle.hour}-f${cycle.forecastHour}-${overlay}${resampled.scalarValues ? '' : '-wind-only'}`;
   const gridQuery = new URLSearchParams({
     model,
     overlay: scalarMeta ? scalarMeta.kind : 'none',
@@ -1372,7 +1371,7 @@ export async function fetchGlobalWindSnapshot(params: {
         }
 
         throw lastErr ?? new Error('Global wind provider unavailable');
-      } catch (err: any) {
+      } catch (err: unknown) {
         if (
           newEntry.cancelledBySubscribers ||
           newEntry.controller.signal.reason === CANCELLED_BY_SUBSCRIBERS_REASON
@@ -1389,8 +1388,7 @@ export async function fetchGlobalWindSnapshot(params: {
         recordFailureBackoff(requestKey, failNowMs);
         const isTimeout =
           newEntry.controller.signal.reason === UPSTREAM_TIMEOUT_REASON ||
-          err?.name === 'AbortError' ||
-          err?.message === 'TimeoutError';
+          (err instanceof Error && (err.name === 'AbortError' || err.message === 'TimeoutError'));
         const staleHit = findCachedState(requestKey, failNowMs);
         if (staleHit) {
           const fresh = resolveGlobalFreshness({

@@ -301,7 +301,7 @@ describe('Server-Side AI Plan API Route (/api/ai/plan)', () => {
     const goodData = await goodUtcIstRes.json();
     expect(validateDecisionContext(goodData.decisionContext).isValid).toBe(true);
     const outdoorRec = goodData.structuredExplanation.actionableRecommendations.find(
-      (r: any) => r.category === 'outdoor_activity'
+      (r: { category?: string }) => r.category === 'outdoor_activity'
     );
     expect(outdoorRec.applicableWindow).toBe('14:00 - 15:00');
   });
@@ -377,7 +377,7 @@ describe('Server-Side AI Plan API Route (/api/ai/plan)', () => {
               },
             ],
           }),
-        } as any;
+        } as unknown as Response;
       });
 
       const llmRes = await POST(
@@ -428,7 +428,7 @@ describe('Server-Side AI Plan API Route (/api/ai/plan)', () => {
             },
           ],
         }),
-      } as any);
+      } as unknown as Response);
 
       const unsafeRes = await POST(
         new NextRequest('http://localhost:3000/api/ai/plan', {

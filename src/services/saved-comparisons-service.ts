@@ -147,9 +147,9 @@ class SavedComparisonsService {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
 
       return { success: true, record };
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.warn('Failed to save city comparison:', err);
-      return { success: false, error: err?.message || 'Storage error' };
+      return { success: false, error: err instanceof Error ? err.message : 'Storage error' };
     }
   }
 

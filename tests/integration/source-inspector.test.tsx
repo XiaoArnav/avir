@@ -5,7 +5,6 @@ import { MultiSourceInspectorModal } from '@/components/MultiSourceInspectorModa
 import {
   EnvironmentalSourceRecord,
   SourceComparison,
-  AtmosphericMetrics,
 } from '@/domain/types';
 
 describe('AVIR STEP 3 CORRECTIVE — Group C: Zero Fabrication & Integrity in Source Inspector (23-29)', () => {

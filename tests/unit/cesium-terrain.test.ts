@@ -9,6 +9,8 @@ import {
   createCesiumTerrainController,
   createTerrainRetryPolicy,
   formatSanitizedTerrainError,
+  type CesiumTerrainProviderLike,
+  type TerrainProviderResult,
 } from '@/components/globe/cesium/cesium-terrain';
 import { AvirCesiumGlobe } from '@/components/globe/cesium/AvirCesiumGlobe';
 
@@ -181,7 +183,7 @@ describe('Cesium 3D Elevation Terrain Provider (Phase 5 Part B)', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const errorEvent = createMockCesiumEvent();
     const realProvider = { isRealTerrain: true, errorEvent };
-    const ellipsoidInstances: any[] = [];
+    const ellipsoidInstances: Array<{ isEllipsoid: boolean; id: number }> = [];
     const mockCesium = {
       CesiumTerrainProvider: {
         fromUrl: vi.fn().mockResolvedValue(realProvider),
@@ -194,7 +196,7 @@ describe('Cesium 3D Elevation Terrain Provider (Phase 5 Part B)', () => {
     };
     const viewer = {
       isDestroyed: () => false,
-      terrainProvider: null as any,
+      terrainProvider: null as CesiumTerrainProviderLike | null,
     };
     const attributionCalls: Array<string | null> = [];
     const controller = createCesiumTerrainController();
@@ -238,7 +240,7 @@ describe('Cesium 3D Elevation Terrain Provider (Phase 5 Part B)', () => {
       CesiumTerrainProvider: { fromUrl: vi.fn().mockResolvedValue(realProvider) },
       EllipsoidTerrainProvider: vi.fn().mockImplementation(() => ({ isEllipsoid: true })),
     };
-    const viewer = { isDestroyed: () => false, terrainProvider: null as any };
+    const viewer = { isDestroyed: () => false, terrainProvider: null as CesiumTerrainProviderLike | null };
     let activeAttr: string | null = null;
     const controller = createCesiumTerrainController();
 
@@ -259,8 +261,8 @@ describe('Cesium 3D Elevation Terrain Provider (Phase 5 Part B)', () => {
   });
 
   it('prevents stale re-activation on rapid ON -> OFF -> ON toggles (latest intent wins)', async () => {
-    const firstPending = createDeferred<any>();
-    const secondPending = createDeferred<any>();
+    const firstPending = createDeferred<TerrainProviderResult>();
+    const secondPending = createDeferred<TerrainProviderResult>();
     const errEvent1 = createMockCesiumEvent();
     const errEvent3 = createMockCesiumEvent();
 
@@ -274,7 +276,7 @@ describe('Cesium 3D Elevation Terrain Provider (Phase 5 Part B)', () => {
     const mockCesium = {
       EllipsoidTerrainProvider: vi.fn().mockImplementation(() => ellipsoidA),
     };
-    const viewer = { isDestroyed: () => false, terrainProvider: null as any };
+    const viewer = { isDestroyed: () => false, terrainProvider: null as CesiumTerrainProviderLike | null };
     const attrHistory: Array<string | null> = [];
     const controller = createCesiumTerrainController();
 
@@ -336,14 +338,14 @@ describe('Cesium 3D Elevation Terrain Provider (Phase 5 Part B)', () => {
   });
 
   it('never installs terrain or sets attribution when disabled during a pending load', async () => {
-    const pending = createDeferred<any>();
+    const pending = createDeferred<TerrainProviderResult>();
     const errEvent = createMockCesiumEvent();
     const loadProvider = vi.fn().mockReturnValue(pending.promise);
     const ellipsoid = { isEllipsoid: true };
     const mockCesium = {
       EllipsoidTerrainProvider: vi.fn().mockImplementation(() => ellipsoid),
     };
-    const viewer = { isDestroyed: () => false, terrainProvider: null as any };
+    const viewer = { isDestroyed: () => false, terrainProvider: null as CesiumTerrainProviderLike | null };
     const onAttr = vi.fn();
     const controller = createCesiumTerrainController();
 
@@ -364,7 +366,7 @@ describe('Cesium 3D Elevation Terrain Provider (Phase 5 Part B)', () => {
     });
 
     pending.resolve({
-      provider: { id: 'late-real', errorEvent: errEvent },
+      provider: { id: 'late-real', errorEvent: errEvent } as CesiumTerrainProviderLike,
       isRealTerrain: true,
       attribution: TERRAIN_ATTRIBUTION,
       status: 'real_terrain',
@@ -378,13 +380,13 @@ describe('Cesium 3D Elevation Terrain Provider (Phase 5 Part B)', () => {
   });
 
   it('aborts mutations and React state setters when Viewer is destroyed or unmounted during load or recovery', async () => {
-    const pending = createDeferred<any>();
+    const pending = createDeferred<TerrainProviderResult>();
     let destroyed = false;
     const errEvent = createMockCesiumEvent();
     const provider = { id: 'late-provider', errorEvent: errEvent };
     const viewer = {
       isDestroyed: () => destroyed,
-      terrainProvider: { initial: true } as any,
+      terrainProvider: { initial: true } as CesiumTerrainProviderLike,
     };
     const mockCesium = {
       EllipsoidTerrainProvider: vi.fn().mockImplementation(() => ({ isEllipsoid: true })),
@@ -455,7 +457,7 @@ describe('Cesium 3D Elevation Terrain Provider (Phase 5 Part B)', () => {
       CesiumTerrainProvider: { fromUrl: vi.fn().mockResolvedValue(provider) },
       EllipsoidTerrainProvider: vi.fn().mockImplementation(() => ({ isEllipsoid: true })),
     };
-    const viewer = { isDestroyed: () => false, terrainProvider: null as any };
+    const viewer = { isDestroyed: () => false, terrainProvider: null as CesiumTerrainProviderLike | null };
     const controller = createCesiumTerrainController();
 
     await controller.sync({
@@ -520,12 +522,16 @@ describe('Cesium 3D Elevation Terrain Provider (Phase 5 Part B)', () => {
     ).toBe(false);
 
     // Passes Cesium.Resource instance when Resource constructor is available
-    const constructed: unknown[] = [];
-    const mockCesiumWithResource = {
-      Resource: function MockResource(opts: unknown) {
+    const constructed: Array<{ url?: string; retryAttempts?: number }> = [];
+    class MockResource {
+      isMockResource = true;
+      constructor(opts: { url: string; retryAttempts?: number }) {
         constructed.push(opts);
-        return { ...(opts as object), isMockResource: true };
-      },
+        Object.assign(this, opts);
+      }
+    }
+    const mockCesiumWithResource = {
+      Resource: MockResource,
       CesiumTerrainProvider: {
         fromUrl: vi.fn().mockResolvedValue({ isRealQuantizedMesh: true }),
       },
@@ -535,7 +541,7 @@ describe('Cesium 3D Elevation Terrain Provider (Phase 5 Part B)', () => {
     const loaded = await createKeylessTerrainProvider(mockCesiumWithResource);
     expect(loaded.isRealTerrain).toBe(true);
     expect(constructed).toHaveLength(1);
-    expect((constructed[0] as any).url).toBe(REEARTH_KEYLESS_TERRAIN_URL);
-    expect((constructed[0] as any).retryAttempts).toBe(TERRAIN_RETRY_ATTEMPTS);
+    expect(constructed[0]?.url).toBe(REEARTH_KEYLESS_TERRAIN_URL);
+    expect(constructed[0]?.retryAttempts).toBe(TERRAIN_RETRY_ATTEMPTS);
   });
 });

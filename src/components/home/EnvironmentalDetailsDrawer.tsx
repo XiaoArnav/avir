@@ -3,8 +3,6 @@
 import React, { useEffect, useRef, useMemo } from 'react';
 import {
   X,
-  Wind,
-  Layers,
   Activity,
   ShieldAlert,
   ArrowRight,
@@ -100,7 +98,6 @@ export function EnvironmentalDetailsDrawer({
 
       // Check measurements on resolved source record
       const sourceMeas = resolvedSource.resolvedSource?.measurements || [];
-      const pm25M = sourceMeas.find((m) => m && m.pollutant === 'pm25');
       const pm10M = sourceMeas.find((m) => m && m.pollutant === 'pm10');
       const o3M = sourceMeas.find((m) => m && m.pollutant === 'o3');
       const no2M = sourceMeas.find((m) => m && m.pollutant === 'no2');
@@ -155,11 +152,6 @@ export function EnvironmentalDetailsDrawer({
   }, [isForecastSelected, selectedTemporalPoint, resolvedSource, metrics, isOfficialGround]);
 
   const pm25 = pollutantData.pm25.value;
-  const pm10 = pollutantData.pm10.value;
-  const o3 = pollutantData.o3.value;
-  const no2 = pollutantData.no2.value;
-  const so2 = pollutantData.so2.value;
-  const co = pollutantData.co.value;
 
   if (!isOpen) return null;
 

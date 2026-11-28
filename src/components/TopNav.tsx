@@ -20,11 +20,6 @@ interface TopNavProps {
 
 export const TopNav: React.FC<TopNavProps> = ({
   onOpenSettings,
-  onOpenExplainer,
-  onOpenRwa,
-  onOpenWorldData,
-  onOpenSchoolAdvisory,
-  onOpenShare,
   onOpenMultiSource,
   hasCustomKey,
   isDarkMode = true,

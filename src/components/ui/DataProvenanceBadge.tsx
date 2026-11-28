@@ -1,6 +1,6 @@
 import React from 'react';
 import { DisplaySourceKind, DisplayDataState } from '@/domain/presentation-contract';
-import { ShieldCheck, Cpu, Calculator, AlertTriangle, Clock } from 'lucide-react';
+import { ShieldCheck, Cpu, Calculator, Clock } from 'lucide-react';
 
 export interface DataProvenanceBadgeProps {
   sourceKind: DisplaySourceKind;

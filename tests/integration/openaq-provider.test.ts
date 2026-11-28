@@ -5,7 +5,6 @@ import {
   parseOpenAqLocation,
   validateMeasurementValue,
   OPENAQ_MAX_RADIUS_KM,
-  OPENAQ_MIN_RADIUS_KM,
   OpenAqLocationResult,
   OpenAqLatestMeasurementItem,
 } from '@/services/providers/openaq-provider';
@@ -164,7 +163,7 @@ describe('AVIR STEP 3 CORRECTIVE — Group B: OpenAQ Production Boundaries & Sec
 
   it('13. Radius of 25 km is accepted and queried against OpenAQ API', async () => {
     let capturedUrl = '';
-    vi.spyOn(global, 'fetch').mockImplementation(async (url: any) => {
+    vi.spyOn(global, 'fetch').mockImplementation(async (url: RequestInfo | URL) => {
       capturedUrl = String(url);
       return {
         ok: true,
@@ -185,7 +184,7 @@ describe('AVIR STEP 3 CORRECTIVE — Group B: OpenAQ Production Boundaries & Sec
 
   it('14. Radius above 25 km is clamped to 25 km limit (OPENAQ_MAX_RADIUS_KM)', async () => {
     let capturedUrl = '';
-    vi.spyOn(global, 'fetch').mockImplementation(async (url: any) => {
+    vi.spyOn(global, 'fetch').mockImplementation(async (url: RequestInfo | URL) => {
       capturedUrl = String(url);
       return {
         ok: true,
@@ -361,7 +360,7 @@ describe('AVIR STEP 3 CORRECTIVE — Group F: Cache Invariants & Failure Isolati
       ],
     };
 
-    const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation(async (url: any) => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation(async (url: RequestInfo | URL) => {
       const urlStr = String(url);
       if (urlStr.includes('/latest')) {
         return { ok: true, status: 200, json: async () => mockLatest } as unknown as Response;

@@ -5,7 +5,6 @@
 
 import {
   HealthAdvisory,
-  AdvisoryEvidenceLevel,
   OfficialGrapStatus,
 } from '@/domain/regulatory-orders';
 

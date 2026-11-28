@@ -374,6 +374,24 @@ export function findNearestCpcbStation(
   return { station: closestStation, distanceKm: minDistance };
 }
 
+interface SensorCommunityValue {
+  value_type?: string;
+  value: string;
+}
+
+interface SensorCommunityNode {
+  id?: string | number;
+  timestamp?: string;
+  sensor?: {
+    id?: string | number;
+  };
+  location?: {
+    latitude?: string;
+    longitude?: string;
+  };
+  sensordatavalues?: SensorCommunityValue[];
+}
+
 /**
  * Queries Sensor.Community (Luftdaten) open REST API for live citizen-science particulate stations.
  */
@@ -394,7 +412,7 @@ export async function fetchSensorCommunityStation(
     const items = await res.json();
     if (!Array.isArray(items) || items.length === 0) return null;
 
-    let closestNode: any = null;
+    let closestNode: SensorCommunityNode | null = null;
     let minDistance = Infinity;
 
     for (const item of items) {
@@ -412,7 +430,7 @@ export async function fetchSensorCommunityStation(
       }
     }
 
-    if (!closestNode) return null;
+    if (!closestNode || !closestNode.location?.latitude || !closestNode.location?.longitude) return null;
 
     let rawPm25: number | null = null;
     let rawPm10: number | null = null;

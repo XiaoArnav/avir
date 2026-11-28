@@ -2,15 +2,12 @@ import { describe, it, expect } from 'vitest';
 import {
   validateForecastEligibility,
   calculateInhaledMassForIntervals,
-  optimizeScheduleWithForecast,
   EligibleForecastPoint,
   IntervalExposureResult,
 } from '@/services/optimization/forecast-optimizer';
-import { DailySchedule } from '@/domain/routine-types';
 
 describe('Phase B Critical Regression Suite: Forecast & Temporal Integrity', () => {
   // Base 24h eligible forecast for Bengaluru (Asia/Kolkata, UTC+05:30)
-  const baseDate = '2026-11-23';
   const kolkataPoints: EligibleForecastPoint[] = Array.from({ length: 24 }, (_, i) => {
     // 00:00 to 23:00 IST = 2026-11-22T18:30:00Z to 2026-11-23T17:30:00Z
     const hourUtc = (i + 18) % 24;
@@ -49,7 +46,7 @@ describe('Phase B Critical Regression Suite: Forecast & Temporal Integrity', () 
         expect(result.missingIntervals.length).toBeGreaterThan(0);
       }
       // MUST NOT return 100 or fabricated number
-      expect((result as any).inhaledMassUg).toBeUndefined();
+      expect((result as unknown as Record<string, unknown>).inhaledMassUg).toBeUndefined();
     });
 
     it('Case C: PM2.5 genuinely 0 µg/m³ is valid and preserved as 0 µg inhaled', () => {
@@ -109,9 +106,9 @@ describe('Phase B Critical Regression Suite: Forecast & Temporal Integrity', () 
     });
 
     it('C05: Rejects unsupported units (e.g. ppm or ppb)', () => {
-      const ppmPoints: any[] = kolkataPoints.map(p => ({
+      const ppmPoints = kolkataPoints.map(p => ({
         ...p,
-        units: 'ppm',
+        units: 'ppm' as unknown as never,
       }));
       const eligibility = validateForecastEligibility(ppmPoints, 'bengaluru');
       expect(eligibility.isEligible).toBe(false);
@@ -133,7 +130,6 @@ describe('Phase B Critical Regression Suite: Forecast & Temporal Integrity', () 
     });
 
     it('Distinguishes 08:00 today from 08:00 tomorrow via unambiguous UTC instants', () => {
-      const today0800Iso = '2026-11-23T02:30:00Z'; // 08:00 IST today
       const tomorrow0800Iso = '2026-11-24T02:30:00Z'; // 08:00 IST tomorrow
 
       const multiDayPoints: EligibleForecastPoint[] = [

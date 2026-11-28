@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest';
 import {
   alignHourlyForecasts,
   lookupBoundaryLayerHeight,
-  analyzeDiurnalRelativeWindows,
   toHourlyAtmosphericPoints,
   RawHourlyStream,
 } from '@/services/forecast/hourly-alignment';

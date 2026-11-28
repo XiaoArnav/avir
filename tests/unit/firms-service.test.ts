@@ -185,7 +185,7 @@ describe('NASA FIRMS Active-Fire Hotspots Service, Parser, Physics & Layer (Phas
         ok: true,
         status: 200,
         text: async () => sampleViirsCsv,
-      }) as any,
+      }) as unknown as typeof fetch,
     });
     expect(keylessActive.configured).toBe(false);
     expect(keylessActive.isAvailable).toBe(true);

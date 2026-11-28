@@ -99,8 +99,8 @@ describe('Step 11 — Routine Model & Time Arithmetic', () => {
         name: 'Test',
         startTime: '10:00',
         endTime: '11:00',
-        intensity: 'super_intense' as any,
-        environment: 'space' as any,
+        intensity: 'super_intense' as unknown as never,
+        environment: 'space' as unknown as never,
       });
       expect(invalid.isValid).toBe(false);
       expect(invalid.errors.some(e => e.includes('Invalid intensity'))).toBe(true);

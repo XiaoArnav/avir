@@ -22,8 +22,6 @@ import {
   OPENAQ_MIN_RADIUS_KM,
   OPENAQ_DEFAULT_RADIUS_KM,
   OPENAQ_MAX_RADIUS_KM,
-  SKEW_ALLOWANCE_MINUTES,
-  MAX_OBSERVATION_AGE_HOURS,
   validateObservationTiming,
   getActivePhysicalSources,
   getPhysicalStationDeduplicationKey,
@@ -127,7 +125,7 @@ export function clearOpenAqCache(): void {
  * Missing observation timestamps remain null.
  */
 export function validateMeasurementValue(
-  rawVal: any,
+  rawVal: unknown,
   parameterName?: string | null,
   rawUnit?: string | null,
   observedTimeStr?: string | null,
@@ -151,7 +149,7 @@ export function validateMeasurementValue(
   if (!pollutant) return null;
 
   // Numeric validation
-  const parsed = typeof rawVal === 'number' ? rawVal : parseFloat(rawVal);
+  const parsed = typeof rawVal === 'number' ? rawVal : typeof rawVal === 'string' ? parseFloat(rawVal) : NaN;
   if (isNaN(parsed) || !Number.isFinite(parsed) || parsed < 0) {
     // Negative, NaN, or non-finite are rejected
     return null;
@@ -691,7 +689,17 @@ export async function fetchOpenAqProviderResult(params: {
     }
 
     return result;
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const errName =
+      typeof err === 'object' && err !== null && 'name' in err
+        ? (err as { name?: unknown }).name
+        : undefined;
+    const errMessage =
+      err instanceof Error
+        ? err.message
+        : typeof err === 'object' && err !== null && 'message' in err && typeof (err as { message?: unknown }).message === 'string'
+        ? (err as { message: string }).message
+        : 'Failed to reach OpenAQ API.';
     return {
       provider: 'openaq',
       status: 'unavailable',
@@ -701,7 +709,7 @@ export async function fetchOpenAqProviderResult(params: {
           id: 'openaq-network-error',
           status: 'unreachable',
           errorCode: 'NETWORK_ERROR',
-          explanation: err?.name === 'AbortError' ? 'OpenAQ request timed out or was cancelled.' : 'Failed to reach OpenAQ API.',
+          explanation: errName === 'AbortError' ? 'OpenAQ request timed out or was cancelled.' : 'Failed to reach OpenAQ API.',
         },
       ],
       retrievedAt: now,
@@ -711,7 +719,7 @@ export async function fetchOpenAqProviderResult(params: {
       activePm10Count: 0,
       availableStationCount: 0,
       errorCode: 'NETWORK_ERROR',
-      errorMessage: err?.message || 'Failed to reach OpenAQ API.',
+      errorMessage: errMessage || 'Failed to reach OpenAQ API.',
     };
   }
 }

@@ -1,20 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import React from 'react';
-import ReactDOMServer from 'react-dom/server';
-import {
-  createDefaultSchedule,
-  addActivityToSchedule,
-  deleteActivityFromSchedule,
-} from '@/services/routines/routine-manager';
-import {
-  saveScheduleToStorage,
-  loadScheduleFromStorage,
-} from '@/services/routines/routine-storage';
+import { describe, it, expect } from 'vitest';
 import {
   optimizeScheduleWithForecast,
   EligibleForecastPoint,
 } from '@/services/optimization/forecast-optimizer';
-import { DailySchedule, RoutineActivity } from '@/domain/routine-types';
+import { DailySchedule } from '@/domain/routine-types';
 
 describe('Phase B Critical Regression Suite: Routine Optimizer Real-Schedule Flow (C10–C15)', () => {
   // Realistic forecast for Bengaluru with afternoon clean window (13:00-16:00 IST)

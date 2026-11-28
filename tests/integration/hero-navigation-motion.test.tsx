@@ -4,7 +4,6 @@ import { describe, it, expect, vi } from 'vitest';
 import { AtmosphereHero } from '@/components/AtmosphereHero';
 import { TopNav } from '@/components/TopNav';
 import { SegmentedTabs } from '@/components/SegmentedTabs';
-import { CityPicker } from '@/components/CityPicker';
 import { MetroRail } from '@/components/MetroRail';
 import { AtmosphericMetrics } from '@/domain/types';
 

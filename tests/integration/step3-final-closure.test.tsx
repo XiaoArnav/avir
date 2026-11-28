@@ -11,13 +11,10 @@ import {
   getStalePhysicalSources,
   getRegistryOnlyStations,
   getAtmosphericModels,
-  getUnconfiguredProviders,
-  validateObservationTiming,
 } from '@/config/environmental-sources';
 import {
   parseOpenAqLocation,
   validateMeasurementValue,
-  fetchOpenAqProviderResult,
   clearOpenAqCache,
   OpenAqLocationResult,
   OpenAqLatestMeasurementItem,
@@ -26,7 +23,6 @@ import {
   compareEnvironmentalSources,
   createOpenMeteoModelRecord,
   getSourceTimestamp,
-  deduplicateEnvironmentalSources,
 } from '@/domain/source-comparison';
 import { MultiSourceInspectorModal } from '@/components/MultiSourceInspectorModal';
 import { EnvironmentalSourceRecord } from '@/domain/types';
@@ -605,7 +601,7 @@ describe('AVIR STEP 03 FINAL PRODUCTION CLOSURE — Comprehensive Verification G
           onClose={() => {}}
           cityName="Delhi-NCR"
           environmentalSources={[modelNullPm25]}
-          metrics={{ pm25: null } as any}
+          metrics={{ pm25: null } as unknown as NonNullable<React.ComponentProps<typeof MultiSourceInspectorModal>['metrics']>}
         />
       );
 

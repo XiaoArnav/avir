@@ -45,7 +45,7 @@ describe('AVIR STEP 3 — Group F & G: Multi-Source Pipeline & Location Isolatio
       },
     };
 
-    vi.spyOn(global, 'fetch').mockImplementation(async (url: any) => {
+    vi.spyOn(global, 'fetch').mockImplementation(async (url: RequestInfo | URL) => {
       const urlStr = String(url);
       if (urlStr.includes('air-quality-api.open-meteo.com')) {
         return { ok: true, status: 200, json: async () => mockOpenMeteoAir } as Response;
@@ -107,7 +107,7 @@ describe('AVIR STEP 3 — Group F & G: Multi-Source Pipeline & Location Isolatio
       ],
     };
 
-    vi.spyOn(global, 'fetch').mockImplementation(async (url: any) => {
+    vi.spyOn(global, 'fetch').mockImplementation(async (url: RequestInfo | URL) => {
       const urlStr = String(url);
       if (urlStr.includes('air-quality-api.open-meteo.com')) {
         return { ok: true, status: 200, json: async () => mockOpenMeteoAir } as Response;
@@ -160,7 +160,7 @@ describe('AVIR STEP 3 — Group F & G: Multi-Source Pipeline & Location Isolatio
       timezone: 'Asia/Kolkata',
     };
 
-    vi.spyOn(global, 'fetch').mockImplementation(async (url: any) => {
+    vi.spyOn(global, 'fetch').mockImplementation(async (url: RequestInfo | URL) => {
       const urlStr = String(url);
       if (urlStr.includes('air-quality-api.open-meteo.com')) {
         if (urlStr.includes('latitude=28.6139')) {
@@ -208,7 +208,7 @@ describe('AVIR STEP 3 — Group F & G: Multi-Source Pipeline & Location Isolatio
       timezone: 'UTC',
     };
 
-    vi.spyOn(global, 'fetch').mockImplementation(async (url: any) => {
+    vi.spyOn(global, 'fetch').mockImplementation(async (url: RequestInfo | URL) => {
       const urlStr = String(url);
       if (urlStr.includes('air-quality-api.open-meteo.com')) {
         return { ok: true, status: 200, json: async () => remoteAir } as Response;

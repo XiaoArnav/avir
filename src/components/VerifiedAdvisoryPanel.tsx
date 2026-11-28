@@ -23,7 +23,6 @@ interface VerifiedAdvisoryPanelProps {
 
 export const VerifiedAdvisoryPanel: React.FC<VerifiedAdvisoryPanelProps> = ({
   status,
-  cityName,
   className = '',
   showDetails = true,
 }) => {

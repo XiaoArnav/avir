@@ -4,6 +4,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as THREE from 'three';
 import {
   createCesiumWindController,
+  type CesiumWindModule,
+  type CesiumWindViewer,
   windHeightFade,
   windScalarOverlayFade,
 } from '@/components/globe/cesium/cesium-wind';
@@ -68,13 +70,23 @@ function createSampleGlobalSnapshot(): GlobalWindSnapshot {
 
 function createMockCesiumEnv() {
   const preRenderListeners = new Set<() => void>();
-  const addedPrimitives: any[] = [];
-  const destroyedMaterials: any[] = [];
+  const addedPrimitives: unknown[] = [];
+  const destroyedMaterials: unknown[] = [];
 
-  const mockViewer = {
+  const mockViewer: CesiumWindViewer & {
+    scene: NonNullable<CesiumWindViewer['scene']> & {
+      camera: {
+        positionCartographic: { height: number };
+        positionWC: { x: number; y: number; z: number };
+        directionWC: { x: number; y: number; z: number };
+        upWC: { x: number; y: number; z: number };
+        frustum: { computeCullingVolume: () => { computeVisibility: () => number } };
+      };
+    };
+  } = {
     isDestroyed: () => false,
     scene: {
-      canvas: { clientWidth: 1280, clientHeight: 720 },
+      canvas: { clientWidth: 1280 },
       camera: {
         positionCartographic: { height: 2_500_000 },
         positionWC: { x: 1, y: 0, z: 0 },
@@ -88,8 +100,8 @@ function createMockCesiumEnv() {
       },
       primitives: {
         isDestroyed: () => false,
-        add: vi.fn((p: any) => addedPrimitives.push(p)),
-        remove: vi.fn((p: any) => {
+        add: vi.fn((p: unknown) => addedPrimitives.push(p)),
+        remove: vi.fn((p: unknown) => {
           const idx = addedPrimitives.indexOf(p);
           if (idx >= 0) addedPrimitives.splice(idx, 1);
         }),
@@ -107,40 +119,40 @@ function createMockCesiumEnv() {
     },
   };
 
-  const mockCesium: any = {
+  const mockCesium: CesiumWindModule = {
     Cartesian3: {
       ZERO: { x: 0, y: 0, z: 0 },
-      fromDegrees: (lon: number, lat: number, h: number) => ({ lon, lat, h }),
+      fromDegrees: (lon: number, lat: number, h?: number) => ({ lon, lat, h }),
     },
     Ellipsoid: { WGS84: { minimumRadius: 6356752 } },
     Color: {
-      fromCssColorString: () => ({ r: 0.4, g: 0.85, b: 0.97, a: 1, withAlpha: () => ({}) }),
+      fromCssColorString: () => ({ withAlpha: () => ({}) }),
     },
     ArcType: { NONE: 0 },
-    Intersect: { OUTSIDE: -1, INSIDE: 1 },
+    Intersect: { OUTSIDE: -1 },
     ComponentDatatype: { FLOAT: 5126 },
     BoundingSphere: class {
-      center: any;
+      center: unknown;
       radius: number;
-      constructor(center: any = { x: 0, y: 0, z: 0 }, radius = 100) {
+      constructor(center: unknown = { x: 0, y: 0, z: 0 }, radius = 100) {
         this.center = center;
         this.radius = radius;
       }
-      static fromPoints(pts: any[]) {
+      static fromPoints(pts: unknown[]) {
         return { center: pts[0] ?? { x: 0, y: 0, z: 0 }, radius: 100 };
       }
     },
     Occluder: class {
-      cameraPosition: any;
-      constructor(_bs: any, cam: any) {
+      cameraPosition: unknown;
+      constructor(_bs: unknown, cam: unknown) {
         this.cameraPosition = cam;
       }
       isBoundingSphereVisible = vi.fn(() => true);
     },
     Material: class {
-      uniforms: any;
+      uniforms: Record<string, unknown>;
       destroyed = false;
-      constructor(opts: any) {
+      constructor(opts: { fabric: { uniforms: Record<string, unknown> } }) {
         this.uniforms = opts.fabric.uniforms;
       }
       destroy() {
@@ -155,22 +167,22 @@ function createMockCesiumEnv() {
       static VERTEX_FORMAT = {};
       vertexShaderSource =
         'in vec3 position3DHigh; in vec3 position3DLow; void main() {\n v_st.s = st.s;\n }';
-      constructor(opts: any) {
+      constructor(opts: Record<string, unknown>) {
         Object.assign(this, opts);
       }
     },
     PolylineGeometry: class {
-      constructor(opts: any) {
+      constructor(opts: Record<string, unknown>) {
         Object.assign(this, opts);
       }
     },
     GeometryInstance: class {
-      constructor(opts: any) {
+      constructor(opts: Record<string, unknown>) {
         Object.assign(this, opts);
       }
     },
     GeometryInstanceAttribute: class {
-      constructor(opts: any) {
+      constructor(opts: Record<string, unknown>) {
         Object.assign(this, opts);
       }
     },
@@ -178,7 +190,7 @@ function createMockCesiumEnv() {
       ready = true;
       show = false;
       destroyed = false;
-      constructor(opts: any) {
+      constructor(opts: Record<string, unknown>) {
         Object.assign(this, opts);
       }
       destroy() {

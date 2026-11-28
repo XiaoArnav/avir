@@ -54,7 +54,7 @@ describe('GET /api/geo/reverse (Reverse Geocoding Endpoint)', () => {
     vi.spyOn(global, 'fetch').mockResolvedValueOnce({
       ok: true,
       json: async () => mockNominatimResponse,
-    } as any);
+    } as unknown as Response);
 
     const req = new NextRequest('http://localhost:3000/api/geo/reverse?lat=12.9716&lon=77.5946');
     const res = await GET(req);

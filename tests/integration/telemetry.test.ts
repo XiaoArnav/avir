@@ -48,7 +48,7 @@ describe('Telemetry & Geocoding Service', () => {
 
   describe('Live Atmospheric Telemetry Stream', () => {
     it('fetches and parses live telemetry metrics for Delhi coordinates', async () => {
-      const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation(async (url: any) => {
+      const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation(async (url: RequestInfo | URL) => {
         const urlStr = String(url);
         if (urlStr.includes('air-quality')) {
           return {
@@ -58,7 +58,7 @@ describe('Telemetry & Geocoding Service', () => {
               current: { time: new Date().toISOString(), pm2_5: 145.2, pm10: 210.5, us_aqi: 215 },
               current_units: { time: 'iso8601', pm2_5: 'μg/m³', pm10: 'μg/m³', us_aqi: 'AQI' },
             }),
-          } as any;
+          } as unknown as Response;
         }
         if (urlStr.includes('forecast')) {
           return {
@@ -68,9 +68,9 @@ describe('Telemetry & Geocoding Service', () => {
               hourly: { time: [new Date().toISOString()], boundary_layer_height: [320.0] },
               hourly_units: { time: 'iso8601', boundary_layer_height: 'm' },
             }),
-          } as any;
+          } as unknown as Response;
         }
-        return { ok: true, status: 200, json: async () => ({ sources: [] }) } as any;
+        return { ok: true, status: 200, json: async () => ({ sources: [] }) } as unknown as Response;
       });
 
       const metrics = await fetchLiveAtmosphericMetrics(28.61, 77.21);
@@ -86,7 +86,7 @@ describe('Telemetry & Geocoding Service', () => {
     }, 60000);
 
     it('caches telemetry by coordinate key for 10 minutes', async () => {
-      const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation(async (url: any) => {
+      const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation(async (url: RequestInfo | URL) => {
         const urlStr = String(url);
         if (urlStr.includes('air-quality')) {
           return {
@@ -96,7 +96,7 @@ describe('Telemetry & Geocoding Service', () => {
               current: { time: new Date().toISOString(), pm2_5: 80.0, pm10: 120.0, us_aqi: 140 },
               current_units: { time: 'iso8601', pm2_5: 'μg/m³', pm10: 'μg/m³', us_aqi: 'AQI' },
             }),
-          } as any;
+          } as unknown as Response;
         }
         if (urlStr.includes('forecast')) {
           return {
@@ -106,9 +106,9 @@ describe('Telemetry & Geocoding Service', () => {
               hourly: { time: [new Date().toISOString()], boundary_layer_height: [400.0] },
               hourly_units: { time: 'iso8601', boundary_layer_height: 'm' },
             }),
-          } as any;
+          } as unknown as Response;
         }
-        return { ok: true, status: 200, json: async () => ({ sources: [] }) } as any;
+        return { ok: true, status: 200, json: async () => ({ sources: [] }) } as unknown as Response;
       });
 
       await fetchLiveAtmosphericMetrics(19.07, 72.87); // Mumbai
@@ -178,8 +178,14 @@ describe('Telemetry & Geocoding Service', () => {
   });
 
   describe('Step 1 Telemetry Contract Integrity — 16 Mandated Scenarios', () => {
-    function mockFetch(aqData: any, weatherData: any = {}, aqOk = true, weatherOk = true, aqStatus = 200) {
-      return vi.spyOn(global, 'fetch').mockImplementation(async (url: any) => {
+    function mockFetch(
+      aqData: Record<string, unknown>,
+      weatherData: Record<string, unknown> = {},
+      aqOk = true,
+      weatherOk = true,
+      aqStatus = 200
+    ) {
+      return vi.spyOn(global, 'fetch').mockImplementation(async (url: RequestInfo | URL) => {
         const urlStr = String(url);
         if (urlStr.includes('air-quality')) {
           if (!aqOk) {
@@ -188,14 +194,14 @@ describe('Telemetry & Geocoding Service', () => {
               status: aqStatus,
               statusText: aqStatus === 429 ? 'Too Many Requests' : 'Internal Server Error',
               json: async () => aqData,
-            } as any;
+            } as unknown as Response;
           }
           return {
             ok: true,
             status: 200,
             statusText: 'OK',
             json: async () => aqData,
-          } as any;
+          } as unknown as Response;
         }
         if (urlStr.includes('forecast')) {
           if (!weatherOk) {
@@ -204,21 +210,21 @@ describe('Telemetry & Geocoding Service', () => {
               status: 500,
               statusText: 'Internal Server Error',
               json: async () => weatherData,
-            } as any;
+            } as unknown as Response;
           }
           return {
             ok: true,
             status: 200,
             statusText: 'OK',
             json: async () => weatherData,
-          } as any;
+          } as unknown as Response;
         }
         return {
           ok: false,
           status: 404,
           statusText: 'Not Found',
           json: async () => ({}),
-        } as any;
+        } as unknown as Response;
       });
     }
 

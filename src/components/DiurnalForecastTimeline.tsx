@@ -5,7 +5,7 @@ import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
 import { HourlyAtmosphericPoint } from '@/domain/types';
 import { analyzeDiurnalRelativeWindows } from '@/services/forecast/hourly-alignment';
 import { Clock, Sun, AlertTriangle, TrendingUp, Table, RotateCcw } from 'lucide-react';
-import { springs, duration } from '@/lib/motion-tokens';
+import { springs } from '@/lib/motion-tokens';
 import { isThermalInversion } from '@/domain/air-math';
 
 interface DiurnalForecastTimelineProps {
@@ -21,7 +21,6 @@ export type ForecastMetricMode = 'pm25' | 'usAqi';
 
 export const DiurnalForecastTimeline: React.FC<DiurnalForecastTimelineProps> = ({
   hourlyForecast = [],
-  currentHour = new Date().getHours(),
   cityName,
   selectedValidAtUtc,
   onSelectTimePoint,

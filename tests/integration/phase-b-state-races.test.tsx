@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 
 describe('Phase B Critical Regression Suite: State Synchronization & Race Guards (C26–C28)', () => {
   it('C26: Generation ID tracking discards late responses when city changes mid-flight', async () => {
@@ -32,7 +32,7 @@ describe('Phase B Critical Regression Suite: State Synchronization & Race Guards
   });
 
   it('C27 & C28: Editing schedule or profile increments generation and resets active plan', () => {
-    let currentPlan: any = { status: 'optimal', savings: 45 };
+    let currentPlan: { status: string; savings: number } | null = { status: 'optimal', savings: 45 };
     let planGeneration = 1;
 
     // Helper simulating state invalidation on input change

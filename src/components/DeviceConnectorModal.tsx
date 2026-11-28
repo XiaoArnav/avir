@@ -8,10 +8,6 @@ import {
   DeviceConnectionState,
 } from '@/services/device-telemetry-service';
 import {
-  VERIFIED_DEVICE_PROFILES,
-  DeviceProfile,
-} from '@/services/devices/device-profiles';
-import {
   Usb,
   Wifi,
   X,
@@ -25,7 +21,6 @@ import {
   MapPinOff,
   ChevronDown,
   ChevronUp,
-  ShieldAlert,
 } from 'lucide-react';
 
 interface DeviceConnectorModalProps {
@@ -174,8 +169,8 @@ export function DeviceConnectorModal({
       } else if (!result.success && result.error) {
         setErrorMessage(result.error);
       }
-    } catch (err: any) {
-      setErrorMessage(err?.message || 'USB serial connection failed.');
+    } catch (err: unknown) {
+      setErrorMessage(err instanceof Error && err.message ? err.message : 'USB serial connection failed.');
     } finally {
       setIsConnecting(false);
     }
@@ -198,8 +193,8 @@ export function DeviceConnectorModal({
       if (result.error) {
         setErrorMessage(result.error);
       }
-    } catch (err: any) {
-      setErrorMessage(err?.message || 'Wi-Fi connection failed.');
+    } catch (err: unknown) {
+      setErrorMessage(err instanceof Error && err.message ? err.message : 'Wi-Fi connection failed.');
     } finally {
       setIsConnecting(false);
     }

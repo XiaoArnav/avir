@@ -17,8 +17,6 @@ export const MetricCard: React.FC<MetricCardProps> = ({
   icon,
   className = '',
 }) => {
-  const isAvailable = measurement.state !== 'unavailable' && measurement.state !== 'error';
-
   return (
     <div
       className={`rounded-2xl p-4 sm:p-5 bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 shadow-xs space-y-3 transition-colors ${className}`}

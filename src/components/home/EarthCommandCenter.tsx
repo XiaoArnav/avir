@@ -68,14 +68,12 @@ export function EarthCommandCenter({
   onSelectCity,
   onRefreshTelemetry,
   onOpenExplainer,
-  onOpenShare,
   onOpenMultiSource,
   onOpenDailyPlan,
   onSnapToNow,
   className = '',
   initialDetailsOpen = false,
   sourcePreference,
-  onUpdateSourcePreference,
 }: EarthCommandCenterProps) {
   const [standard, setStandard] = useState<AqiStandard>('cpcb');
   const [selectedGlobePointId, setSelectedGlobePointId] = useState<string | null>(null);

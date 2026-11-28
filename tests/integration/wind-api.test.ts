@@ -150,7 +150,7 @@ describe('Global Wind-Flow API Route & Service Integrity (/api/environment/wind)
       validTimeUtc: '2026-11-24T14:00:00.000Z',
     });
     expect(json.grid).toHaveLength(GLOBAL_WIND_PROBES.length);
-    expect(json.grid.every((pt: any) => pt.validTimeUtc === '2026-11-24T14:00:00.000Z')).toBe(true);
+    expect(json.grid.every((pt: { validTimeUtc: string }) => pt.validTimeUtc === '2026-11-24T14:00:00.000Z')).toBe(true);
   });
 
   it('represents legitimate calm wind as zero velocity rather than unavailable', async () => {
@@ -168,7 +168,7 @@ describe('Global Wind-Flow API Route & Service Integrity (/api/environment/wind)
       latitude: 28.6139,
       longitude: 77.209,
       hour: 10,
-      fetchImpl: fetchMock as any,
+      fetchImpl: fetchMock as unknown as typeof fetch,
     });
 
     expect(data.isAvailable).toBe(true);
@@ -191,7 +191,7 @@ describe('Global Wind-Flow API Route & Service Integrity (/api/environment/wind)
           buildBatchOpenMeteoPayload(28.6139, 77.209, {
             activeSpeedAtHour: { 10: null },
           }),
-      }) as any,
+      }) as unknown as typeof fetch,
     });
 
     expect(missingSpeedRes.status).toBe('partial');
@@ -213,7 +213,7 @@ describe('Global Wind-Flow API Route & Service Integrity (/api/environment/wind)
           buildBatchOpenMeteoPayload(28.6139, 77.209, {
             activeDirAtHour: { 10: null },
           }),
-      }) as any,
+      }) as unknown as typeof fetch,
     });
 
     expect(missingDirRes.cityWind).toBeNull();
@@ -233,7 +233,7 @@ describe('Global Wind-Flow API Route & Service Integrity (/api/environment/wind)
             // Upstream returned London coordinates in slot 0 instead of Bengaluru
             activeCoordsOverride: { lat: 51.5074, lng: -0.1278 },
           }),
-      }) as any,
+      }) as unknown as typeof fetch,
     });
 
     expect(misalignedRes.cityWind).toBeNull();
@@ -269,7 +269,7 @@ describe('Global Wind-Flow API Route & Service Integrity (/api/environment/wind)
         ok: true,
         status: 200,
         json: async () => payload,
-      }) as any,
+      }) as unknown as typeof fetch,
     });
 
     expect(data.validTimeUtc).toBe('2026-11-25T00:00:00.000Z');
@@ -286,7 +286,7 @@ describe('Global Wind-Flow API Route & Service Integrity (/api/environment/wind)
       latitude: 51.5074,
       longitude: -0.1278,
       hour: 8,
-      fetchImpl: vi.fn().mockRejectedValue(abortErr) as any,
+      fetchImpl: vi.fn().mockRejectedValue(abortErr) as unknown as typeof fetch,
     });
     expect(timeoutData.status).toBe('upstream_timeout');
     expect(timeoutData.isAvailable).toBe(false);
@@ -301,7 +301,7 @@ describe('Global Wind-Flow API Route & Service Integrity (/api/environment/wind)
       latitude: 51.5074,
       longitude: -0.1278,
       hour: 8,
-      fetchImpl: vi.fn().mockResolvedValue({ ok: false, status: 429 }) as any,
+      fetchImpl: vi.fn().mockResolvedValue({ ok: false, status: 429 }) as unknown as typeof fetch,
     });
     expect(rateLimited.status).toBe('rate_limited');
     expect(rateLimited.isAvailable).toBe(false);
@@ -357,7 +357,7 @@ describe('Global Wind-Flow API Route & Service Integrity (/api/environment/wind)
       latitude: 12.9716,
       longitude: 77.5946,
       hour: 10,
-      fetchImpl: fetchMock as any,
+      fetchImpl: fetchMock as unknown as typeof fetch,
     });
     expect(blr10.isCached).toBe(false);
     expect(blr10.cityWind?.speedKmh).toBe(14);
@@ -367,7 +367,7 @@ describe('Global Wind-Flow API Route & Service Integrity (/api/environment/wind)
       latitude: 12.9716,
       longitude: 77.5946,
       hour: 14,
-      fetchImpl: fetchMock as any,
+      fetchImpl: fetchMock as unknown as typeof fetch,
     });
     expect(blr14.isCached).toBe(false);
     expect(blr14.cityWind?.speedKmh).toBe(19);
@@ -377,7 +377,7 @@ describe('Global Wind-Flow API Route & Service Integrity (/api/environment/wind)
       latitude: 35.6762,
       longitude: 139.6503,
       hour: 10,
-      fetchImpl: fetchMock as any,
+      fetchImpl: fetchMock as unknown as typeof fetch,
     });
     expect(tyo10.isCached).toBe(false);
     expect(tyo10.cityWind?.speedKmh).toBe(30);
@@ -387,7 +387,7 @@ describe('Global Wind-Flow API Route & Service Integrity (/api/environment/wind)
       latitude: 12.9716,
       longitude: 77.5946,
       hour: 10,
-      fetchImpl: fetchMock as any,
+      fetchImpl: fetchMock as unknown as typeof fetch,
     });
     expect(blr10Cached.isCached).toBe(true);
     expect(blr10Cached.isStale).toBe(false);
@@ -399,7 +399,7 @@ describe('Global Wind-Flow API Route & Service Integrity (/api/environment/wind)
       latitude: 12.9716,
       longitude: 77.5946,
       hour: 10,
-      fetchImpl: vi.fn().mockResolvedValue({ ok: false, status: 503 }) as any,
+      fetchImpl: vi.fn().mockResolvedValue({ ok: false, status: 503 }) as unknown as typeof fetch,
     });
     expect(staleRes.status).toBe('stale_cached');
     expect(staleRes.isCached).toBe(true);
@@ -424,7 +424,7 @@ describe('Global Wind-Flow API Route & Service Integrity (/api/environment/wind)
         ok: true,
         status: 200,
         json: async () => payload,
-      }) as any,
+      }) as unknown as typeof fetch,
     });
 
     expect(istHalfHour.status).toBe('available');
@@ -445,7 +445,7 @@ describe('Global Wind-Flow API Route & Service Integrity (/api/environment/wind)
         ok: true,
         status: 200,
         json: async () => payload,
-      }) as any,
+      }) as unknown as typeof fetch,
     });
 
     expect(outOfWindow.status).toBe('invalid_upstream_response');
@@ -477,7 +477,7 @@ describe('Global Wind-Flow API Route & Service Integrity (/api/environment/wind)
         ok: true,
         status: 200,
         json: async () => payload,
-      }) as any,
+      }) as unknown as typeof fetch,
     });
     expect(currentRes.isAvailable).toBe(true);
     expect(currentRes.validTimeUtc).toBe('2026-11-25T00:00:00.000Z');
@@ -494,7 +494,7 @@ describe('Global Wind-Flow API Route & Service Integrity (/api/environment/wind)
         ok: true,
         status: 200,
         json: async () => payload,
-      }) as any,
+      }) as unknown as typeof fetch,
     });
     expect(futureRes.isAvailable).toBe(true);
     expect(futureRes.freshness).toBe('forecast');

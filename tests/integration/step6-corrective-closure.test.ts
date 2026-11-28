@@ -22,11 +22,14 @@ import { CityShootout } from '@/components/CityShootout';
 import { WorldDataExplorer } from '@/components/WorldDataExplorer';
 
 describe('AVIR — Step 6 Corrective Closure (W01–W16 Comprehensive Integrity Matrix)', () => {
-  let originalWindow: any;
+  const testGlobal = globalThis as unknown as Omit<typeof globalThis, 'window'> & {
+    window?: unknown;
+  };
+  let originalWindow: unknown;
   let store: Record<string, string> = {};
 
   beforeEach(() => {
-    originalWindow = (globalThis as any).window;
+    originalWindow = testGlobal.window;
     store = {};
     const mockLocalStorage = {
       getItem: vi.fn((key: string) => store[key] ?? null),
@@ -45,7 +48,7 @@ describe('AVIR — Step 6 Corrective Closure (W01–W16 Comprehensive Integrity 
       key: vi.fn((index: number) => Object.keys(store)[index] ?? null),
     };
 
-    (globalThis as any).window = {
+    testGlobal.window = {
       localStorage: mockLocalStorage,
     };
 
@@ -54,7 +57,7 @@ describe('AVIR — Step 6 Corrective Closure (W01–W16 Comprehensive Integrity 
   });
 
   afterEach(() => {
-    (globalThis as any).window = originalWindow;
+    testGlobal.window = originalWindow;
   });
 
   // =========================================================================
@@ -510,13 +513,11 @@ describe('AVIR — Step 6 Corrective Closure (W01–W16 Comprehensive Integrity 
   // =========================================================================
   describe('W12: Search Request Race Protection', () => {
     it('ensures newer search requests cannot be overwritten by out-of-order delayed responses', async () => {
-      let activeQuery = '';
       let searchSequence = 0;
       let displayResult = '';
 
       async function triggerSearch(query: string, delayMs: number) {
         const seq = ++searchSequence;
-        activeQuery = query;
 
         await new Promise(r => setTimeout(r, delayMs));
 

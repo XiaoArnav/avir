@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { X } from 'lucide-react';
 import {
@@ -525,32 +525,39 @@ export function AvirGlobe({
     points,
   });
 
-  const isLayerControlled = (layer: keyof EnvironmentalLayersState): boolean =>
-    Boolean(
-      layers &&
-        Object.prototype.hasOwnProperty.call(layers, layer) &&
-        layers[layer] !== undefined
-    );
+  const activeCityTargetRef = useRef(activeCityTarget);
+  activeCityTargetRef.current = activeCityTarget;
 
-  const handleToggleLayer = (layer: keyof EnvironmentalLayersState) => {
-    if (layer === 'terrain' && (!is3D || engineMode !== 'cesium')) {
-      return;
-    }
-    if (layer === 'wind' && !is3D) {
-      return;
-    }
-    if (layer === 'fires' && !is3D) {
-      return;
-    }
+  const windSpeedUnitRef = useRef(windSpeedUnit);
+  windSpeedUnitRef.current = windSpeedUnit;
 
-    if (!isLayerControlled(layer)) {
-      setInternalLayers((prev) => ({
-        ...prev,
-        [layer]: !prev[layer],
-      }));
-    }
-    onToggleLayer?.(layer);
-  };
+  const handleToggleLayer = useCallback(
+    (layer: keyof EnvironmentalLayersState) => {
+      if (layer === 'terrain' && (!is3D || engineMode !== 'cesium')) {
+        return;
+      }
+      if (layer === 'wind' && !is3D) {
+        return;
+      }
+      if (layer === 'fires' && !is3D) {
+        return;
+      }
+
+      const isControlled = Boolean(
+        layers &&
+          Object.prototype.hasOwnProperty.call(layers, layer) &&
+          layers[layer] !== undefined
+      );
+      if (!isControlled) {
+        setInternalLayers((prev) => ({
+          ...prev,
+          [layer]: !prev[layer],
+        }));
+      }
+      onToggleLayer?.(layer);
+    },
+    [is3D, engineMode, layers, onToggleLayer]
+  );
 
   // Observe user reduced-motion preference safely
   useEffect(() => {
@@ -603,7 +610,13 @@ export function AvirGlobe({
       setWindManifest(result.manifest);
       if (result.snapshot) {
         setWindSnapshot(result.snapshot);
-        setWindInfo(mapGlobalWindSnapshotToLayerInfo(result.snapshot, activeCityTarget, windSpeedUnit));
+        setWindInfo(
+          mapGlobalWindSnapshotToLayerInfo(
+            result.snapshot,
+            activeCityTargetRef.current,
+            windSpeedUnitRef.current
+          )
+        );
       } else {
         setWindSnapshot(null);
         setWindInfo({
@@ -619,10 +632,20 @@ export function AvirGlobe({
   }, [is3D, activeLayers.wind, windModel, windOverlay, validAtUtc]);
 
   // Recompute status speed display if active city or unit changes without refetching grid
+  const activeTargetName = activeCityTarget?.name;
+  const activeTargetLat = activeCityTarget?.latitude;
+  const activeTargetLon = activeCityTarget?.longitude;
+
   useEffect(() => {
     if (!is3D || !activeLayers.wind || !windSnapshot) return;
-    setWindInfo(mapGlobalWindSnapshotToLayerInfo(windSnapshot, activeCityTarget, windSpeedUnit));
-  }, [is3D, activeLayers.wind, windSnapshot, activeCityTarget?.latitude, activeCityTarget?.longitude, windSpeedUnit]);
+    setWindInfo(
+      mapGlobalWindSnapshotToLayerInfo(
+        windSnapshot,
+        activeCityTargetRef.current,
+        windSpeedUnit
+      )
+    );
+  }, [is3D, activeLayers.wind, windSnapshot, activeTargetLat, activeTargetLon, windSpeedUnit]);
 
   const windInspection: WindInspectionReading | null = useMemo(() => {
     if (!activeLayers.wind || !windSnapshot || !inspectedWindCoords) return null;
@@ -653,7 +676,8 @@ export function AvirGlobe({
       return;
     }
 
-    if (!activeCityTarget) {
+    const target = activeCityTargetRef.current;
+    if (!target) {
       setFireHotspots([]);
       setFiresInfo({ state: 'unavailable', detail: 'Active city coordinates unavailable' });
       return;
@@ -663,7 +687,7 @@ export function AvirGlobe({
     setFiresInfo({ state: 'loading', detail: 'Querying NASA FIRMS NOAA-20 NRT...' });
 
     void fetchActiveCityFirmsLayer({
-      target: activeCityTarget,
+      target,
       radiusKm: 500,
       signal: controller.signal,
     }).then((result) => {
@@ -675,13 +699,7 @@ export function AvirGlobe({
     return () => {
       controller.abort();
     };
-  }, [
-    is3D,
-    activeLayers.fires,
-    activeCityTarget?.name,
-    activeCityTarget?.latitude,
-    activeCityTarget?.longitude,
-  ]);
+  }, [is3D, activeLayers.fires, activeTargetName, activeTargetLat, activeTargetLon]);
 
   // 3. Reset terrain load state when switching out of Cesium mode
   useEffect(() => {
@@ -701,12 +719,13 @@ export function AvirGlobe({
       return;
     }
 
-    const initial = buildInitialSatelliteComparisonForTarget(activeCityTarget);
+    const target = activeCityTargetRef.current;
+    const initial = buildInitialSatelliteComparisonForTarget(target);
     setSatelliteComparison(initial.comparison);
     setSatelliteError(initial.error);
     setSatelliteInfo(initial.info);
 
-    if (!activeCityTarget || !initial.comparison || !initial.dateA || !initial.dateB) {
+    if (!target || !initial.comparison || !initial.dateA || !initial.dateB) {
       return;
     }
 
@@ -749,9 +768,9 @@ export function AvirGlobe({
       const entryB = resolveFinalEntry(domainB, wvsB);
 
       const updatedComparison = buildSatelliteComparison({
-        city: activeCityTarget.name,
-        latitude: activeCityTarget.latitude,
-        longitude: activeCityTarget.longitude,
+        city: target.name,
+        latitude: target.latitude,
+        longitude: target.longitude,
         dateA,
         dateB,
         productA: 'VIIRS',
@@ -798,9 +817,9 @@ export function AvirGlobe({
     };
   }, [
     activeLayers.satelliteComparison,
-    activeCityTarget?.name,
-    activeCityTarget?.latitude,
-    activeCityTarget?.longitude,
+    activeTargetName,
+    activeTargetLat,
+    activeTargetLon,
   ]);
 
   // Allow Escape to close Satellite Comparison Panel cleanly without side effects
@@ -813,7 +832,7 @@ export function AvirGlobe({
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [activeLayers.satelliteComparison, is3D, engineMode]);
+  }, [activeLayers.satelliteComparison, handleToggleLayer]);
 
   const layerStatus: EnvironmentalLayersStatusMap = useMemo(() => {
     let terrainStatusInfo: EnvironmentalLayerStatusInfo;

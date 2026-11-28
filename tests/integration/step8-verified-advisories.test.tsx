@@ -13,7 +13,6 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   RegulatoryOrder,
   OfficialGrapStatus,
-  GrapStage,
 } from '@/domain/regulatory-orders';
 import {
   AUTHORITATIVE_GOVERNMENT_DOMAINS,

@@ -220,7 +220,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(payload, {
       headers: { 'Cache-Control': 'private, no-cache, no-store, must-revalidate' },
     });
-  } catch (err: any) {
+  } catch {
     return NextResponse.json(
       { error: 'Internal server error while resolving coordinates.', code: 'SERVER_ERROR' },
       { status: 500 }

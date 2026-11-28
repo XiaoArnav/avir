@@ -12,8 +12,9 @@ function getStorage(): Storage | null {
   if (typeof window !== 'undefined' && window.localStorage) {
     return window.localStorage;
   }
-  if (typeof globalThis !== 'undefined' && (globalThis as any).localStorage) {
-    return (globalThis as any).localStorage;
+  const globalStorage = (globalThis as { localStorage?: Storage }).localStorage;
+  if (globalStorage) {
+    return globalStorage;
   }
   return null;
 }
@@ -38,8 +39,8 @@ export function saveScheduleToStorage(schedule: DailySchedule): boolean {
     const payload = JSON.stringify(schedule);
     storage.setItem(ROUTINE_STORAGE_KEY, payload);
     return true;
-  } catch (error: any) {
-    if (error?.name === 'QuotaExceededError') {
+  } catch (error: unknown) {
+    if (error instanceof Error && error.name === 'QuotaExceededError') {
       console.error('LocalStorage quota exceeded while saving routine schedule.');
     } else {
       console.error('Failed to save schedule to localStorage:', error);
