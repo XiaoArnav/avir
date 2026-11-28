@@ -616,4 +616,74 @@ describe('Step 6 Global Wind Request Deduplication', () => {
     expect(rActive.snapshot).not.toBeNull();
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
+
+  it('13. clearGlobalWindClientCache cancels & settles active in-flight entries without duplicate downloads or late cache poisoning', async () => {
+    const staleGate = createDeferred<void>();
+    const observedSignals: AbortSignal[] = [];
+    let callPhase: 'stale' | 'fresh' = 'stale';
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (callPhase === 'stale') {
+        if (init?.signal) observedSignals.push(init.signal);
+        if (url.startsWith('/api/environment/wind/global/grid')) {
+          return new Response(buildGridBuffer(4, 3, true, 10), { status: 200 });
+        }
+        await staleGate.promise;
+        return new Response(JSON.stringify(buildManifest('gfs', 'temperature')), { status: 200 });
+      }
+
+      if (url.startsWith('/api/environment/wind/global/grid')) {
+        return new Response(buildGridBuffer(4, 3, true, 99), { status: 200 });
+      }
+      return new Response(JSON.stringify(buildManifest('gfs', 'temperature')), { status: 200 });
+    });
+
+    const staleCallerAc = new AbortController();
+    const pStale1 = fetchClientGlobalWindSnapshot({
+      model: 'gfs',
+      overlay: 'temperature',
+      signal: staleCallerAc.signal,
+      fetchImpl: fetchMock as unknown as typeof fetch,
+    });
+    const pStale2 = fetchClientGlobalWindSnapshot({
+      model: 'gfs',
+      overlay: 'temperature',
+      fetchImpl: fetchMock as unknown as typeof fetch,
+    });
+
+    expect(observedSignals[0]?.aborted).toBe(false);
+
+    // Clear cache while the shared request is still in flight
+    clearGlobalWindClientCache();
+
+    // Shared fetch must be aborted and existing callers settled cleanly without blocking
+    expect(observedSignals[0]?.aborted).toBe(true);
+    const [rStale1, rStale2] = await Promise.all([pStale1, pStale2]);
+    expect(rStale1).toEqual({ aborted: true, snapshot: null, manifest: null });
+    expect(rStale2).toEqual({ aborted: true, snapshot: null, manifest: null });
+    expect(staleCallerAc.signal.aborted).toBe(false); // Caller's own AbortController untouched
+
+    // Even if the stale network mock eventually finishes resolving after cache clear, it must NOT write stale data into cache
+    staleGate.resolve();
+    await new Promise((r) => setTimeout(r, 10));
+
+    // A subsequent request must fetch fresh data once (not hit stale scalar=10) and cache fresh scalar=99
+    callPhase = 'fresh';
+    const rFresh1 = await fetchClientGlobalWindSnapshot({
+      model: 'gfs',
+      overlay: 'temperature',
+      fetchImpl: fetchMock as unknown as typeof fetch,
+    });
+    const rFresh2 = await fetchClientGlobalWindSnapshot({
+      model: 'gfs',
+      overlay: 'temperature',
+      fetchImpl: fetchMock as unknown as typeof fetch,
+    });
+
+    expect(rFresh1.snapshot?.scalarValues?.[0]).toBeCloseTo(99);
+    expect(rFresh2.snapshot?.scalarValues?.[0]).toBeCloseTo(99);
+    // 1 aborted manifest + 1 fresh manifest + 1 fresh grid = 3 calls (no duplicate grid on stale & no re-fetch on cached fresh)
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
 });

@@ -76,8 +76,29 @@ function formatResultForOverlay(
   };
 }
 
+function cancelInFlightEntry(entry: InFlightEntry): void {
+  if (inFlightRequests.get(entry.key) === entry) {
+    inFlightRequests.delete(entry.key);
+  }
+  if (entry.settled) return;
+  entry.settled = true;
+
+  for (const sub of Array.from(entry.subscribers)) {
+    sub.aborted = true;
+    sub.cleanupListener?.();
+    sub.cleanupListener = undefined;
+    entry.subscribers.delete(sub);
+    sub.resolve({ aborted: true, snapshot: null, manifest: null });
+  }
+
+  entry.controller.abort();
+}
+
 export function clearGlobalWindClientCache(): void {
   clientSnapshotCache.clear();
+  for (const entry of Array.from(inFlightRequests.values())) {
+    cancelInFlightEntry(entry);
+  }
   inFlightRequests.clear();
 }
 
@@ -325,11 +346,7 @@ export async function fetchClientGlobalWindSnapshot(params: {
 
         // Cancel underlying network request only when no active callers remain
         if (!activeEntry.settled && activeEntry.subscribers.size === 0) {
-          activeEntry.settled = true;
-          if (inFlightRequests.get(activeEntry.key) === activeEntry) {
-            inFlightRequests.delete(activeEntry.key);
-          }
-          activeEntry.controller.abort();
+          cancelInFlightEntry(activeEntry);
         }
       };
 
