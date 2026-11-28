@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import {
   AtmosphericMetrics,
   HourlyAtmosphericPoint,
@@ -15,6 +15,8 @@ import {
   getEpaCategory,
 } from '@/services/geo/geographic-observation-adapter';
 import { AvirGlobe } from '@/components/globe/AvirGlobe';
+
+const MemoizedAvirGlobe = React.memo(AvirGlobe);
 import { MissionHeader } from '@/components/ui/futuristic';
 import { CompactCityCard } from './CompactCityCard';
 import { EnvironmentalDetailsDrawer } from './EnvironmentalDetailsDrawer';
@@ -167,15 +169,19 @@ export function EarthCommandCenter({
     );
   }, [points, currentCity, selectedGlobePointId]);
 
-  const toggleStandard = () => {
+  const toggleStandard = useCallback(() => {
     setStandard((prev) => (prev === 'cpcb' ? 'epa' : 'cpcb'));
-  };
+  }, []);
 
-  const handleGlobeSelectPoint = (point: GeographicObservationPoint | null) => {
+  const handleGlobeSelectPoint = useCallback((point: GeographicObservationPoint | null) => {
     setSelectedGlobePointId(point ? point.id : null);
-  };
+  }, []);
 
-  const handleGlobeSetActiveCity = (point: GeographicObservationPoint) => {
+  const handleClearInspectedPoint = useCallback(() => {
+    setSelectedGlobePointId(null);
+  }, []);
+
+  const handleGlobeSetActiveCity = useCallback((point: GeographicObservationPoint) => {
     const indianMatch = PREDEFINED_INDIAN_CITIES.find(
       (c) => c.name.toLowerCase() === point.name.toLowerCase()
     );
@@ -213,7 +219,7 @@ export function EarthCommandCenter({
       latitude: point.latitude,
       longitude: point.longitude,
     });
-  };
+  }, [onSelectCity]);
 
   // Strict Scientific Standard Separation:
   // CPCB NAQI and US EPA AQI values preserved without cross-contamination.
@@ -400,14 +406,14 @@ export function EarthCommandCenter({
       <div className="relative w-full min-h-[600px] lg:min-h-[720px] overflow-hidden flex flex-col justify-between">
         {/* Full-Bleed 3D Earth Globe Canvas Background */}
         <div className="absolute inset-0 w-full h-full">
-          <AvirGlobe
+          <MemoizedAvirGlobe
             points={points}
             selectedPointId={selectedGlobePointId || activeGlobePoint?.id}
             activeCityName={currentCity.name}
             activeCityLatitude={currentCity.latitude}
             activeCityLongitude={currentCity.longitude}
             onSelectPoint={handleGlobeSelectPoint}
-            onClearInspectedPoint={() => setSelectedGlobePointId(null)}
+            onClearInspectedPoint={handleClearInspectedPoint}
             onSetActiveCity={handleGlobeSetActiveCity}
             standard={standard}
             onToggleStandard={toggleStandard}

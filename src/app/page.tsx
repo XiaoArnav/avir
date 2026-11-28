@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { TopNav } from '@/components/TopNav';
 import { SegmentedTabs, ActiveTabId } from '@/components/SegmentedTabs';
 import { CityPicker } from '@/components/CityPicker';
@@ -305,7 +305,7 @@ export default function Home() {
   }, [selectedCity, isPreferencesHydrated]);
 
   // Handle city selection with clean transition and strict privacy-conscious persistence (Fix G)
-  const handleCitySelect = (
+  const handleCitySelect = useCallback((
     loc: GeocodedLocation,
     source: LocationSelectionSource = 'manual_predefined'
   ) => {
@@ -334,7 +334,7 @@ export default function Home() {
     setDeterministicPlan(null);
     setAiExplanation(null);
     setSelectedCity(loc);
-  };
+  }, [selectedCity.id, selectedCity.name]);
 
   // Switch active environmental source while invalidating in-flight plans and preserving forecasts/telemetry (Fix G)
   const handleUpdateSourcePreference = (pref: SourcePreference) => {

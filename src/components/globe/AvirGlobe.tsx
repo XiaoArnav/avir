@@ -13,6 +13,8 @@ import {
   EnvironmentalLayersStatusMap,
   EnvironmentalLayerStatusInfo,
 } from './GlobeControls';
+
+const MemoizedGlobeControls = React.memo(GlobeControls);
 import { GlobeCityCard } from './GlobeCityCard';
 import { AccessibleEarthFallback } from './AccessibleEarthFallback';
 import type { CameraAction, CesiumTerrainLoadState } from './cesium/AvirCesiumGlobe';
@@ -142,15 +144,24 @@ export function AvirGlobe({
     satelliteComparison: false,
   });
 
-  const activeLayers: EnvironmentalLayersState = {
-    wind: layers?.wind !== undefined ? layers.wind : internalLayers.wind,
-    fires: layers?.fires !== undefined ? layers.fires : internalLayers.fires,
-    terrain: layers?.terrain !== undefined ? layers.terrain : internalLayers.terrain,
-    satelliteComparison:
-      layers?.satelliteComparison !== undefined
-        ? layers.satelliteComparison
-        : internalLayers.satelliteComparison,
-  };
+  const activeLayers: EnvironmentalLayersState = useMemo(
+    () => ({
+      wind: layers?.wind !== undefined ? layers.wind : internalLayers.wind,
+      fires: layers?.fires !== undefined ? layers.fires : internalLayers.fires,
+      terrain: layers?.terrain !== undefined ? layers.terrain : internalLayers.terrain,
+      satelliteComparison:
+        layers?.satelliteComparison !== undefined
+          ? layers.satelliteComparison
+          : internalLayers.satelliteComparison,
+    }),
+    [
+      layers?.wind,
+      layers?.fires,
+      layers?.terrain,
+      layers?.satelliteComparison,
+      internalLayers,
+    ]
+  );
 
   // Real runtime data & honest per-layer availability status
   const [windVectors, setWindVectors] = useState<WindVectorPoint[]>([]);
@@ -177,13 +188,20 @@ export function AvirGlobe({
   const firesReqIdRef = useRef(0);
   const satelliteReqIdRef = useRef(0);
 
-  const selectedPoint = points.find((p) => p.id === selectedPointId) || null;
-  const activeCityTarget = resolveActiveCityEnvironmentTarget({
-    activeCityName,
-    activeCityLatitude,
-    activeCityLongitude,
-    points,
-  });
+  const selectedPoint = useMemo(
+    () => points.find((p) => p.id === selectedPointId) || null,
+    [points, selectedPointId]
+  );
+  const activeCityTarget = useMemo(
+    () =>
+      resolveActiveCityEnvironmentTarget({
+        activeCityName,
+        activeCityLatitude,
+        activeCityLongitude,
+        points,
+      }),
+    [activeCityName, activeCityLatitude, activeCityLongitude, points]
+  );
 
   const activeCityTargetRef = useRef(activeCityTarget);
   activeCityTargetRef.current = activeCityTarget;
@@ -508,24 +526,90 @@ export function AvirGlobe({
     [is3D, engineMode, activeLayers.terrain, terrainLoadState, windInfo, firesInfo, satelliteInfo]
   );
 
-  const handleZoomIn = () => {
+  const handleZoomIn = useCallback(() => {
     setCameraAction({ type: 'zoomIn', timestamp: Date.now() });
-  };
+  }, []);
 
-  const handleZoomOut = () => {
+  const handleZoomOut = useCallback(() => {
     setCameraAction({ type: 'zoomOut', timestamp: Date.now() });
-  };
+  }, []);
 
-  const handleResetView = () => {
+  const handleResetView = useCallback(() => {
     setIsAutoRotating(true);
     setCameraAction({ type: 'reset', timestamp: Date.now() });
-  };
+  }, []);
 
-  const handleCesiumFallback = (reason: string) => {
+  const handleCesiumFallback = useCallback((reason: string) => {
     setEngineMode('three');
     setFallbackNotice(`Cesium unavailable (${reason}). Reverted to Three.js.`);
     setTimeout(() => setFallbackNotice(null), 8000);
-  };
+  }, []);
+
+  const handleToggle3D = useCallback(() => {
+    setIs3D((prev) => !prev);
+  }, []);
+
+  const handleToggleAutoRotate = useCallback(() => {
+    setIsAutoRotating((prev) => !prev);
+  }, []);
+
+  const handleToggleEngine = useCallback(() => {
+    setEngineMode((prev) => (prev === 'three' ? 'cesium' : 'three'));
+  }, []);
+
+  const handleToggleStandardFallback = useCallback(() => {
+    if (onToggleStandard) onToggleStandard();
+  }, [onToggleStandard]);
+
+  const handleToggleWindPause = useCallback(() => {
+    setWindPaused((prev) => !prev);
+  }, []);
+
+  const handleInspectActiveCityWind = useCallback(() => {
+    if (
+      activeCityTarget &&
+      isValidGeographicCoordinate(activeCityTarget.latitude, activeCityTarget.longitude)
+    ) {
+      setInspectedWindCoords({
+        latitude: activeCityTarget.latitude,
+        longitude: activeCityTarget.longitude,
+      });
+    }
+  }, [activeCityTarget]);
+
+  const handleClearWindInspection = useCallback(() => {
+    setInspectedWindCoords(null);
+  }, []);
+
+  const windControls = useMemo(
+    () => ({
+      model: windModel,
+      onChangeModel: setWindModel,
+      overlay: windOverlay,
+      onChangeOverlay: setWindOverlay,
+      paused: windPaused,
+      onTogglePause: handleToggleWindPause,
+      speedUnit: windSpeedUnit,
+      onChangeSpeedUnit: setWindSpeedUnit,
+      prefersReducedMotion,
+      manifest: windManifest,
+      inspection: windInspection,
+      onInspectActiveCity: handleInspectActiveCityWind,
+      onClearInspection: handleClearWindInspection,
+    }),
+    [
+      windModel,
+      windOverlay,
+      windPaused,
+      handleToggleWindPause,
+      windSpeedUnit,
+      prefersReducedMotion,
+      windManifest,
+      windInspection,
+      handleInspectActiveCityWind,
+      handleClearWindInspection,
+    ]
+  );
 
   const hasCustomHeight = className.includes('h-');
 
@@ -714,43 +798,22 @@ export function AvirGlobe({
 
       {/* Floating Bottom Globe Controls */}
       <div className="absolute bottom-20 right-3 sm:bottom-20 sm:right-6 z-30 max-w-[calc(100vw-1.5rem)]">
-        <GlobeControls
+        <MemoizedGlobeControls
           is3D={is3D}
-          onToggle3D={() => setIs3D((prev) => !prev)}
+          onToggle3D={handleToggle3D}
           isAutoRotating={isAutoRotating}
-          onToggleAutoRotate={() => setIsAutoRotating((prev) => !prev)}
+          onToggleAutoRotate={handleToggleAutoRotate}
           onZoomIn={handleZoomIn}
           onZoomOut={handleZoomOut}
           onResetView={handleResetView}
           standard={standard}
-          onToggleStandard={onToggleStandard || (() => {})}
+          onToggleStandard={handleToggleStandardFallback}
           engineMode={engineMode}
-          onToggleEngine={() => setEngineMode((prev) => (prev === 'three' ? 'cesium' : 'three'))}
+          onToggleEngine={handleToggleEngine}
           layers={activeLayers}
           layerStatus={layerStatus}
           onToggleLayer={handleToggleLayer}
-          windControls={{
-            model: windModel,
-            onChangeModel: setWindModel,
-            overlay: windOverlay,
-            onChangeOverlay: setWindOverlay,
-            paused: windPaused,
-            onTogglePause: () => setWindPaused((prev) => !prev),
-            speedUnit: windSpeedUnit,
-            onChangeSpeedUnit: setWindSpeedUnit,
-            prefersReducedMotion,
-            manifest: windManifest,
-            inspection: windInspection,
-            onInspectActiveCity: () => {
-              if (activeCityTarget && isValidGeographicCoordinate(activeCityTarget.latitude, activeCityTarget.longitude)) {
-                setInspectedWindCoords({
-                  latitude: activeCityTarget.latitude,
-                  longitude: activeCityTarget.longitude,
-                });
-              }
-            },
-            onClearInspection: () => setInspectedWindCoords(null),
-          }}
+          windControls={windControls}
         />
       </div>
 
