@@ -13,6 +13,7 @@ import {
 import { GeocodedLocation, PREDEFINED_INDIAN_CITIES } from '@/services/telemetry-service';
 import { WORLD_METROS } from '@/services/world-telemetry-service';
 import { LocationSelectionSource } from '@/domain/types';
+import { createGpsFallbackLocation } from './gps-location-fallback';
 
 export interface FirstVisitLocationModalProps {
   isOpen: boolean;
@@ -51,14 +52,7 @@ export function FirstVisitLocationModal({
           const lon = Number(pos.coords.longitude.toFixed(3));
 
           // Call secure, cached reverse geocoding API route
-          let detectedLocation: GeocodedLocation = {
-            id: Math.abs(Math.round(lat * 1000) * 10000 + (Math.round(lon * 1000) % 10000)),
-            name: `Near ${lat >= 0 ? `${lat.toFixed(2)}°N` : `${Math.abs(lat).toFixed(2)}°S`}, ${lon >= 0 ? `${lon.toFixed(2)}°E` : `${Math.abs(lon).toFixed(2)}°W`}`,
-            country: 'Detected Location',
-            countryCode: 'IN',
-            latitude: lat,
-            longitude: lon,
-          };
+          let detectedLocation = createGpsFallbackLocation(lat, lon);
 
           try {
             const res = await fetch(`/api/geo/reverse?lat=${lat}&lon=${lon}`);

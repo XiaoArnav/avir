@@ -66,4 +66,29 @@ describe('GET /api/geo/reverse (Reverse Geocoding Endpoint)', () => {
     expect(json.countryCode).toBe('IN');
     expect(json.source).toBe('nominatim');
   });
+
+  it('preserves unknown countryCode "UN" instead of defaulting to India when Nominatim omits country_code', async () => {
+    vi.spyOn(global, 'fetch').mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        name: 'Seattle',
+        address: {
+          city: 'Seattle',
+          state: 'Washington',
+          country: 'United States',
+          // country_code intentionally omitted
+        },
+      }),
+    } as unknown as Response);
+
+    const req = new NextRequest('http://localhost:3000/api/geo/reverse?lat=47.6062&lon=-122.3321');
+    const res = await GET(req);
+    expect(res.status).toBe(200);
+
+    const json = await res.json();
+    expect(json.name).toBe('Seattle');
+    expect(json.country).toBe('United States');
+    expect(json.countryCode).toBe('UN');
+    expect(json.source).toBe('nominatim');
+  });
 });

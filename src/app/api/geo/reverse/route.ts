@@ -144,7 +144,7 @@ export async function GET(req: NextRequest) {
             '';
           admin1 = addr.state || addr.region;
           country = addr.country || country;
-          countryCode = (addr.country_code || 'in').toUpperCase();
+          countryCode = (addr.country_code || 'un').toUpperCase();
         }
       }
     } catch {

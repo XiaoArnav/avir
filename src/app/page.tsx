@@ -788,9 +788,7 @@ export default function Home() {
       <FirstVisitLocationModal
         isOpen={isFirstVisitModalOpen}
         onClose={() => setIsFirstVisitModalOpen(false)}
-        onSelectCity={(loc) => {
-          setSelectedCity(loc);
-        }}
+        onSelectCity={handleCitySelect}
       />
       <SettingsModal
         isOpen={isSettingsOpen}
