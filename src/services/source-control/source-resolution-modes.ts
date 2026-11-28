@@ -10,9 +10,19 @@ import {
   EnvironmentalSourceRecord,
 } from '@/domain/types';
 import { AqiStandard } from '@/services/geo/geographic-observation-adapter';
-import { evaluateMeasurementEligibility } from '@/config/environmental-sources';
+import {
+  CPCB_SELECTION_RADIUS_KM,
+  OPENAQ_SELECTION_RADIUS_KM,
+  SPECIFIC_STATION_MAX_RADIUS_KM,
+  evaluateMeasurementEligibility,
+} from '@/config/environmental-sources';
 import { ResolvedSourceData, SourcePreference } from './source-control-types';
-import { hasValidPm25, isSourceEligibleForPm25 } from './source-eligibility';
+import {
+  hasValidPm25,
+  isSourceEligibleForPm25,
+  verifySourceDistance,
+  withVerifiedDistance,
+} from './source-eligibility';
 import {
   SourceAlternativeOption,
   buildResolvedFromMetrics,
@@ -20,6 +30,21 @@ import {
   createModeUnavailableResolvedData,
   createUnavailableResolvedData,
 } from './source-resolution-results';
+
+function isOfficialNonOpenAqStation(src: EnvironmentalSourceRecord): boolean {
+  return (src.sourceKind === 'official_ground_station' || src.providerId === 'cpcb') && src.providerId !== 'openaq';
+}
+
+function isOpenAqGroundStation(src: EnvironmentalSourceRecord): boolean {
+  return (
+    src.providerId === 'openaq' &&
+    src.sourceKind !== 'atmospheric_model' &&
+    src.status !== 'not_configured' &&
+    src.status !== 'unreachable' &&
+    src.status !== 'rejected' &&
+    src.status !== 'error'
+  );
+}
 
 function hasStaleCandidate(sources: EnvironmentalSourceRecord[], nowMs: number): boolean {
   return sources.some((s) => {
@@ -29,11 +54,35 @@ function hasStaleCandidate(sources: EnvironmentalSourceRecord[], nowMs: number):
   });
 }
 
+interface VerifiedCandidate {
+  source: EnvironmentalSourceRecord;
+  distanceKm: number;
+}
+
+function getEligibleSortedCandidates(
+  sources: EnvironmentalSourceRecord[],
+  predicate: (s: EnvironmentalSourceRecord) => boolean,
+  metrics: AtmosphericMetrics,
+  maxRadiusKm: number
+): VerifiedCandidate[] {
+  const candidates: VerifiedCandidate[] = [];
+  for (const s of sources) {
+    if (!predicate(s)) continue;
+    const dist = verifySourceDistance(s, metrics, maxRadiusKm);
+    if (!dist.isWithinRange || dist.distanceKm === null) continue;
+    candidates.push({
+      source: withVerifiedDistance(s, dist.distanceKm),
+      distanceKm: dist.distanceKm,
+    });
+  }
+  return candidates.sort((a, b) => a.distanceKm - b.distanceKm);
+}
+
 /**
  * Mode A: Automatic Selection Policy
  * Deterministic ranking:
  * 1. Fresh official reference ground stations (CPCB) <= 35km
- * 2. Verified physical ground monitors (OpenAQ) <= 35km
+ * 2. Verified physical ground monitors (OpenAQ) <= 25km
  * 3. Verified numerical atmospheric chemistry model (Open-Meteo CAMS)
  */
 export function resolveAutomaticMode(
@@ -46,18 +95,16 @@ export function resolveAutomaticMode(
   metrics: AtmosphericMetrics,
   nowMs: number
 ): ResolvedSourceData {
-  // 1. Look for fresh official reference station within 35km
-  const officialStations = sources
-    .filter(
-      (s) =>
-        s.sourceKind === 'official_ground_station' &&
-        (s.distanceKm === null || s.distanceKm <= 35) &&
-        hasValidPm25(s, nowMs)
-    )
-    .sort((a, b) => (a.distanceKm ?? 999) - (b.distanceKm ?? 999));
+  // 1. Look for fresh official CPCB/regulatory reference station within 35 km
+  const officialStations = getEligibleSortedCandidates(
+    sources,
+    (s) => s.sourceKind === 'official_ground_station' && s.providerId !== 'openaq' && hasValidPm25(s, nowMs),
+    metrics,
+    CPCB_SELECTION_RADIUS_KM
+  );
 
   if (officialStations.length > 0) {
-    const selected = officialStations[0];
+    const selected = officialStations[0].source;
     const distStr = selected.distanceKm !== null ? ` (${selected.distanceKm} km away)` : '';
     return buildResolvedSourceData({
       preference,
@@ -71,19 +118,16 @@ export function resolveAutomaticMode(
     });
   }
 
-  // 2. Look for verified OpenAQ physical ground station within 35km
-  const openAqStations = sources
-    .filter(
-      (s) =>
-        s.providerId === 'openaq' &&
-        s.sourceKind !== 'atmospheric_model' &&
-        (s.distanceKm === null || s.distanceKm <= 35) &&
-        hasValidPm25(s, nowMs)
-    )
-    .sort((a, b) => (a.distanceKm ?? 999) - (b.distanceKm ?? 999));
+  // 2. Look for verified OpenAQ physical ground station within 25 km
+  const openAqStations = getEligibleSortedCandidates(
+    sources,
+    (s) => isOpenAqGroundStation(s) && hasValidPm25(s, nowMs),
+    metrics,
+    OPENAQ_SELECTION_RADIUS_KM
+  );
 
   if (openAqStations.length > 0) {
-    const selected = openAqStations[0];
+    const selected = openAqStations[0].source;
     const distStr = selected.distanceKm !== null ? ` (${selected.distanceKm} km away)` : '';
     return buildResolvedSourceData({
       preference,
@@ -144,13 +188,17 @@ export function resolveOfficialGroundMode(
   metrics: AtmosphericMetrics,
   nowMs: number
 ): ResolvedSourceData {
-  const officialStations = sources
-    .filter((s) => s.sourceKind === 'official_ground_station' || s.providerId === 'cpcb')
-    .sort((a, b) => (a.distanceKm ?? 999) - (b.distanceKm ?? 999));
+  const officialInRange = getEligibleSortedCandidates(
+    sources,
+    isOfficialNonOpenAqStation,
+    metrics,
+    CPCB_SELECTION_RADIUS_KM
+  );
 
-  const reportingStation = officialStations.find((s) => hasValidPm25(s, nowMs));
+  const reportingEntry = officialInRange.find((entry) => hasValidPm25(entry.source, nowMs));
 
-  if (reportingStation) {
+  if (reportingEntry) {
+    const reportingStation = reportingEntry.source;
     return buildResolvedSourceData({
       preference,
       resolvedSource: reportingStation,
@@ -179,10 +227,11 @@ export function resolveOfficialGroundMode(
   }
 
   // Honest unavailable state: no silent fallback
-  const isStale = hasStaleCandidate(officialStations, nowMs);
-  const isRegistryOnly = officialStations.length > 0;
+  const inRangeSources = officialInRange.map((entry) => entry.source);
+  const isStale = hasStaleCandidate(inRangeSources, nowMs);
+  const isRegistryOnly = inRangeSources.length > 0;
 
-  let selectionReason = 'No official regulatory stations are located within observation range of this city.';
+  let selectionReason = `No official regulatory stations are located within observation range (${CPCB_SELECTION_RADIUS_KM} km) of this city.`;
   if (isStale) {
     selectionReason = 'Official CPCB station observations are stale (>24h old) and cannot be presented as current.';
   } else if (isRegistryOnly) {
@@ -218,13 +267,19 @@ export function resolveOpenAqMode(
   metrics: AtmosphericMetrics,
   nowMs: number
 ): ResolvedSourceData {
-  const openAqSources = sources
-    .filter((s) => s.providerId === 'openaq' && s.sourceKind !== 'atmospheric_model')
-    .sort((a, b) => (a.distanceKm ?? 999) - (b.distanceKm ?? 999));
+  const isNotConfigured = sources.some((s) => s.providerId === 'openaq' && s.status === 'not_configured');
+  const allOpenAqCandidates = sources.filter(isOpenAqGroundStation);
+  const openAqInRange = getEligibleSortedCandidates(
+    allOpenAqCandidates,
+    () => true,
+    metrics,
+    OPENAQ_SELECTION_RADIUS_KM
+  );
 
-  const reportingSource = openAqSources.find((s) => hasValidPm25(s, nowMs));
+  const reportingEntry = openAqInRange.find((entry) => hasValidPm25(entry.source, nowMs));
 
-  if (reportingSource) {
+  if (reportingEntry) {
+    const reportingSource = reportingEntry.source;
     const network = reportingSource.provenance?.network || 'OpenAQ Ground Network';
     return buildResolvedSourceData({
       preference,
@@ -252,10 +307,16 @@ export function resolveOpenAqMode(
     });
   }
 
-  const isStale = hasStaleCandidate(openAqSources, nowMs);
-  const selectionReason = isStale
-    ? 'OpenAQ ground monitor observations are stale (>24h old) and cannot be presented as current.'
-    : 'No OpenAQ monitoring stations are currently reporting measurements within range.';
+  const inRangeSources = openAqInRange.map((entry) => entry.source);
+  const isStale = hasStaleCandidate(inRangeSources, nowMs);
+  let selectionReason = `No OpenAQ monitoring stations are currently reporting measurements within ${OPENAQ_SELECTION_RADIUS_KM} km range.`;
+  if (isNotConfigured && allOpenAqCandidates.length === 0) {
+    selectionReason = 'OPENAQ_API_KEY is not configured on the server; OpenAQ ground monitoring is currently disabled.';
+  } else if (isStale) {
+    selectionReason = 'OpenAQ ground monitor observations are stale (>24h old) and cannot be presented as current.';
+  } else if (allOpenAqCandidates.length > 0 && openAqInRange.length === 0) {
+    selectionReason = `OpenAQ ground monitors are outside the documented ${OPENAQ_SELECTION_RADIUS_KM} km selection radius or have unverified location coordinates.`;
+  }
 
   return createModeUnavailableResolvedData({
     preference,
@@ -340,16 +401,20 @@ export function resolveSpecificStationMode(
 
   // Check if station exists in current city telemetry
   if (targetStation) {
+    const distanceCheck = verifySourceDistance(targetStation, metrics);
+    const verifiedDistanceKm = distanceCheck.distanceKm;
+    const stationWithVerifiedDistance = withVerifiedDistance(targetStation, verifiedDistanceKm);
+
     // Spatial relevance check: if station is > 100km away, user switched cities
-    if (targetStation.distanceKm !== null && targetStation.distanceKm > 100) {
+    if (verifiedDistanceKm !== null && verifiedDistanceKm > SPECIFIC_STATION_MAX_RADIUS_KM) {
       if (preference.allowFallbackToModel && modelSource && hasValidPm25(modelSource, nowMs)) {
         return buildResolvedSourceData({
           preference,
           resolvedSource: modelSource,
           resolutionStatus: 'fallback',
-          selectionReason: `Selected station "${preference.stationName || preference.stationId}" is ${targetStation.distanceKm} km away. Fell back to CAMS Atmospheric Model.`,
+          selectionReason: `Selected station "${preference.stationName || preference.stationId}" is ${verifiedDistanceKm} km away. Fell back to CAMS Atmospheric Model.`,
           isFallback: true,
-          fallbackReason: `Station ${preference.stationName || preference.stationId} is out of observation range (>100 km).`,
+          fallbackReason: `Station ${preference.stationName || preference.stationId} is out of observation range (>${SPECIFIC_STATION_MAX_RADIUS_KM} km).`,
           aqiStandard,
           retrievedAt,
           alternatives,
@@ -358,14 +423,14 @@ export function resolveSpecificStationMode(
 
       return createModeUnavailableResolvedData({
         preference,
-        selectionReason: `Selected station "${preference.stationName || preference.stationId}" is ${targetStation.distanceKm} km away. Please select a station local to the active city.`,
+        selectionReason: `Selected station "${preference.stationName || preference.stationId}" is ${verifiedDistanceKm} km away. Please select a station local to the active city.`,
         retrievedAt,
         stationId: preference.stationId,
         stationName: preference.stationName || targetStation.sourceName || targetStation.name || 'External Station',
         providerId: targetStation.providerId,
         providerName: targetStation.providerName,
         sourceKind: targetStation.sourceKind,
-        distanceKm: targetStation.distanceKm,
+        distanceKm: verifiedDistanceKm,
         attribution: targetStation.attribution,
         limitations: ['Station is outside local atmospheric boundary layer.'],
         aqiStandard,
@@ -375,13 +440,31 @@ export function resolveSpecificStationMode(
     }
 
     // Check station eligibility
-    const eligibility = isSourceEligibleForPm25(targetStation, nowMs);
+    const eligibility = isSourceEligibleForPm25(stationWithVerifiedDistance, nowMs);
     if (eligibility.isEligible) {
+      const hasUnverifiedDistance =
+        stationWithVerifiedDistance.sourceKind !== 'user_hardware' && verifiedDistanceKm === null;
+      const stationForResult = hasUnverifiedDistance
+        ? {
+            ...stationWithVerifiedDistance,
+            distanceKm: null,
+            provenance: {
+              ...stationWithVerifiedDistance.provenance,
+              limitations: [
+                ...(stationWithVerifiedDistance.provenance?.limitations || []),
+                'Station distance could not be verified from active location coordinates.',
+              ],
+            },
+          }
+        : stationWithVerifiedDistance;
+
       return buildResolvedSourceData({
         preference,
-        resolvedSource: targetStation,
+        resolvedSource: stationForResult,
         resolutionStatus: 'resolved',
-        selectionReason: `Using user-selected station "${targetStation.sourceName || targetStation.name}".`,
+        selectionReason: hasUnverifiedDistance
+          ? `Using user-selected station "${stationForResult.sourceName || stationForResult.name}" (station distance is unverified).`
+          : `Using user-selected station "${stationForResult.sourceName || stationForResult.name}".`,
         isFallback: false,
         aqiStandard,
         retrievedAt,
@@ -406,7 +489,7 @@ export function resolveSpecificStationMode(
 
     return createModeUnavailableResolvedData({
       preference,
-      resolvedSource: targetStation,
+      resolvedSource: stationWithVerifiedDistance,
       selectionReason: `Selected station "${targetStation.sourceName || targetStation.name}" is currently unavailable: ${eligibility.reason || 'No valid PM2.5 observation'}.`,
       observedAt: targetStation.observedAt ?? null,
       retrievedAt,
@@ -415,7 +498,7 @@ export function resolveSpecificStationMode(
       providerId: targetStation.providerId,
       providerName: targetStation.providerName,
       sourceKind: targetStation.sourceKind,
-      distanceKm: targetStation.distanceKm ?? null,
+      distanceKm: verifiedDistanceKm,
       attribution: targetStation.attribution,
       limitations: ['Live observation feed is currently offline or unpopulated.'],
       aqiStandard,

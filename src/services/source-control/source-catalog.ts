@@ -6,35 +6,43 @@
  */
 
 import { EnvironmentalSourceRecord } from '@/domain/types';
+import { evaluateMeasurementEligibility } from '@/config/environmental-sources';
 import { SourceCatalogItem } from './source-control-types';
+import { hasValidPm25 } from './source-eligibility';
 
 /**
  * Normalizes an EnvironmentalSourceRecord into a client-safe SourceCatalogItem.
  */
-export function toSourceCatalogItem(src: EnvironmentalSourceRecord): SourceCatalogItem {
+export function toSourceCatalogItem(
+  src: EnvironmentalSourceRecord,
+  now: number | Date = Date.now()
+): SourceCatalogItem {
   const pm25Measurement = src.measurements?.find((m) => m.pollutant === 'pm25');
   const pm10Measurement = src.measurements?.find((m) => m.pollutant === 'pm10');
 
   const pm25 =
-    pm25Measurement && pm25Measurement.value !== null && Number.isFinite(pm25Measurement.value)
+    pm25Measurement && pm25Measurement.value !== null && Number.isFinite(pm25Measurement.value) && pm25Measurement.value >= 0
       ? pm25Measurement.value
       : null;
 
   const pm10 =
-    pm10Measurement && pm10Measurement.value !== null && Number.isFinite(pm10Measurement.value)
+    pm10Measurement && pm10Measurement.value !== null && Number.isFinite(pm10Measurement.value) && pm10Measurement.value >= 0
       ? pm10Measurement.value
       : null;
 
-  const isAvailable =
-    src.status === 'active' ||
-    src.status === 'fresh' ||
-    (pm25 !== null && src.status !== 'unavailable' && src.status !== 'rejected');
-
-  const isStale = src.status === 'stale';
+  const isModel = src.sourceKind === 'atmospheric_model' || src.providerKind === 'atmospheric_model';
+  const eligibility = !isModel ? evaluateMeasurementEligibility(src, 'pm25', now) : null;
+  const isAvailable = hasValidPm25(src, now);
+  const isStale = src.status === 'stale' || Boolean(eligibility && !eligibility.eligible && eligibility.reason === 'stale');
   const isReference =
     src.sourceKind === 'official_ground_station' ||
     src.providerId === 'cpcb' ||
     Boolean(src.provenance?.network?.toLowerCase().includes('cpcb'));
+
+  const distanceKm =
+    typeof src.distanceKm === 'number' && Number.isFinite(src.distanceKm) && src.distanceKm >= 0
+      ? src.distanceKm
+      : null;
 
   return {
     id: src.id,
@@ -42,7 +50,7 @@ export function toSourceCatalogItem(src: EnvironmentalSourceRecord): SourceCatal
     providerId: src.providerId,
     providerName: src.providerName || src.provider || src.providerId,
     sourceKind: src.sourceKind,
-    distanceKm: src.distanceKm ?? null,
+    distanceKm,
     pm25,
     pm10,
     observedAt: src.observedAt ?? src.measuredAt ?? null,

@@ -258,9 +258,17 @@ export function parseCpcbPollutantValue(val: string | number | null | undefined)
  */
 function parseCoordinate(val: string | number | null | undefined, min: number, max: number): number | null {
   if (val === null || val === undefined) return null;
-  const num = typeof val === 'number' ? val : Number(String(val).trim());
-  if (!Number.isFinite(num) || num < min || num > max) return null;
-  return Math.round(num * 10000) / 10000;
+  if (typeof val === 'string') {
+    const trimmed = val.trim();
+    if (!trimmed || trimmed === 'NA' || trimmed === 'N/A' || trimmed === 'null') {
+      return null;
+    }
+    const num = Number(trimmed);
+    if (!Number.isFinite(num) || num < min || num > max) return null;
+    return Math.round(num * 10000) / 10000;
+  }
+  if (!Number.isFinite(val) || val < min || val > max) return null;
+  return Math.round(val * 10000) / 10000;
 }
 
 /**

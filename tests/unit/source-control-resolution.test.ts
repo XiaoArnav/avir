@@ -259,6 +259,8 @@ describe('Avir Source Control — Resolution Engine (Unit)', () => {
       ...mockCpcbSource,
       id: 'cpcb-bengaluru-bwssb',
       sourceName: 'BWSSB Kadabesanahalli, Bengaluru - KSPCB',
+      latitude: 12.9694,
+      longitude: 77.5946,
       distanceKm: 1740, // Far from Delhi
     };
 

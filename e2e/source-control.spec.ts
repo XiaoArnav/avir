@@ -367,4 +367,154 @@ test.describe('Avir Source Control — Multi-Provider Telemetry & User Selection
     await expect(page.getByText(/Fallback Applied:/i).first()).toBeVisible();
     await expect(page.getByText(/Inhalation dose model across transit modes in 90 µg\/m³ ambient air/i)).toBeVisible();
   });
+
+  test('5. Enforces 25 km OpenAQ / 35 km CPCB distance policies, rejects unknown distances, and keeps inspector usable at mobile viewport', async ({ page }) => {
+    const recentIso = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+
+    await page.route('**/*air-quality-api.open-meteo.com/**', async (route) => {
+      const times = Array.from({ length: 24 }, (_, i) => {
+        const d = new Date(Date.now() + (i - 1) * 3600 * 1000);
+        return d.toISOString().slice(0, 13) + ':00';
+      });
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          latitude: 28.6139,
+          longitude: 77.2090,
+          timezone: 'Asia/Kolkata',
+          current: {
+            time: recentIso.slice(0, 16),
+            pm2_5: 125.0,
+            pm10: 180.0,
+            us_aqi: 187,
+            nitrogen_dioxide: 35.0,
+            sulphur_dioxide: 12.0,
+            carbon_monoxide: 850.0,
+            ozone: 40.0,
+          },
+          hourly: {
+            time: times,
+            pm2_5: times.map(() => 65),
+          },
+        }),
+      });
+    });
+
+    await page.route('**/*sensor.community/**', async (route) => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+    });
+
+    // Return a 40 km CPCB station and an unknown-distance CPCB station (>35 km / null distance)
+    await page.route('**/api/telemetry/cpcb**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          sources: [
+            {
+              id: 'cpcb-far-40km',
+              providerId: 'cpcb',
+              providerName: 'Central Pollution Control Board',
+              sourceName: 'Outer NCR 40km CAAQMS',
+              sourceKind: 'official_ground_station',
+              status: 'fresh',
+              stationId: 'outer_40',
+              latitude: 28.9736,
+              longitude: 77.2090,
+              distanceKm: 40.0,
+              observedAt: recentIso,
+              validAt: null,
+              retrievedAt: recentIso,
+              measurements: [
+                { pollutant: 'pm25', value: 220.0, unit: 'µg/m³', observedAt: recentIso, averagingPeriodMinutes: 60, qualityFlag: 'valid' },
+              ],
+              attribution: 'CPCB',
+              provenance: { network: 'CAAQMS', licenseOrAttribution: 'GODL', isModel: false, limitations: [] },
+            },
+            {
+              id: 'cpcb-unknown-dist',
+              providerId: 'cpcb',
+              providerName: 'Central Pollution Control Board',
+              sourceName: 'Unlocated CPCB Station',
+              sourceKind: 'official_ground_station',
+              status: 'fresh',
+              stationId: 'unlocated_cpcb',
+              latitude: null,
+              longitude: null,
+              distanceKm: null,
+              observedAt: recentIso,
+              validAt: null,
+              retrievedAt: recentIso,
+              measurements: [
+                { pollutant: 'pm25', value: 260.0, unit: 'µg/m³', observedAt: recentIso, averagingPeriodMinutes: 60, qualityFlag: 'valid' },
+              ],
+              attribution: 'CPCB',
+              provenance: { network: 'CAAQMS', licenseOrAttribution: 'GODL', isModel: false, limitations: [] },
+            },
+          ],
+        }),
+      });
+    });
+
+    // Return a 28 km OpenAQ monitor (>25 km limit)
+    await page.route('**/api/telemetry/sources**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          sources: [
+            {
+              id: 'openaq-28km',
+              providerId: 'openaq',
+              providerName: 'OpenAQ Network',
+              sourceName: 'Out-of-Radius OpenAQ Monitor',
+              sourceKind: 'official_ground_station',
+              status: 'fresh',
+              stationId: 'oaq_28',
+              latitude: 28.8657,
+              longitude: 77.2090,
+              distanceKm: 28.0,
+              observedAt: recentIso,
+              validAt: null,
+              retrievedAt: recentIso,
+              measurements: [
+                { pollutant: 'pm25', value: 195.0, unit: 'µg/m³', observedAt: recentIso, averagingPeriodMinutes: 60, qualityFlag: 'valid' },
+              ],
+              attribution: 'OpenAQ',
+              provenance: { network: 'OpenAQ', licenseOrAttribution: 'CC0', isModel: false, limitations: [] },
+            },
+          ],
+        }),
+      });
+    });
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/');
+    await page.waitForLoadState('domcontentloaded');
+
+    // Switch to Three.js quickly
+    const engineButton = page.getByRole('button', { name: /toggle 3d engine/i });
+    await expect(engineButton).toHaveText('CESIUM');
+    await engineButton.click();
+
+    // Automatic mode must NOT pick Outer NCR 40km, Unlocated CPCB, or OpenAQ 28km — must fall back to CAMS model (125 µg/m³)
+    const cityCard = page.locator('article[aria-label="Current air quality observation for Delhi-NCR"]');
+    await expect(cityCard).toContainText('Open-Meteo Atmospheric Chemistry', { timeout: 10_000 });
+    await expect(cityCard).not.toContainText('Unlocated CPCB Station');
+    await expect(cityCard).not.toContainText('Outer NCR 40km');
+    await expect(cityCard).not.toContainText('Out-of-Radius OpenAQ');
+
+    // Open Source Control at mobile viewport and verify unknown-distance row renders "Unverified" instead of "0 km"
+    await page.getByRole('button', { name: /current data source/i }).first().click();
+    const modal = page.getByRole('dialog');
+    await expect(modal).toBeVisible();
+    await expect(modal).toContainText('Unlocated CPCB Station');
+    await expect(modal.locator('table')).toContainText('Unverified');
+
+    // Switching to OpenAQ mode without fallback refuses 28 km OpenAQ monitor
+    await modal.getByRole('button', { name: /OpenAQ Network/i }).click();
+    await expect(modal).toContainText('Source Offline');
+    await expect(modal).toContainText('outside the documented 25 km');
+  });
 });

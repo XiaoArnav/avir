@@ -5,11 +5,104 @@
  * scientifically valid PM2.5 reading without duplicating canonical physical thresholds.
  */
 
-import { EnvironmentalSourceRecord } from '@/domain/types';
+import { AtmosphericMetrics, EnvironmentalSourceRecord } from '@/domain/types';
 import {
   evaluateMeasurementEligibility,
   MAX_OBSERVATION_AGE_HOURS,
 } from '@/config/environmental-sources';
+import { calculateDistanceKm } from '@/services/ground-station-service';
+
+export interface VerifiedDistanceResult {
+  isWithinRange: boolean;
+  distanceKm: number | null;
+  isVerified: boolean;
+  reason?:
+    | 'valid'
+    | 'missing_coordinates'
+    | 'invalid_coordinates'
+    | 'unknown_distance'
+    | 'invalid_distance'
+    | 'out_of_range';
+}
+
+function hasFiniteCoordinate(val: unknown, min: number, max: number): val is number {
+  return typeof val === 'number' && Number.isFinite(val) && val >= min && val <= max;
+}
+
+/**
+ * Verifies a physical station's geographic distance against active location coordinates.
+ * Always treats Haversine distance from valid active + station coordinates as authoritative,
+ * and rejects unverified proximity when either coordinate pair is unavailable or invalid.
+ */
+export function verifySourceDistance(
+  src: EnvironmentalSourceRecord,
+  metrics: Pick<AtmosphericMetrics, 'latitude' | 'longitude' | 'location'> | null | undefined,
+  maxRadiusKm?: number
+): VerifiedDistanceResult {
+  const rawLat = src.latitude ?? src.coordinates?.latitude;
+  const rawLon = src.longitude ?? src.coordinates?.longitude;
+
+  const hasLatField = rawLat !== null && rawLat !== undefined;
+  const hasLonField = rawLon !== null && rawLon !== undefined;
+
+  if (hasLatField !== hasLonField) {
+    return { isWithinRange: false, distanceKm: null, isVerified: false, reason: 'invalid_coordinates' };
+  }
+
+  if (!hasLatField || !hasLonField) {
+    return { isWithinRange: false, distanceKm: null, isVerified: false, reason: 'missing_coordinates' };
+  }
+
+  if (!hasFiniteCoordinate(rawLat, -90, 90) || !hasFiniteCoordinate(rawLon, -180, 180)) {
+    return { isWithinRange: false, distanceKm: null, isVerified: false, reason: 'invalid_coordinates' };
+  }
+
+  const activeLat = metrics?.latitude ?? metrics?.location?.latitude;
+  const activeLon = metrics?.longitude ?? metrics?.location?.longitude;
+  const hasValidActiveCoords =
+    hasFiniteCoordinate(activeLat, -90, 90) && hasFiniteCoordinate(activeLon, -180, 180);
+
+  if (!hasValidActiveCoords) {
+    return { isWithinRange: false, distanceKm: null, isVerified: false, reason: 'unknown_distance' };
+  }
+
+  const verifiedDistanceKm = calculateDistanceKm(activeLat, activeLon, rawLat, rawLon);
+
+  if (maxRadiusKm !== undefined && verifiedDistanceKm > maxRadiusKm) {
+    return {
+      isWithinRange: false,
+      distanceKm: verifiedDistanceKm,
+      isVerified: true,
+      reason: 'out_of_range',
+    };
+  }
+
+  return {
+    isWithinRange: true,
+    distanceKm: verifiedDistanceKm,
+    isVerified: true,
+    reason: 'valid',
+  };
+}
+
+/**
+ * Returns a shallow copy with verified distanceKm attached when resolved distance differs from stored.
+ */
+export function withVerifiedDistance(
+  src: EnvironmentalSourceRecord,
+  distanceKm: number | null
+): EnvironmentalSourceRecord {
+  if (src.distanceKm === distanceKm && (!src.coordinates || src.coordinates.distanceKm === distanceKm)) {
+    return src;
+  }
+  return {
+    ...src,
+    distanceKm,
+    coordinates: src.coordinates
+      ? { ...src.coordinates, distanceKm }
+      : src.coordinates,
+  };
+}
 
 /**
  * Evaluates whether an EnvironmentalSourceRecord has an eligible, scientifically valid PM2.5 measurement.

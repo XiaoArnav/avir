@@ -274,13 +274,29 @@ export function parseOpenAqLocation(
 ): EnvironmentalSourceRecord | null {
   if (!loc || !loc.id) return null;
 
-  const locLat = loc.coordinates?.latitude;
-  const locLon = loc.coordinates?.longitude;
-  let distanceKm: number | null = null;
-
-  if (typeof locLat === 'number' && typeof locLon === 'number' && Number.isFinite(locLat) && Number.isFinite(locLon)) {
-    distanceKm = calculateDistanceKm(targetLat, targetLon, locLat, locLon);
-  }
+  const rawLat = loc.coordinates?.latitude;
+  const rawLon = loc.coordinates?.longitude;
+  const hasValidCoords =
+    typeof rawLat === 'number' &&
+    typeof rawLon === 'number' &&
+    Number.isFinite(rawLat) &&
+    Number.isFinite(rawLon) &&
+    rawLat >= -90 &&
+    rawLat <= 90 &&
+    rawLon >= -180 &&
+    rawLon <= 180;
+  const locLat = hasValidCoords ? rawLat : null;
+  const locLon = hasValidCoords ? rawLon : null;
+  const distanceKm: number | null =
+    hasValidCoords &&
+    Number.isFinite(targetLat) &&
+    Number.isFinite(targetLon) &&
+    targetLat >= -90 &&
+    targetLat <= 90 &&
+    targetLon >= -180 &&
+    targetLon <= 180
+      ? calculateDistanceKm(targetLat, targetLon, rawLat, rawLon)
+      : null;
 
   // Build sensor lookup table keyed by sensor ID
   const sensorById = new Map<number, OpenAqSensorMetadata>(
@@ -618,7 +634,16 @@ export async function fetchOpenAqProviderResult(params: {
       .map((loc) => {
         const lat = loc.coordinates?.latitude;
         const lon = loc.coordinates?.longitude;
-        const dist = lat != null && lon != null ? calculateDistanceKm(latitude, longitude, lat, lon) : Infinity;
+        const valid =
+          typeof lat === 'number' &&
+          typeof lon === 'number' &&
+          Number.isFinite(lat) &&
+          Number.isFinite(lon) &&
+          lat >= -90 &&
+          lat <= 90 &&
+          lon >= -180 &&
+          lon <= 180;
+        const dist = valid ? calculateDistanceKm(latitude, longitude, lat, lon) : Infinity;
         return { loc, dist };
       })
       .filter((item) => item.dist <= effectiveRadiusKm)
