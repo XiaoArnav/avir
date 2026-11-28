@@ -5,11 +5,133 @@
  * scientifically valid PM2.5 reading without duplicating canonical physical thresholds.
  */
 
-import { EnvironmentalSourceRecord } from '@/domain/types';
+import { AtmosphericMetrics, EnvironmentalSourceRecord } from '@/domain/types';
 import {
   evaluateMeasurementEligibility,
   MAX_OBSERVATION_AGE_HOURS,
 } from '@/config/environmental-sources';
+import { calculateDistanceKm } from '@/services/ground-station-service';
+
+const DISTANCE_CONFLICT_TOLERANCE_KM = 15;
+
+export interface VerifiedDistanceResult {
+  isWithinRange: boolean;
+  distanceKm: number | null;
+  isVerified: boolean;
+  reason?:
+    | 'valid'
+    | 'missing_coordinates'
+    | 'invalid_coordinates'
+    | 'unknown_distance'
+    | 'invalid_distance'
+    | 'out_of_range';
+}
+
+function hasFiniteCoordinate(val: unknown, min: number, max: number): val is number {
+  return typeof val === 'number' && Number.isFinite(val) && val >= min && val <= max;
+}
+
+/**
+ * Verifies a physical station's distance against active location coordinates.
+ * Rejects missing/invalid coordinates and recalculates distance via Haversine when
+ * valid coordinates conflict with a stale stored distanceKm.
+ */
+export function verifySourceDistance(
+  src: EnvironmentalSourceRecord,
+  metrics: Pick<AtmosphericMetrics, 'latitude' | 'longitude' | 'location'> | null | undefined,
+  maxRadiusKm?: number
+): VerifiedDistanceResult {
+  const rawLat = src.latitude ?? src.coordinates?.latitude;
+  const rawLon = src.longitude ?? src.coordinates?.longitude;
+
+  const hasLatField = rawLat !== null && rawLat !== undefined;
+  const hasLonField = rawLon !== null && rawLon !== undefined;
+
+  if (hasLatField !== hasLonField) {
+    return { isWithinRange: false, distanceKm: null, isVerified: false, reason: 'invalid_coordinates' };
+  }
+
+  if (!hasLatField || !hasLonField) {
+    return { isWithinRange: false, distanceKm: null, isVerified: false, reason: 'missing_coordinates' };
+  }
+
+  if (!hasFiniteCoordinate(rawLat, -90, 90) || !hasFiniteCoordinate(rawLon, -180, 180)) {
+    return { isWithinRange: false, distanceKm: null, isVerified: false, reason: 'invalid_coordinates' };
+  }
+
+  const hasStoredField = src.distanceKm !== null && src.distanceKm !== undefined;
+  const storedDistanceKm =
+    hasStoredField && typeof src.distanceKm === 'number' && Number.isFinite(src.distanceKm) && src.distanceKm >= 0
+      ? src.distanceKm
+      : null;
+
+  if (hasStoredField && storedDistanceKm === null) {
+    return { isWithinRange: false, distanceKm: null, isVerified: false, reason: 'invalid_distance' };
+  }
+
+  const activeLat = metrics?.latitude ?? metrics?.location?.latitude;
+  const activeLon = metrics?.longitude ?? metrics?.location?.longitude;
+  const hasValidActiveCoords =
+    hasFiniteCoordinate(activeLat, -90, 90) && hasFiniteCoordinate(activeLon, -180, 180);
+
+  const computedDistanceKm = hasValidActiveCoords
+    ? calculateDistanceKm(activeLat, activeLon, rawLat, rawLon)
+    : null;
+
+  let verifiedDistanceKm: number | null = storedDistanceKm;
+  if (computedDistanceKm !== null) {
+    if (
+      storedDistanceKm === null ||
+      computedDistanceKm - storedDistanceKm > DISTANCE_CONFLICT_TOLERANCE_KM ||
+      (maxRadiusKm !== undefined && computedDistanceKm > maxRadiusKm && computedDistanceKm > storedDistanceKm)
+    ) {
+      verifiedDistanceKm = computedDistanceKm;
+    }
+  }
+
+  if (verifiedDistanceKm === null) {
+    return { isWithinRange: false, distanceKm: null, isVerified: false, reason: 'unknown_distance' };
+  }
+
+  if (maxRadiusKm !== undefined) {
+    const exceedsComputed = verifiedDistanceKm > maxRadiusKm;
+    const exceedsStored = storedDistanceKm !== null && storedDistanceKm > maxRadiusKm;
+    if (exceedsComputed || exceedsStored) {
+      return {
+        isWithinRange: false,
+        distanceKm: verifiedDistanceKm,
+        isVerified: true,
+        reason: 'out_of_range',
+      };
+    }
+  }
+
+  return {
+    isWithinRange: true,
+    distanceKm: verifiedDistanceKm,
+    isVerified: true,
+    reason: 'valid',
+  };
+}
+
+/**
+ * Returns a shallow copy with verified distanceKm attached when resolved distance differs from stored.
+ */
+export function withVerifiedDistance(
+  src: EnvironmentalSourceRecord,
+  distanceKm: number | null
+): EnvironmentalSourceRecord {
+  if (distanceKm === null || src.distanceKm === distanceKm) {
+    return src;
+  }
+  return {
+    ...src,
+    distanceKm,
+    coordinates: src.coordinates
+      ? { ...src.coordinates, distanceKm }
+      : src.coordinates,
+  };
+}
 
 /**
  * Evaluates whether an EnvironmentalSourceRecord has an eligible, scientifically valid PM2.5 measurement.

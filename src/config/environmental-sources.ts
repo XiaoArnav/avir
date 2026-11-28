@@ -16,6 +16,11 @@ export const OPENAQ_MIN_RADIUS_KM = 1;
 export const OPENAQ_DEFAULT_RADIUS_KM = 25;
 export const OPENAQ_MAX_RADIUS_KM = 25; // Official OpenAQ v3 API maximum search radius (25,000 meters)
 
+// Authoritative Provider Nearby Selection Policies
+export const CPCB_SELECTION_RADIUS_KM = 35;
+export const OPENAQ_SELECTION_RADIUS_KM = OPENAQ_MAX_RADIUS_KM;
+export const SPECIFIC_STATION_MAX_RADIUS_KM = 100;
+
 // Inter-Source Scientific Comparison Bounds & Heuristics
 export const MAX_COMPARISON_DISTANCE_KM = 25; // Documented geographic boundary-layer correlation limit
 export const MAX_COMPARISON_TIME_DIFF_MINUTES = 120; // 2 hours maximum temporal delta

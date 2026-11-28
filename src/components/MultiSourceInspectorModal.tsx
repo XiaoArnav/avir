@@ -171,6 +171,12 @@ export const MultiSourceInspectorModal: React.FC<MultiSourceInspectorModalProps>
     const list: Array<{ id: string; name: string; distanceKm: number | null; pm25: number | null; provider: string; isOfficial: boolean }> = [];
     for (const s of effectiveSources) {
       if (s.sourceKind === 'official_ground_station' || s.sourceKind === 'physical_observation' || s.sourceKind === 'community_optical') {
+        const isPlaceholder =
+          (s.status === 'not_configured' || s.status === 'unreachable' || s.status === 'error' || s.status === 'rejected') &&
+          !s.stationId &&
+          s.latitude === null &&
+          s.longitude === null;
+        if (isPlaceholder) continue;
         const pm25 = s.measurements?.find((m) => m.pollutant === 'pm25')?.value ?? null;
         list.push({
           id: s.id,
@@ -579,7 +585,7 @@ export const MultiSourceInspectorModal: React.FC<MultiSourceInspectorModalProps>
                   {activePreference.mode === 'automatic' && <Check className="w-3.5 h-3.5 text-sky-500" />}
                 </div>
                 <p className="text-[10.5px] text-ink-muted dark:text-zinc-400 leading-normal">
-                  Prioritizes official CPCB ground stations within 35km, then OpenAQ, falling back to CAMS models.
+                  Prioritizes official CPCB ground stations within 35km, then OpenAQ within 25km, falling back to CAMS models.
                 </p>
               </button>
 
@@ -693,7 +699,7 @@ export const MultiSourceInspectorModal: React.FC<MultiSourceInspectorModalProps>
                   <option value="" disabled>-- Select a ground station in {cityName} --</option>
                   {availableStations.map((st) => (
                     <option key={st.id} value={st.id}>
-                      {st.name} — {st.distanceKm !== null ? `${st.distanceKm} km` : 'Local'} ({st.provider}) {st.pm25 !== null ? `[${st.pm25} µg/m³]` : '[No PM2.5]'}
+                      {st.name} — {st.distanceKm !== null ? `${st.distanceKm} km` : 'Distance unverified'} ({st.provider}) {st.pm25 !== null ? `[${st.pm25} µg/m³]` : '[No PM2.5]'}
                     </option>
                   ))}
                 </select>
@@ -789,7 +795,11 @@ export const MultiSourceInspectorModal: React.FC<MultiSourceInspectorModalProps>
                           )}
                         </td>
                         <td className="p-2.5 text-ink-muted dark:text-zinc-400 font-mono text-[11px]">
-                          {item.distanceKm !== null ? `${item.distanceKm} km` : '0 km'}
+                          {item.kind === 'atmospheric_model'
+                            ? 'Grid (~11 km)'
+                            : item.distanceKm !== null
+                            ? `${item.distanceKm} km`
+                            : 'Unverified'}
                         </td>
                         <td className="p-2.5 text-[10px] text-ink-muted dark:text-zinc-400">
                           {item.timeLabel}
@@ -937,9 +947,7 @@ export const MultiSourceInspectorModal: React.FC<MultiSourceInspectorModalProps>
                               <span className="font-bold text-ink dark:text-white">{st.sourceName || st.name}</span>
                               <div className="text-[11px] text-ink-muted dark:text-zinc-400">
                                 Agency: <strong>{st.provenance?.network || st.providerName || 'CPCB / State PCB'}</strong>
-                                {st.distanceKm !== null && st.distanceKm !== undefined && (
-                                  <span> &bull; Distance: <strong>{st.distanceKm} km</strong></span>
-                                )}
+                                <span> &bull; Distance: <strong>{st.distanceKm !== null && st.distanceKm !== undefined ? `${st.distanceKm} km` : 'Distance unverified'}</strong></span>
                               </div>
                             </div>
                             <div className="text-right">
@@ -1073,9 +1081,13 @@ export const MultiSourceInspectorModal: React.FC<MultiSourceInspectorModalProps>
                         </div>
                         <p className="text-xs text-ink-muted dark:text-zinc-400">
                           Provider: <strong>{source.providerName || source.provider}</strong>
-                          {source.distanceKm !== null && source.distanceKm !== undefined && (
+                          {isModel ? (
+                            <span> &bull; Spatial Scope: <strong>Grid (~11 km)</strong></span>
+                          ) : source.distanceKm !== null && source.distanceKm !== undefined ? (
                             <span> &bull; Distance: <strong>{source.distanceKm} km</strong></span>
-                          )}
+                          ) : source.status !== 'not_configured' && source.status !== 'unreachable' ? (
+                            <span> &bull; Distance: <strong>Distance unverified</strong></span>
+                          ) : null}
                         </p>
                       </div>
 

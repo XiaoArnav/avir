@@ -279,17 +279,27 @@ export function EarthCommandCenter({
     });
   }, [isForecastSelected, hasOfficialGround, metrics, resolvedSource]);
 
-  // Honest freshness state: never display "Live" when timestamp is absent
+  // Honest freshness state: reflects the selected resolved source timestamp and unavailability cleanly
   const relativeFreshness = useMemo(() => {
     if (isForecastSelected && activeTimePoint) {
       const timeStr = activeTimePoint.localDisplayTime || `${activeTimePoint.hour.toString().padStart(2, '0')}:00`;
       return `Forecast for ${timeStr}`;
     }
+    if (resolvedSource) {
+      if (resolvedSource.resolutionStatus === 'unavailable') {
+        return 'Unavailable';
+      }
+      const sourceTimestamp = resolvedSource.observedAt || resolvedSource.validAt || metrics?.timestamp;
+      if (!sourceTimestamp) return 'Awaiting Telemetry';
+      return metrics?.cacheMetadata?.isCached
+        ? `Cached (${formatTimeAgo(sourceTimestamp) || 'Recent'})`
+        : (formatTimeAgo(sourceTimestamp) || 'Just now');
+    }
     if (!metrics?.timestamp) return 'Awaiting Telemetry';
     return metrics.isLive
       ? (formatTimeAgo(metrics.timestamp) || 'Just now')
       : `Cached (${formatTimeAgo(metrics.timestamp) || 'Recent'})`;
-  }, [isForecastSelected, activeTimePoint, metrics]);
+  }, [isForecastSelected, activeTimePoint, metrics, resolvedSource]);
 
   // Scientific Thermal Inversion calculation for the active hour
   const isHourlyInversion = useMemo(() => {
