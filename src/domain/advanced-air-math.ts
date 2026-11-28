@@ -455,6 +455,7 @@ export interface HepaFilterLifespanEstimate {
 
 export function estimateHepaLifespan(
   ambientPm25: number,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- Reserved in public signature for caller compatibility; model estimates lifespan from ambientPm25 thresholds only.
   dailyRunningHours: number = 12
 ): HepaFilterLifespanEstimate {
   const safePm25 = Math.max(15, ambientPm25);
@@ -535,7 +536,11 @@ export interface SchoolSportsAdvisory {
   pediatricVulnerabilityNote: string;
 }
 
-export function getSchoolSportsAdvisory(usAqi: number, pm25: number): SchoolSportsAdvisory {
+export function getSchoolSportsAdvisory(
+  usAqi: number,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- Reserved in public signature for caller compatibility; classifications use usAqi thresholds only.
+  pm25: number
+): SchoolSportsAdvisory {
   if (usAqi <= 50) {
     return {
       status: 'safe',

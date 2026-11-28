@@ -364,6 +364,7 @@ export function SatelliteComparisonSlider({
         {/* Layer B (Full-frame right/base layer) */}
         <div className="absolute inset-0 w-full h-full pointer-events-none" data-testid="comparison-layer-b">
           {slotB.imageUrl && statusB !== 'unavailable' && statusB !== 'failed' ? (
+            // eslint-disable-next-line @next/next/no-img-element -- Native <img> required for direct NASA snapshot URLs, imgBRef.complete/naturalWidth inspection, and aligned full-frame clip-path framing.
             <img
               ref={imgBRef}
               src={slotB.imageUrl}
@@ -392,6 +393,7 @@ export function SatelliteComparisonSlider({
           style={{ clipPath: `inset(0 ${100 - sliderPosition}% 0 0)` }}
         >
           {slotA.imageUrl && statusA !== 'unavailable' && statusA !== 'failed' ? (
+            // eslint-disable-next-line @next/next/no-img-element -- Native <img> required for direct NASA snapshot URLs, imgARef.complete/naturalWidth inspection, and aligned full-frame clip-path framing.
             <img
               ref={imgARef}
               src={slotA.imageUrl}
