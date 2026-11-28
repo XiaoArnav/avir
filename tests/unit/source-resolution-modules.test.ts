@@ -391,7 +391,10 @@ describe('Source Control Resolution Engine — Eligibility & Scenarios A–T Cha
     });
 
     it('Scenario E: handles selected specific station unavailable (not found or >100km)', () => {
-      const metrics = makeMetrics([makeCpcbSource({ id: 'cpcb-far', distanceKm: 150 }), makeCamsSource()]);
+      const metrics = makeMetrics([
+        makeCpcbSource({ id: 'cpcb-far', latitude: 29.9629, longitude: 77.209, distanceKm: 150 }),
+        makeCamsSource(),
+      ]);
       const prefNoFallback: SourcePreference = {
         version: 1,
         mode: 'specific_station',
@@ -445,7 +448,7 @@ describe('Source Control Resolution Engine — Eligibility & Scenarios A–T Cha
     });
 
     it('Scenario G: skips official ground stations beyond 35 km in automatic mode', () => {
-      const farOfficial = makeCpcbSource({ id: 'cpcb-40km', distanceKm: 40 });
+      const farOfficial = makeCpcbSource({ id: 'cpcb-40km', latitude: 28.9736, longitude: 77.209, distanceKm: 40 });
       const nearOpenAq = makeOpenAqSource({ distanceKm: 12 });
       const metrics = makeMetrics([farOfficial, nearOpenAq, makeCamsSource()]);
 
@@ -453,7 +456,7 @@ describe('Source Control Resolution Engine — Eligibility & Scenarios A–T Cha
       expect(autoResolved.stationId).toBe('openaq-chanakyapuri');
       expect(autoResolved.providerId).toBe('openaq');
 
-      const exactBoundaryOfficial = makeCpcbSource({ id: 'cpcb-35km', distanceKm: 35 });
+      const exactBoundaryOfficial = makeCpcbSource({ id: 'cpcb-35km', latitude: 28.9287, longitude: 77.209, distanceKm: 35 });
       const boundaryResolved = resolveSource(
         { version: 1, mode: 'automatic' },
         makeMetrics([exactBoundaryOfficial, nearOpenAq]),
@@ -464,9 +467,9 @@ describe('Source Control Resolution Engine — Eligibility & Scenarios A–T Cha
     });
 
     it('Scenario H: ranks multiple eligible stations by shortest distance first', () => {
-      const farther = makeCpcbSource({ id: 'cpcb-farther', sourceName: 'Farther Site', distanceKm: 18.2 });
-      const closer = makeCpcbSource({ id: 'cpcb-closer', sourceName: 'Closer Site', distanceKm: 1.9 });
-      const unknownDist = makeCpcbSource({ id: 'cpcb-nodist', sourceName: 'Unknown Dist Site', distanceKm: null });
+      const farther = makeCpcbSource({ id: 'cpcb-farther', sourceName: 'Farther Site', latitude: 28.7776, longitude: 77.209, distanceKm: 18.2 });
+      const closer = makeCpcbSource({ id: 'cpcb-closer', sourceName: 'Closer Site', latitude: 28.631, longitude: 77.209, distanceKm: 1.9 });
+      const unknownDist = makeCpcbSource({ id: 'cpcb-nodist', sourceName: 'Unknown Dist Site', latitude: null, longitude: null, distanceKm: null });
 
       const resolved = resolveSource(
         { version: 1, mode: 'automatic' },

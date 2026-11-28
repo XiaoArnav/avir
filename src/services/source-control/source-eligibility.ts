@@ -12,8 +12,6 @@ import {
 } from '@/config/environmental-sources';
 import { calculateDistanceKm } from '@/services/ground-station-service';
 
-const DISTANCE_CONFLICT_TOLERANCE_KM = 15;
-
 export interface VerifiedDistanceResult {
   isWithinRange: boolean;
   distanceKm: number | null;
@@ -32,9 +30,9 @@ function hasFiniteCoordinate(val: unknown, min: number, max: number): val is num
 }
 
 /**
- * Verifies a physical station's distance against active location coordinates.
- * Rejects missing/invalid coordinates and recalculates distance via Haversine when
- * valid coordinates conflict with a stale stored distanceKm.
+ * Verifies a physical station's geographic distance against active location coordinates.
+ * Always treats Haversine distance from valid active + station coordinates as authoritative,
+ * and rejects unverified proximity when either coordinate pair is unavailable or invalid.
  */
 export function verifySourceDistance(
   src: EnvironmentalSourceRecord,
@@ -59,51 +57,24 @@ export function verifySourceDistance(
     return { isWithinRange: false, distanceKm: null, isVerified: false, reason: 'invalid_coordinates' };
   }
 
-  const hasStoredField = src.distanceKm !== null && src.distanceKm !== undefined;
-  const storedDistanceKm =
-    hasStoredField && typeof src.distanceKm === 'number' && Number.isFinite(src.distanceKm) && src.distanceKm >= 0
-      ? src.distanceKm
-      : null;
-
-  if (hasStoredField && storedDistanceKm === null) {
-    return { isWithinRange: false, distanceKm: null, isVerified: false, reason: 'invalid_distance' };
-  }
-
   const activeLat = metrics?.latitude ?? metrics?.location?.latitude;
   const activeLon = metrics?.longitude ?? metrics?.location?.longitude;
   const hasValidActiveCoords =
     hasFiniteCoordinate(activeLat, -90, 90) && hasFiniteCoordinate(activeLon, -180, 180);
 
-  const computedDistanceKm = hasValidActiveCoords
-    ? calculateDistanceKm(activeLat, activeLon, rawLat, rawLon)
-    : null;
-
-  let verifiedDistanceKm: number | null = storedDistanceKm;
-  if (computedDistanceKm !== null) {
-    if (
-      storedDistanceKm === null ||
-      computedDistanceKm - storedDistanceKm > DISTANCE_CONFLICT_TOLERANCE_KM ||
-      (maxRadiusKm !== undefined && computedDistanceKm > maxRadiusKm && computedDistanceKm > storedDistanceKm)
-    ) {
-      verifiedDistanceKm = computedDistanceKm;
-    }
-  }
-
-  if (verifiedDistanceKm === null) {
+  if (!hasValidActiveCoords) {
     return { isWithinRange: false, distanceKm: null, isVerified: false, reason: 'unknown_distance' };
   }
 
-  if (maxRadiusKm !== undefined) {
-    const exceedsComputed = verifiedDistanceKm > maxRadiusKm;
-    const exceedsStored = storedDistanceKm !== null && storedDistanceKm > maxRadiusKm;
-    if (exceedsComputed || exceedsStored) {
-      return {
-        isWithinRange: false,
-        distanceKm: verifiedDistanceKm,
-        isVerified: true,
-        reason: 'out_of_range',
-      };
-    }
+  const verifiedDistanceKm = calculateDistanceKm(activeLat, activeLon, rawLat, rawLon);
+
+  if (maxRadiusKm !== undefined && verifiedDistanceKm > maxRadiusKm) {
+    return {
+      isWithinRange: false,
+      distanceKm: verifiedDistanceKm,
+      isVerified: true,
+      reason: 'out_of_range',
+    };
   }
 
   return {
@@ -121,7 +92,7 @@ export function withVerifiedDistance(
   src: EnvironmentalSourceRecord,
   distanceKm: number | null
 ): EnvironmentalSourceRecord {
-  if (distanceKm === null || src.distanceKm === distanceKm) {
+  if (src.distanceKm === distanceKm && (!src.coordinates || src.coordinates.distanceKm === distanceKm)) {
     return src;
   }
   return {

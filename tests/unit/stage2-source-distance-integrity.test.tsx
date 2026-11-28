@@ -2,6 +2,7 @@ import React from 'react';
 import ReactDOMServer from 'react-dom/server';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { resolveSource } from '@/services/source-control/source-resolution';
+import { verifySourceDistance } from '@/services/source-control/source-eligibility';
 import { toSourceCatalogItem } from '@/services/source-control/source-catalog';
 import { SourcePreference } from '@/services/source-control/source-control-types';
 import { AtmosphericMetrics, EnvironmentalSourceRecord } from '@/domain/types';
@@ -647,6 +648,301 @@ describe('Stage 2 — CPCB / OpenAQ Source Distance Integrity & Provenance', () 
       );
       expect(htmlUnavailable).toContain('Offline / Data Unavailable');
       expect(htmlUnavailable).toContain('Unavailable');
+    });
+  });
+
+  describe('5. Symmetric Calculated Distance Authority & Missing Active Coordinates (Stage 2 Final Correction)', () => {
+    // Exact Haversine constants computed against DELHI (28.6139, 77.2090) and BENGALURU (12.9716, 77.5946)
+    const BLR_5KM = { latitude: 13.0166, longitude: 77.5946 }; // 5.0 km from BENGALURU
+    const DEL_5KM = { latitude: 28.6589, longitude: 77.2090 }; // 5.0 km from DELHI
+    const DEL_25KM = { latitude: 28.8387, longitude: 77.2090 }; // 25.0 km from DELHI
+    const DEL_35KM = { latitude: 28.9287, longitude: 77.2090 }; // 35.0 km from DELHI
+    const DEL_80KM = { latitude: 29.3334, longitude: 77.2090 }; // 80.0 km from DELHI
+
+    it('Example A: treats calculated 5 km as authoritative when stored distanceKm is an erroneously large 80 km', () => {
+      const cpcbStation = makeCpcb({
+        id: 'cpcb-blr-5km-stale80',
+        sourceName: 'Hebbal CAAQMS',
+        ...BLR_5KM,
+        distanceKm: 80,
+      });
+      const metrics = makeMetrics([cpcbStation, makeCams(BENGALURU)], BENGALURU);
+
+      const helperRes = verifySourceDistance(cpcbStation, metrics, 35);
+      expect(helperRes).toEqual({
+        isWithinRange: true,
+        distanceKm: 5,
+        isVerified: true,
+        reason: 'valid',
+      });
+
+      const autoRes = resolveSource({ version: 1, mode: 'automatic' }, metrics, 'cpcb', NOW_MS);
+      expect(autoRes.stationId).toBe('cpcb-blr-5km-stale80');
+      expect(autoRes.distanceKm).toBe(5);
+      expect(autoRes.selectionReason).toContain('(5 km away)');
+
+      const officialRes = resolveSource(
+        { version: 1, mode: 'official_ground', allowFallbackToModel: false },
+        metrics,
+        'cpcb',
+        NOW_MS
+      );
+      expect(officialRes.resolutionStatus).toBe('resolved');
+      expect(officialRes.distanceKm).toBe(5);
+    });
+
+    it('Example B: uses and displays calculated 5 km instead of stale stored 20 km across resolvers and MultiSourceInspectorModal', () => {
+      const openAqStation = makeOpenAq({
+        id: 'openaq-del-5km-stale20',
+        sourceName: 'Mandir Marg Reference Monitor',
+        ...DEL_5KM,
+        distanceKm: 20,
+      });
+      const cpcbStation = makeCpcb({
+        id: 'cpcb-del-5km-stale20',
+        sourceName: 'Pusa CAAQMS',
+        ...DEL_5KM,
+        distanceKm: 20,
+      });
+
+      const openAqMetrics = makeMetrics([openAqStation, makeCams(DELHI)], DELHI);
+      const openAqAuto = resolveSource({ version: 1, mode: 'automatic' }, openAqMetrics, 'epa', NOW_MS);
+      expect(openAqAuto.stationId).toBe('openaq-del-5km-stale20');
+      expect(openAqAuto.distanceKm).toBe(5);
+      expect(openAqAuto.selectionReason).toContain('(5 km away)');
+
+      const openAqExplicit = resolveSource({ version: 1, mode: 'openaq', allowFallbackToModel: false }, openAqMetrics, 'epa', NOW_MS);
+      expect(openAqExplicit.resolutionStatus).toBe('resolved');
+      expect(openAqExplicit.distanceKm).toBe(5);
+
+      const specificRes = resolveSource(
+        { version: 1, mode: 'specific_station', stationId: 'openaq-del-5km-stale20', allowFallbackToModel: false },
+        openAqMetrics,
+        'epa',
+        NOW_MS
+      );
+      expect(specificRes.resolutionStatus).toBe('resolved');
+      expect(specificRes.distanceKm).toBe(5);
+
+      const modalHtml = ReactDOMServer.renderToString(
+        <MultiSourceInspectorModal
+          isOpen={true}
+          onClose={() => {}}
+          cityName="Delhi-NCR"
+          environmentalSources={[cpcbStation, makeCams(DELHI)]}
+          metrics={makeMetrics([cpcbStation, makeCams(DELHI)], DELHI)}
+          sourcePreference={{ version: 1, mode: 'specific_station', stationId: 'cpcb-del-5km-stale20' }}
+        />
+      ).replace(/<!--.*?-->/g, '');
+      expect(modalHtml).toContain('>5 km<');
+      expect(modalHtml).toContain('— 5 km');
+      expect(modalHtml).not.toContain('20 km');
+    });
+
+    it('Example C: uses calculated 80 km when stored distanceKm is understated (5 km) and rejects from nearby selection', () => {
+      const understatedCpcb = makeCpcb({
+        id: 'cpcb-del-80km-stale5',
+        ...DEL_80KM,
+        distanceKm: 5,
+      });
+      const understatedOpenAq = makeOpenAq({
+        id: 'openaq-del-80km-stale5',
+        ...DEL_80KM,
+        distanceKm: 5,
+      });
+      const metrics = makeMetrics([understatedCpcb, understatedOpenAq, makeCams(DELHI)], DELHI);
+
+      expect(verifySourceDistance(understatedCpcb, metrics, 35)).toEqual({
+        isWithinRange: false,
+        distanceKm: 80,
+        isVerified: true,
+        reason: 'out_of_range',
+      });
+
+      const autoRes = resolveSource({ version: 1, mode: 'automatic' }, metrics, 'cpcb', NOW_MS);
+      expect(autoRes.sourceKind).toBe('atmospheric_model');
+
+      const officialRes = resolveSource(
+        { version: 1, mode: 'official_ground', allowFallbackToModel: false },
+        metrics,
+        'cpcb',
+        NOW_MS
+      );
+      expect(officialRes.resolutionStatus).toBe('unavailable');
+
+      const openAqRes = resolveSource(
+        { version: 1, mode: 'openaq', allowFallbackToModel: false },
+        metrics,
+        'epa',
+        NOW_MS
+      );
+      expect(openAqRes.resolutionStatus).toBe('unavailable');
+    });
+
+    it('Example D & Rule 2/5: rejects unverified stored 5 km in nearby modes when active coordinates are missing, while preserving specific_station with unverified disclosure', () => {
+      const validStationWithStored5 = makeCpcb({
+        id: 'cpcb-stored-5-no-active-coords',
+        sourceName: 'Anand Vihar CAAQMS',
+        ...DEL_5KM,
+        distanceKm: 5,
+      });
+      const openAqWithStored5 = makeOpenAq({
+        id: 'openaq-stored-5-no-active-coords',
+        ...DEL_5KM,
+        distanceKm: 5,
+      });
+      const metricsWithoutActiveCoords = makeMetrics(
+        [validStationWithStored5, openAqWithStored5, makeCams(DELHI)],
+        DELHI,
+        {
+          latitude: undefined as unknown as number,
+          longitude: undefined as unknown as number,
+          location: undefined,
+        }
+      );
+
+      expect(verifySourceDistance(validStationWithStored5, metricsWithoutActiveCoords, 35)).toEqual({
+        isWithinRange: false,
+        distanceKm: null,
+        isVerified: false,
+        reason: 'unknown_distance',
+      });
+
+      const autoRes = resolveSource({ version: 1, mode: 'automatic' }, metricsWithoutActiveCoords, 'cpcb', NOW_MS);
+      expect(autoRes.sourceKind).toBe('atmospheric_model');
+
+      const officialRes = resolveSource(
+        { version: 1, mode: 'official_ground', allowFallbackToModel: false },
+        metricsWithoutActiveCoords,
+        'cpcb',
+        NOW_MS
+      );
+      expect(officialRes.resolutionStatus).toBe('unavailable');
+
+      const openAqRes = resolveSource(
+        { version: 1, mode: 'openaq', allowFallbackToModel: false },
+        metricsWithoutActiveCoords,
+        'epa',
+        NOW_MS
+      );
+      expect(openAqRes.resolutionStatus).toBe('unavailable');
+
+      const specificRes = resolveSource(
+        {
+          version: 1,
+          mode: 'specific_station',
+          stationId: 'cpcb-stored-5-no-active-coords',
+          allowFallbackToModel: false,
+        },
+        metricsWithoutActiveCoords,
+        'cpcb',
+        NOW_MS
+      );
+      expect(specificRes.resolutionStatus).toBe('resolved');
+      expect(specificRes.stationId).toBe('cpcb-stored-5-no-active-coords');
+      expect(specificRes.distanceKm).toBeNull();
+      expect(specificRes.selectionReason).toContain('station distance is unverified');
+      expect(specificRes.limitations.join(' ')).toContain('could not be verified');
+      expect(specificRes.isFallback).toBe(false);
+
+      const staleNoActiveCoords = makeCpcb({
+        ...validStationWithStored5,
+        status: 'stale',
+        observedAt: STALE_OBS,
+        measurements: [{ pollutant: 'pm25', value: 185, unit: 'ug/m3', observedAt: STALE_OBS }],
+      });
+      const specificStaleWithFallback = resolveSource(
+        {
+          version: 1,
+          mode: 'specific_station',
+          stationId: 'cpcb-stored-5-no-active-coords',
+          allowFallbackToModel: true,
+        },
+        makeMetrics([staleNoActiveCoords, makeCams(DELHI)], DELHI, {
+          latitude: undefined as unknown as number,
+          longitude: undefined as unknown as number,
+          location: undefined,
+        }),
+        'cpcb',
+        NOW_MS
+      );
+      expect(specificStaleWithFallback.resolutionStatus).toBe('fallback');
+      expect(specificStaleWithFallback.isFallback).toBe(true);
+
+      const modalHtml = ReactDOMServer.renderToString(
+        <MultiSourceInspectorModal
+          isOpen={true}
+          onClose={() => {}}
+          cityName="Delhi-NCR"
+          environmentalSources={[validStationWithStored5, makeCams(DELHI)]}
+          metrics={metricsWithoutActiveCoords}
+          sourcePreference={{ version: 1, mode: 'specific_station', stationId: 'cpcb-stored-5-no-active-coords' }}
+        />
+      ).replace(/<!--.*?-->/g, '');
+      expect(modalHtml).toContain('Unverified');
+      expect(modalHtml).toContain('Distance unverified');
+      expect(modalHtml).not.toContain('>5 km<');
+      expect(modalHtml).not.toContain('— 5 km');
+    });
+
+    it('Rule 1/3/4: handles stored distanceKm=null, zero coordinates (0, 0), invalid coordinates, and exact 35 km / 25 km boundaries', () => {
+      // Zero coordinates (Gulf of Guinea equator/prime meridian 0, 0) must remain valid
+      const equatorCity = { name: 'Equator', latitude: 0, longitude: 0 };
+      const equatorStation = makeCpcb({
+        id: 'equator-cpcb',
+        latitude: 0,
+        longitude: 0,
+        distanceKm: 99, // stale stored
+      });
+      const equatorCheck = verifySourceDistance(
+        equatorStation,
+        makeMetrics([equatorStation], equatorCity),
+        35
+      );
+      expect(equatorCheck).toEqual({
+        isWithinRange: true,
+        distanceKm: 0,
+        isVerified: true,
+        reason: 'valid',
+      });
+
+      // Null stored distance uses computed 5 km
+      const cpcbNullStored = makeCpcb({ id: 'cpcb-null-dist', ...DEL_5KM, distanceKm: null });
+      const resNullStored = resolveSource(
+        { version: 1, mode: 'official_ground', allowFallbackToModel: false },
+        makeMetrics([cpcbNullStored], DELHI),
+        'cpcb',
+        NOW_MS
+      );
+      expect(resNullStored.resolutionStatus).toBe('resolved');
+      expect(resNullStored.distanceKm).toBe(5);
+
+      // Invalid station coordinates fail verification cleanly
+      expect(verifySourceDistance(makeCpcb({ latitude: NaN, longitude: 77.2 }), makeMetrics([], DELHI), 35).isVerified).toBe(false);
+      expect(verifySourceDistance(makeCpcb({ latitude: -91, longitude: 77.2 }), makeMetrics([], DELHI), 35).reason).toBe('invalid_coordinates');
+      expect(verifySourceDistance(makeCpcb({ latitude: 28.6, longitude: 181 }), makeMetrics([], DELHI), 35).reason).toBe('invalid_coordinates');
+
+      // Exact boundary inclusion: CPCB 35.0 km and OpenAQ 25.0 km
+      const cpcbExact35 = makeCpcb({ id: 'cpcb-exact-35', ...DEL_35KM, distanceKm: 50 }); // stale stored 50 overridden by 35.0!
+      const openAqExact25 = makeOpenAq({ id: 'openaq-exact-25', ...DEL_25KM, distanceKm: 40 }); // stale stored 40 overridden by 25.0!
+
+      const cpcbBoundaryRes = resolveSource(
+        { version: 1, mode: 'official_ground', allowFallbackToModel: false },
+        makeMetrics([cpcbExact35], DELHI),
+        'cpcb',
+        NOW_MS
+      );
+      expect(cpcbBoundaryRes.resolutionStatus).toBe('resolved');
+      expect(cpcbBoundaryRes.distanceKm).toBe(35);
+
+      const openAqBoundaryRes = resolveSource(
+        { version: 1, mode: 'openaq', allowFallbackToModel: false },
+        makeMetrics([openAqExact25], DELHI),
+        'epa',
+        NOW_MS
+      );
+      expect(openAqBoundaryRes.resolutionStatus).toBe('resolved');
+      expect(openAqBoundaryRes.distanceKm).toBe(25);
     });
   });
 });
