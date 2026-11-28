@@ -434,9 +434,11 @@ export class HardwareDeviceService {
   /**
    * Backward-compatible fetch method for local Wi-Fi device.
    * Executes continuous monitoring session or one-shot request.
+   * Note: Cancellation is currently governed by the internal `wifiAbortController` in `startLocalWifiMonitoring`/`disconnect`; `signal` is retained for signature compatibility.
    */
   async fetchLocalWifiDevice(
     ipAddress: string,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- Retained for public signature compatibility; startLocalWifiMonitoring manages cancellation via internal wifiAbortController.
     signal?: AbortSignal
   ): Promise<{ packet: DeviceTelemetryPacket | null; error?: string }> {
     return this.startLocalWifiMonitoring(ipAddress, 10000);

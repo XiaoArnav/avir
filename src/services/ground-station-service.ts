@@ -538,10 +538,13 @@ export function calculateGroundModelDelta(
 
 /**
  * Converts a GroundStationMetadata object into a canonical EnvironmentalSourceRecord.
+ * `targetLat` and `targetLon` remain in the signature for caller compatibility; `station.distanceKm` is precomputed upstream.
  */
 export function convertGroundStationToSourceRecord(
   station: GroundStationMetadata,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- Optional target coordinates retained for API compatibility; distanceKm is precomputed on station.
   targetLat?: number,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- Optional target coordinates retained for API compatibility; distanceKm is precomputed on station.
   targetLon?: number
 ): EnvironmentalSourceRecord {
   const isOfficial = station.stationType === 'official_reference';
