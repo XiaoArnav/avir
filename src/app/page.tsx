@@ -323,6 +323,7 @@ export default function Home() {
 
     planGenIdRef.current += 1;
     activeManualPlanGenRef.current += 1;
+    coordinatorRef.current.invalidatePendingTelemetry();
     coordinatorRef.current.invalidatePendingPlans();
     setIsPlanGenerating(false);
     setPlannerMessage('');
