@@ -21,22 +21,49 @@ import type {
   GlobalWindModelId,
   GlobalWindOverlayKind,
   GlobalWindSnapshot,
-  WindForecastResponse,
   WindInspectionReading,
   WindSpeedUnit,
   WindVectorPoint,
 } from '@/domain/wind-types';
-import { convertWindSpeed, inspectWindAtPoint, sampleWindVector, toWindGridView } from '@/domain/wind-field';
+import { inspectWindAtPoint } from '@/domain/wind-field';
 import { fetchClientGlobalWindSnapshot } from '@/services/environment/global-wind-client';
-import type { FirmsHotspot, FirmsStatusResponse } from '@/domain/firms-types';
+import type { FirmsHotspot } from '@/domain/firms-types';
 import type { SatelliteComparisonPair } from '@/domain/imagery-types';
 import {
   buildSatelliteComparison,
-  getAvailableImageryDates,
   probeWvsRegionalCoverage,
   verifyImageryAvailability,
 } from '@/services/environment/satellite-imagery-service';
 import { SatelliteComparisonSlider } from '@/components/environment/SatelliteComparisonSlider';
+import {
+  type ActiveCityEnvironmentTarget,
+  isValidGeographicCoordinate,
+  resolveActiveCityEnvironmentTarget,
+} from './globe-location-utils';
+import {
+  buildEnvironmentalLayerStatus,
+  mapFirmsStatusToLayerInfo,
+  mapGlobalWindSnapshotToLayerInfo,
+  mapWindStatusToLayerInfo,
+} from './globe-layer-status';
+import {
+  type LayerFetchResult,
+  fetchActiveCityFirmsLayer,
+  fetchActiveCityWindLayer,
+} from './globe-layer-fetchers';
+import { buildInitialSatelliteComparisonForTarget } from './globe-satellite-comparison';
+
+export {
+  isValidGeographicCoordinate,
+  resolveActiveCityEnvironmentTarget,
+  mapFirmsStatusToLayerInfo,
+  mapGlobalWindSnapshotToLayerInfo,
+  mapWindStatusToLayerInfo,
+  fetchActiveCityWindLayer,
+  fetchActiveCityFirmsLayer,
+  buildInitialSatelliteComparisonForTarget,
+};
+export type { ActiveCityEnvironmentTarget, LayerFetchResult };
 
 // Client-only dynamic import of the Three.js Canvas
 const DynamicGlobeCanvas = dynamic(
@@ -81,373 +108,6 @@ export interface AvirGlobeProps {
   layers?: Partial<EnvironmentalLayersState>;
   onToggleLayer?: (layer: keyof EnvironmentalLayersState) => void;
   className?: string;
-}
-
-export interface ActiveCityEnvironmentTarget {
-  name: string;
-  latitude: number;
-  longitude: number;
-}
-
-export function isValidGeographicCoordinate(
-  latitude: number | undefined | null,
-  longitude: number | undefined | null
-): boolean {
-  return (
-    typeof latitude === 'number' &&
-    Number.isFinite(latitude) &&
-    latitude >= -90 &&
-    latitude <= 90 &&
-    typeof longitude === 'number' &&
-    Number.isFinite(longitude) &&
-    longitude >= -180 &&
-    longitude <= 180
-  );
-}
-
-/**
- * Resolves the authoritative coordinates for the active dashboard city.
- * Prefers explicit activeCityLatitude/activeCityLongitude props from EarthCommandCenter.
- * Never falls back to an inspected marker (selectedPoint) or points[0].
- */
-export function resolveActiveCityEnvironmentTarget({
-  activeCityName,
-  activeCityLatitude,
-  activeCityLongitude,
-  points,
-}: {
-  activeCityName?: string;
-  activeCityLatitude?: number;
-  activeCityLongitude?: number;
-  points: GeographicObservationPoint[];
-}): ActiveCityEnvironmentTarget | null {
-  const normalizedName = activeCityName?.trim() || '';
-
-  if (activeCityLatitude !== undefined || activeCityLongitude !== undefined) {
-    if (!isValidGeographicCoordinate(activeCityLatitude, activeCityLongitude)) {
-      return null;
-    }
-    return {
-      name: normalizedName || 'Active City',
-      latitude: activeCityLatitude as number,
-      longitude: activeCityLongitude as number,
-    };
-  }
-
-  if (!normalizedName) {
-    return null;
-  }
-
-  const exactMatch = points.find(
-    (p) => p.name.trim().toLowerCase() === normalizedName.toLowerCase()
-  );
-  if (!exactMatch || !isValidGeographicCoordinate(exactMatch.latitude, exactMatch.longitude)) {
-    return null;
-  }
-
-  return {
-    name: normalizedName,
-    latitude: exactMatch.latitude,
-    longitude: exactMatch.longitude,
-  };
-}
-
-export function mapFirmsStatusToLayerInfo(res: FirmsStatusResponse): EnvironmentalLayerStatusInfo {
-  switch (res.status) {
-    case 'active': {
-      const obsUtc = res.latestObservationUtc ? ` • UTC ${res.latestObservationUtc.slice(11, 16)}` : '';
-      return {
-        state: 'live',
-        detail: `${res.count} thermal ${res.count === 1 ? 'anomaly' : 'anomalies'}${obsUtc}`,
-      };
-    }
-    case 'no_detections':
-      return {
-        state: 'no_detections',
-        detail: '0 detections within 500 km (clouds/off-pass not excluded)',
-      };
-    case 'unconfigured':
-      return {
-        state: 'unconfigured',
-        detail: 'FIRMS_MAP_KEY not configured on server',
-      };
-    case 'quota_exceeded':
-      return {
-        state: 'rate_limited',
-        detail: 'NASA FIRMS rate limit reached',
-      };
-    case 'stale_cached':
-      return {
-        state: 'stale',
-        detail: `${res.count} ${res.count === 1 ? 'cached anomaly' : 'cached anomalies'} (live feed unavailable)`,
-      };
-    case 'invalid_credentials':
-      return {
-        state: 'unavailable',
-        detail: 'NASA FIRMS credential rejected',
-      };
-    case 'upstream_timeout':
-    case 'malformed_csv':
-    case 'upstream_error':
-    default:
-      return {
-        state: 'unavailable',
-        detail: res.message || 'NASA FIRMS telemetry unavailable',
-      };
-  }
-}
-
-export function mapGlobalWindSnapshotToLayerInfo(
-  snapshot: GlobalWindSnapshot,
-  target: ActiveCityEnvironmentTarget | null,
-  speedUnit: WindSpeedUnit = 'km/h'
-): EnvironmentalLayerStatusInfo {
-  const m = snapshot.manifest;
-  if (!m.isAvailable || snapshot.u.length === 0 || snapshot.v.length === 0) {
-    return {
-      state: 'unavailable',
-      detail: m.unavailableReason || 'Global wind forecast unavailable',
-    };
-  }
-
-  let speedPrefix = '';
-  if (target && isValidGeographicCoordinate(target.latitude, target.longitude)) {
-    const gridView = toWindGridView(snapshot);
-    if (gridView) {
-      const sample = sampleWindVector(gridView, target.longitude, target.latitude);
-      if (sample.valid) {
-        const displayVal = convertWindSpeed(sample.speedMs, speedUnit);
-        speedPrefix = `~${Math.round(displayVal)} ${speedUnit} • `;
-      }
-    }
-  }
-
-  const modelShort = m.model === 'ifs' ? 'ECMWF IFS' : 'NOAA GFS';
-  if (m.status === 'stale_cached' || m.isStale) {
-    return {
-      state: 'stale',
-      detail: `${speedPrefix}Cached ${modelShort} 1° grid`,
-    };
-  }
-
-  return {
-    state: 'live',
-    detail: `${speedPrefix}${modelShort} 1° forecast`,
-  };
-}
-
-export function mapWindStatusToLayerInfo(res: WindForecastResponse): EnvironmentalLayerStatusInfo {
-  if (res.status === 'rate_limited') {
-    return {
-      state: 'rate_limited',
-      detail: 'Wind forecast rate limit reached',
-    };
-  }
-  if (!res.isAvailable || !Array.isArray(res.grid) || res.grid.length === 0) {
-    return {
-      state: 'unavailable',
-      detail: res.unavailableReason || 'Wind vector telemetry unavailable',
-    };
-  }
-  const speedText =
-    res.cityWind && Number.isFinite(res.cityWind.speedKmh)
-      ? `~${Math.round(res.cityWind.speedKmh)} km/h • `
-      : '';
-  if (res.status === 'stale_cached' || res.isStale) {
-    return {
-      state: 'stale',
-      detail: `${speedText}Cached GFS vectors (${res.grid.length} probes)`,
-    };
-  }
-  return {
-    state: 'live',
-    detail: `${speedText}${res.grid.length} GFS/Open-Meteo probes`,
-  };
-}
-
-export interface LayerFetchResult<T> {
-  aborted?: boolean;
-  info: EnvironmentalLayerStatusInfo;
-  data: T[];
-}
-
-export async function fetchActiveCityWindLayer(params: {
-  target: ActiveCityEnvironmentTarget | null;
-  validAtUtc?: string | null;
-  selectedHour?: number;
-  signal?: AbortSignal;
-}): Promise<LayerFetchResult<WindVectorPoint>> {
-  const { target, validAtUtc, selectedHour, signal } = params;
-  if (!target || !isValidGeographicCoordinate(target.latitude, target.longitude)) {
-    return {
-      data: [],
-      info: { state: 'unavailable', detail: 'Active city coordinates unavailable' },
-    };
-  }
-
-  const query = new URLSearchParams({
-    lat: String(target.latitude),
-    lng: String(target.longitude),
-  });
-
-  if (validAtUtc) {
-    const parsedMs = Date.parse(validAtUtc);
-    if (!Number.isNaN(parsedMs)) {
-      const normalizedIso = new Date(parsedMs).toISOString();
-      query.set('validTimeUtc', normalizedIso);
-      query.set('hour', String(new Date(parsedMs).getUTCHours()));
-    }
-  } else if (Number.isInteger(selectedHour) && (selectedHour as number) >= 0 && (selectedHour as number) <= 23) {
-    query.set('hour', String(selectedHour));
-  }
-
-  try {
-    const res = await fetch(`/api/environment/wind?${query.toString()}`, { signal });
-    if (signal?.aborted) {
-      return { aborted: true, data: [], info: { state: 'loading', detail: 'Aborted' } };
-    }
-    if (res.status === 429) {
-      return {
-        data: [],
-        info: { state: 'rate_limited', detail: 'Wind forecast rate limited' },
-      };
-    }
-    if (!res.ok) {
-      return {
-        data: [],
-        info: { state: 'unavailable', detail: `Wind API returned HTTP ${res.status}` },
-      };
-    }
-    const payload = (await res.json()) as WindForecastResponse;
-    const info = mapWindStatusToLayerInfo(payload);
-    const data =
-      payload.isAvailable && Array.isArray(payload.grid) && payload.grid.length > 0
-        ? payload.grid
-        : [];
-    return { info, data };
-  } catch (err) {
-    if (err instanceof Error && err.name === 'AbortError') {
-      return { aborted: true, data: [], info: { state: 'loading', detail: 'Aborted' } };
-    }
-    return {
-      data: [],
-      info: { state: 'unavailable', detail: 'Wind telemetry network error' },
-    };
-  }
-}
-
-export async function fetchActiveCityFirmsLayer(params: {
-  target: ActiveCityEnvironmentTarget | null;
-  radiusKm?: number;
-  signal?: AbortSignal;
-}): Promise<LayerFetchResult<FirmsHotspot>> {
-  const { target, radiusKm = 500, signal } = params;
-  if (!target || !isValidGeographicCoordinate(target.latitude, target.longitude)) {
-    return {
-      data: [],
-      info: { state: 'unavailable', detail: 'Active city coordinates unavailable' },
-    };
-  }
-
-  const query = new URLSearchParams({
-    lat: String(target.latitude),
-    lng: String(target.longitude),
-    radiusKm: String(radiusKm),
-  });
-
-  try {
-    const res = await fetch(`/api/environment/fires?${query.toString()}`, { signal });
-    if (signal?.aborted) {
-      return { aborted: true, data: [], info: { state: 'loading', detail: 'Aborted' } };
-    }
-    if (res.status === 429) {
-      return {
-        data: [],
-        info: { state: 'rate_limited', detail: 'Fires API rate limit exceeded' },
-      };
-    }
-    if (!res.ok) {
-      return {
-        data: [],
-        info: { state: 'unavailable', detail: `FIRMS API returned HTTP ${res.status}` },
-      };
-    }
-    const payload = (await res.json()) as FirmsStatusResponse;
-    const info = mapFirmsStatusToLayerInfo(payload);
-    const data =
-      payload.isAvailable &&
-      (payload.status === 'active' || payload.status === 'stale_cached') &&
-      Array.isArray(payload.hotspots)
-        ? payload.hotspots
-        : [];
-    return { info, data };
-  } catch (err) {
-    if (err instanceof Error && err.name === 'AbortError') {
-      return { aborted: true, data: [], info: { state: 'loading', detail: 'Aborted' } };
-    }
-    return {
-      data: [],
-      info: { state: 'unavailable', detail: 'NASA FIRMS network error' },
-    };
-  }
-}
-
-export function buildInitialSatelliteComparisonForTarget(
-  target: ActiveCityEnvironmentTarget | null
-): {
-  comparison: SatelliteComparisonPair | null;
-  error: string | null;
-  info: EnvironmentalLayerStatusInfo;
-  dateA?: string;
-  dateB?: string;
-} {
-  if (!target || !isValidGeographicCoordinate(target.latitude, target.longitude)) {
-    return {
-      comparison: null,
-      error: 'Satellite imagery comparison requires valid active city coordinates.',
-      info: { state: 'unavailable', detail: 'Active city coordinates unavailable' },
-    };
-  }
-
-  try {
-    const candidates = getAvailableImageryDates(7, { product: 'VIIRS' });
-    const dateB = candidates[0]?.date;
-    const dateA = candidates[candidates.length - 1]?.date;
-
-    if (!dateA || !dateB) {
-      return {
-        comparison: null,
-        error: 'No candidate NASA GIBS dates available.',
-        info: { state: 'unavailable', detail: 'No candidate dates' },
-      };
-    }
-
-    const comparison = buildSatelliteComparison({
-      city: target.name,
-      latitude: target.latitude,
-      longitude: target.longitude,
-      dateA,
-      dateB,
-      productA: 'VIIRS',
-      productB: 'VIIRS',
-    });
-
-    return {
-      comparison,
-      error: null,
-      info: { state: 'unverified', detail: `${dateA} vs ${dateB} (unverified)` },
-      dateA,
-      dateB,
-    };
-  } catch (err) {
-    const message =
-      err instanceof Error ? err.message : 'Unable to construct NASA GIBS snapshot extent.';
-    return {
-      comparison: null,
-      error: message,
-      info: { state: 'unavailable', detail: message },
-    };
-  }
 }
 
 export function AvirGlobe({
@@ -834,27 +494,19 @@ export function AvirGlobe({
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [activeLayers.satelliteComparison, handleToggleLayer]);
 
-  const layerStatus: EnvironmentalLayersStatusMap = useMemo(() => {
-    let terrainStatusInfo: EnvironmentalLayerStatusInfo;
-    if (!is3D || engineMode !== 'cesium') {
-      terrainStatusInfo = { state: 'unsupported', detail: 'Cesium Engine Only' };
-    } else if (!activeLayers.terrain) {
-      terrainStatusInfo = { state: 'off', detail: 'Re:Earth Quantized Mesh' };
-    } else if (terrainLoadState === 'active') {
-      terrainStatusInfo = { state: 'live', detail: 'Re:Earth Quantized Mesh active' };
-    } else if (terrainLoadState === 'fallback') {
-      terrainStatusInfo = { state: 'unavailable', detail: 'Terrain failed — ellipsoid active' };
-    } else {
-      terrainStatusInfo = { state: 'loading', detail: 'Loading Re:Earth terrain...' };
-    }
-
-    return {
-      wind: windInfo,
-      fires: firesInfo,
-      terrain: terrainStatusInfo,
-      satelliteComparison: satelliteInfo,
-    };
-  }, [is3D, engineMode, activeLayers.terrain, terrainLoadState, windInfo, firesInfo, satelliteInfo]);
+  const layerStatus: EnvironmentalLayersStatusMap = useMemo(
+    () =>
+      buildEnvironmentalLayerStatus({
+        is3D,
+        engineMode,
+        isTerrainEnabled: activeLayers.terrain,
+        terrainLoadState,
+        windInfo,
+        firesInfo,
+        satelliteInfo,
+      }),
+    [is3D, engineMode, activeLayers.terrain, terrainLoadState, windInfo, firesInfo, satelliteInfo]
+  );
 
   const handleZoomIn = () => {
     setCameraAction({ type: 'zoomIn', timestamp: Date.now() });
