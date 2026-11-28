@@ -2,17 +2,34 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   hardwareDeviceService,
   HardwareDeviceService,
+  type DeviceConnectionState,
+  type DeviceTelemetryPacket,
 } from '@/services/device-telemetry-service';
 import fs from 'fs';
 import path from 'path';
 
-describe('AVIR — Device Connector Modal & Hardware Telemetry (31 Mandated Scenarios)', () => {
-  let originalSerial: any;
-  let originalWindow: any;
+type MutableHardwareDeviceService = {
+  lastPacket: Partial<DeviceTelemetryPacket> | null;
+  connectionState: DeviceConnectionState;
+};
 
-  function setNavigatorSerial(serialValue: any) {
-    if (typeof (global as any).navigator === 'undefined' || !(global as any).navigator) {
-      (global as any).navigator = {};
+const asMutableService = (svc: HardwareDeviceService): MutableHardwareDeviceService =>
+  svc as unknown as MutableHardwareDeviceService;
+
+type TestGlobalEnv = Omit<typeof globalThis, 'navigator' | 'window' | 'fetch'> & {
+  navigator?: Navigator & { serial?: unknown };
+  window?: Record<string, unknown>;
+  fetch?: typeof fetch;
+};
+
+describe('AVIR — Device Connector Modal & Hardware Telemetry (31 Mandated Scenarios)', () => {
+  const testGlobal = global as unknown as TestGlobalEnv;
+  let originalSerial: unknown;
+  let originalWindow: Record<string, unknown> | undefined;
+
+  function setNavigatorSerial(serialValue: unknown) {
+    if (typeof testGlobal.navigator === 'undefined' || !testGlobal.navigator) {
+      testGlobal.navigator = {} as Navigator & { serial?: unknown };
     }
     try {
       Object.defineProperty(global.navigator, 'serial', {
@@ -21,7 +38,7 @@ describe('AVIR — Device Connector Modal & Hardware Telemetry (31 Mandated Scen
         writable: true,
       });
     } catch {
-      (global.navigator as any).serial = serialValue;
+      testGlobal.navigator.serial = serialValue;
     }
   }
 
@@ -29,19 +46,20 @@ describe('AVIR — Device Connector Modal & Hardware Telemetry (31 Mandated Scen
     vi.clearAllMocks();
     hardwareDeviceService.disconnect();
 
-    if (typeof (global as any).navigator === 'undefined' || !(global as any).navigator) {
-      (global as any).navigator = {};
+    if (typeof testGlobal.navigator === 'undefined' || !testGlobal.navigator) {
+      testGlobal.navigator = {} as Navigator & { serial?: unknown };
     }
 
-    originalSerial = (global.navigator as any)?.serial;
-    originalWindow = (global as any).window;
+    originalSerial = testGlobal.navigator?.serial;
+    originalWindow = testGlobal.window;
 
-    (global as any).window = {
+    testGlobal.window = {
       isSecureContext: true,
       location: { protocol: 'https:' },
       addEventListener: vi.fn(),
       removeEventListener: vi.fn(),
-      requestAnimationFrame: (cb: Function) => setTimeout(cb, 0),
+      requestAnimationFrame: (cb: FrameRequestCallback) =>
+        Number(setTimeout(() => cb(performance.now()), 0)),
       cancelAnimationFrame: vi.fn(),
     };
   });
@@ -49,12 +67,12 @@ describe('AVIR — Device Connector Modal & Hardware Telemetry (31 Mandated Scen
   afterEach(() => {
     if (originalSerial !== undefined) {
       setNavigatorSerial(originalSerial);
-    } else if ((global as any).navigator) {
+    } else if (testGlobal.navigator) {
       try {
-        delete (global.navigator as any).serial;
+        delete testGlobal.navigator.serial;
       } catch {}
     }
-    (global as any).window = originalWindow;
+    testGlobal.window = originalWindow;
   });
 
   // =========================================================================
@@ -155,9 +173,8 @@ describe('AVIR — Device Connector Modal & Hardware Telemetry (31 Mandated Scen
 
     it('11. Repeated open/close cycles clean up subscription listeners without memory leaks', () => {
       const service = new HardwareDeviceService();
-      let count = 0;
-      const unsub1 = service.subscribe(() => { count++; });
-      const unsub2 = service.subscribe(() => { count++; });
+      const unsub1 = service.subscribe(() => {});
+      const unsub2 = service.subscribe(() => {});
       unsub1();
       unsub2();
       // Service should cleanly handle zero listeners without throwing
@@ -171,9 +188,9 @@ describe('AVIR — Device Connector Modal & Hardware Telemetry (31 Mandated Scen
   describe('Group 2: USB WebSerial Connection Lifecycle', () => {
     it('12. Unsupported browser displays clear explanation and directs to Wi-Fi tab', () => {
       const service = new HardwareDeviceService();
-      if ((global as any).navigator) {
+      if (testGlobal.navigator) {
         try {
-          delete (global.navigator as any).serial;
+          delete testGlobal.navigator.serial;
         } catch {}
       }
       expect(service.isWebSerialSupported()).toBe(false);
@@ -200,7 +217,7 @@ describe('AVIR — Device Connector Modal & Hardware Telemetry (31 Mandated Scen
 
     it('15. User-cancelled port selection is handled gracefully without fatal error', async () => {
       const cancelError = new Error('No port selected by the user');
-      (cancelError as any).name = 'NotFoundError';
+      cancelError.name = 'NotFoundError';
       setNavigatorSerial({ requestPort: vi.fn().mockRejectedValue(cancelError) });
 
       const service = new HardwareDeviceService();
@@ -278,7 +295,7 @@ describe('AVIR — Device Connector Modal & Hardware Telemetry (31 Mandated Scen
       const service = new HardwareDeviceService();
       await service.disconnect();
 
-      let receivedPacket: any = 'should_remain_unset';
+      let receivedPacket: DeviceTelemetryPacket | string = 'should_remain_unset';
       service.subscribe((packet) => {
         receivedPacket = packet;
       });
@@ -320,7 +337,7 @@ describe('AVIR — Device Connector Modal & Hardware Telemetry (31 Mandated Scen
 
     it('24. Network failure does not produce synthetic fallback numbers', async () => {
       const service = new HardwareDeviceService();
-      (global as any).fetch = vi.fn().mockRejectedValue(new Error('Connection refused'));
+      testGlobal.fetch = vi.fn().mockRejectedValue(new Error('Connection refused')) as unknown as typeof fetch;
 
       const result = await service.fetchLocalWifiDevice('192.168.1.50');
       expect(result.packet).toBeNull();
@@ -330,13 +347,13 @@ describe('AVIR — Device Connector Modal & Hardware Telemetry (31 Mandated Scen
 
     it('25. Browser-blocked mixed-content requests on HTTPS display clear guidance', async () => {
       const service = new HardwareDeviceService();
-      (global as any).window = {
+      testGlobal.window = {
         location: { protocol: 'https:' },
         isSecureContext: true,
       };
 
       const mixedContentError = new TypeError('Failed to fetch');
-      (global as any).fetch = vi.fn().mockRejectedValue(mixedContentError);
+      testGlobal.fetch = vi.fn().mockRejectedValue(mixedContentError) as unknown as typeof fetch;
 
       const result = await service.fetchLocalWifiDevice('192.168.1.50');
       expect(result.packet).toBeNull();
@@ -346,7 +363,7 @@ describe('AVIR — Device Connector Modal & Hardware Telemetry (31 Mandated Scen
 
     it('26. Successful supported requests parse authentic device data', async () => {
       const service = new HardwareDeviceService();
-      (global as any).fetch = vi.fn().mockResolvedValue({
+      testGlobal.fetch = vi.fn().mockResolvedValue({
         ok: true,
         json: async () => ({
           pm02: 42,
@@ -451,8 +468,8 @@ describe('AVIR — Device Connector Modal & Hardware Telemetry (31 Mandated Scen
       const service = new HardwareDeviceService();
       const raw = { pm25: 25.5, pm10: 40.0, co2: 550 };
       const packet = service.parseTelemetryPayload(raw, 'webserial');
-      (service as any).lastPacket = packet;
-      (service as any).connectionState = 'receiving_data';
+      asMutableService(service).lastPacket = packet;
+      asMutableService(service).connectionState = 'receiving_data';
 
       const metadata = service.getAsGroundStationMetadata();
       expect(metadata).not.toBeNull();

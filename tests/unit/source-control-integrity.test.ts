@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { resolveSource } from '@/services/source-control/source-resolution';
 import { SourcePreference } from '@/services/source-control/source-control-types';
 import { AtmosphericMetrics, EnvironmentalSourceRecord } from '@/domain/types';
-import { getPhysicalStationDeduplicationKey, MAX_COMPARISON_DISTANCE_KM, MAX_COMPARISON_TIME_DIFF_MINUTES } from '@/config/environmental-sources';
+import { getPhysicalStationDeduplicationKey } from '@/config/environmental-sources';
 import { calculateAQIFromPM25, calculateCpcbNaqi } from '@/domain/air-math';
 
 describe('Avir Source Control — Data Integrity & Provenance (PR #32 Focused Regression)', () => {

@@ -92,7 +92,7 @@ test.describe('Three.js Advanced Cesium-Style Zoom & Camera System E2E', () => {
     await expect(engineButton).toHaveText('CESIUM');
     await engineButton.click();
     await expect(engineButton).toHaveText('THREE');
-    await page.waitForFunction(() => Boolean((window as any).__avirThreeCamera));
+    await page.waitForFunction(() => Boolean(window.__avirThreeCamera));
   });
 
   test('Test A: Zoom In button decreases camera distance proportionally', async ({ page }) => {
@@ -101,18 +101,17 @@ test.describe('Three.js Advanced Cesium-Style Zoom & Camera System E2E', () => {
 
     // Check initial distance (should be around DEFAULT_CAMERA_DISTANCE = 260)
     await page.waitForFunction(() => {
-      const w = window as any;
-      return w.__avirThreeCamera && typeof w.__avirThreeCamera.getDistance() === 'number';
+      return Boolean(window.__avirThreeCamera && typeof window.__avirThreeCamera.getDistance() === 'number');
     });
 
-    const initialDistance = await page.evaluate(() => (window as any).__avirThreeCamera.getTargetDistance());
+    const initialDistance = await page.evaluate(() => window.__avirThreeCamera!.getTargetDistance());
     expect(initialDistance).toBeCloseTo(260, 0);
 
     // Click Zoom In
     await zoomInBtn.click({ force: true });
 
     // Target distance should decrease proportionally: (260 - 90) * 0.65 + 90 = 170 * 0.65 + 90 = 200.5
-    const targetAfterZoomIn = await page.evaluate(() => (window as any).__avirThreeCamera.getTargetDistance());
+    const targetAfterZoomIn = await page.evaluate(() => window.__avirThreeCamera!.getTargetDistance());
     expect(targetAfterZoomIn).toBeLessThan(initialDistance);
     expect(targetAfterZoomIn).toBeCloseTo(200.5, 1);
   });
@@ -122,17 +121,16 @@ test.describe('Three.js Advanced Cesium-Style Zoom & Camera System E2E', () => {
     await expect(zoomOutBtn).toBeVisible();
 
     await page.waitForFunction(() => {
-      const w = window as any;
-      return w.__avirThreeCamera && typeof w.__avirThreeCamera.getDistance() === 'number';
+      return Boolean(window.__avirThreeCamera && typeof window.__avirThreeCamera.getDistance() === 'number');
     });
 
-    const initialDistance = await page.evaluate(() => (window as any).__avirThreeCamera.getTargetDistance());
+    const initialDistance = await page.evaluate(() => window.__avirThreeCamera!.getTargetDistance());
 
     // Click Zoom Out
     await zoomOutBtn.click({ force: true });
 
     // Target distance should increase proportionally: (260 - 90) * 1.45 + 90 = 170 * 1.45 + 90 = 336.5
-    const targetAfterZoomOut = await page.evaluate(() => (window as any).__avirThreeCamera.getTargetDistance());
+    const targetAfterZoomOut = await page.evaluate(() => window.__avirThreeCamera!.getTargetDistance());
     expect(targetAfterZoomOut).toBeGreaterThan(initialDistance);
     expect(targetAfterZoomOut).toBeCloseTo(336.5, 1);
   });
@@ -141,21 +139,21 @@ test.describe('Three.js Advanced Cesium-Style Zoom & Camera System E2E', () => {
     const zoomInBtn = page.getByRole('button', { name: 'Zoom In' });
     await expect(zoomInBtn).toBeVisible();
 
-    await page.waitForFunction(() => (window as any).__avirThreeCamera !== undefined);
+    await page.waitForFunction(() => window.__avirThreeCamera !== undefined);
 
     // Click Zoom In multiple times (10 times) to hit the physical min altitude bound (D_min = 102)
     for (let i = 0; i < 10; i++) {
       await zoomInBtn.click({ force: true });
     }
 
-    const minTarget = await page.evaluate(() => (window as any).__avirThreeCamera.getTargetDistance());
+    const minTarget = await page.evaluate(() => window.__avirThreeCamera!.getTargetDistance());
     // EARTH_RADIUS (90) + MIN_ALTITUDE (12) = 102
     expect(minTarget).toBeGreaterThanOrEqual(102);
     expect(minTarget).toBeCloseTo(102, 1);
 
     // Wait for damped camera distance to settle near target
     await page.waitForTimeout(600);
-    const settledDistance = await page.evaluate(() => (window as any).__avirThreeCamera.getDistance());
+    const settledDistance = await page.evaluate(() => window.__avirThreeCamera!.getDistance());
     expect(settledDistance).toBeGreaterThanOrEqual(101.9);
   });
 
@@ -163,44 +161,44 @@ test.describe('Three.js Advanced Cesium-Style Zoom & Camera System E2E', () => {
     const zoomOutBtn = page.getByRole('button', { name: 'Zoom Out' });
     await expect(zoomOutBtn).toBeVisible();
 
-    await page.waitForFunction(() => (window as any).__avirThreeCamera !== undefined);
+    await page.waitForFunction(() => window.__avirThreeCamera !== undefined);
 
     // Click Zoom Out multiple times (10 times) to hit max orbital distance (D_max = 1000)
     for (let i = 0; i < 10; i++) {
       await zoomOutBtn.click({ force: true });
     }
 
-    const maxTarget = await page.evaluate(() => (window as any).__avirThreeCamera.getTargetDistance());
+    const maxTarget = await page.evaluate(() => window.__avirThreeCamera!.getTargetDistance());
     expect(maxTarget).toBeLessThanOrEqual(1000);
     expect(maxTarget).toBeCloseTo(1000, 1);
 
     // Wait for damped camera distance to settle
     await page.waitForTimeout(600);
-    const settledDistance = await page.evaluate(() => (window as any).__avirThreeCamera.getDistance());
+    const settledDistance = await page.evaluate(() => window.__avirThreeCamera!.getDistance());
     expect(settledDistance).toBeLessThanOrEqual(1000.1);
     expect(settledDistance).toBeGreaterThan(900);
   });
 
   test('Test E: Alternating mouse wheel and button zoom maintains single continuous target without snapping', async ({ page }) => {
     const zoomInBtn = page.getByRole('button', { name: 'Zoom In' });
-    await page.waitForFunction(() => (window as any).__avirThreeCamera !== undefined);
+    await page.waitForFunction(() => window.__avirThreeCamera !== undefined);
 
     // Step 1: Click Zoom In button
     await zoomInBtn.click({ force: true });
-    const targetAfterBtn = await page.evaluate(() => (window as any).__avirThreeCamera.getTargetDistance());
+    const targetAfterBtn = await page.evaluate(() => window.__avirThreeCamera!.getTargetDistance());
     expect(targetAfterBtn).toBeCloseTo(200.5, 1);
 
     // Step 2: Dispatch mouse wheel scroll on canvas
     const canvas = page.locator('canvas').first();
     await canvas.dispatchEvent('wheel', { deltaY: -100, deltaMode: 0 });
 
-    const targetAfterWheel = await page.evaluate(() => (window as any).__avirThreeCamera.getTargetDistance());
+    const targetAfterWheel = await page.evaluate(() => window.__avirThreeCamera!.getTargetDistance());
     // Wheel scrolled in from targetAfterBtn, so it should be strictly less than targetAfterBtn
     expect(targetAfterWheel).toBeLessThan(targetAfterBtn);
 
     // Step 3: Click Zoom In button again
     await zoomInBtn.click({ force: true });
-    const targetAfterNextBtn = await page.evaluate(() => (window as any).__avirThreeCamera.getTargetDistance());
+    const targetAfterNextBtn = await page.evaluate(() => window.__avirThreeCamera!.getTargetDistance());
     // It must proportionally zoom in from targetAfterWheel without snapping back to 200.5 or 260
     expect(targetAfterNextBtn).toBeLessThan(targetAfterWheel);
   });
@@ -209,22 +207,22 @@ test.describe('Three.js Advanced Cesium-Style Zoom & Camera System E2E', () => {
     const zoomInBtn = page.getByRole('button', { name: 'Zoom In' });
     const resetBtn = page.getByRole('button', { name: 'Reset Globe Orientation' });
 
-    await page.waitForFunction(() => (window as any).__avirThreeCamera !== undefined);
+    await page.waitForFunction(() => window.__avirThreeCamera !== undefined);
 
     // Zoom in twice
     await zoomInBtn.click({ force: true });
     await zoomInBtn.click({ force: true });
-    const zoomedTarget = await page.evaluate(() => (window as any).__avirThreeCamera.getTargetDistance());
+    const zoomedTarget = await page.evaluate(() => window.__avirThreeCamera!.getTargetDistance());
     expect(zoomedTarget).toBeLessThan(200);
 
     // Click Reset
     await resetBtn.click({ force: true });
-    const resetTarget = await page.evaluate(() => (window as any).__avirThreeCamera.getTargetDistance());
+    const resetTarget = await page.evaluate(() => window.__avirThreeCamera!.getTargetDistance());
     expect(resetTarget).toBe(260);
 
     // Wait for damped camera distance to settle back to 260
     await expect
-      .poll(() => page.evaluate(() => (window as any).__avirThreeCamera.getDistance()), {
+      .poll(() => page.evaluate(() => window.__avirThreeCamera!.getDistance()), {
         timeout: 2500,
       })
       .toBeCloseTo(260, 0);
@@ -233,7 +231,7 @@ test.describe('Three.js Advanced Cesium-Style Zoom & Camera System E2E', () => {
   test('Test G: Drag rotation followed by zoom preserves orientation', async ({ page }) => {
     const zoomInBtn = page.getByRole('button', { name: 'Zoom In' });
     const rotateBtn = page.getByRole('button', { name: /pause rotation|start auto-rotation/i });
-    await page.waitForFunction(() => (window as any).__avirThreeCamera !== undefined);
+    await page.waitForFunction(() => window.__avirThreeCamera !== undefined);
 
     // Pause continuous auto-rotation so orientation assertion isolates drag + zoom preservation
     const rotateLabel = await rotateBtn.getAttribute('aria-label');
@@ -253,26 +251,26 @@ test.describe('Three.js Advanced Cesium-Style Zoom & Camera System E2E', () => {
 
     // Allow exponential drag damping to settle before recording reference orientation
     await page.waitForTimeout(400);
-    const orientationAfterDrag = await page.evaluate(() => (window as any).__avirThreeCamera.getOrientation());
+    const orientationAfterDrag = await page.evaluate(() => window.__avirThreeCamera!.getOrientation());
 
     // Zoom in with normal click (no force bypass)
     await zoomInBtn.click();
 
     // Verify orientation was preserved and not reset to default
-    const orientationAfterZoom = await page.evaluate(() => (window as any).__avirThreeCamera.getOrientation());
+    const orientationAfterZoom = await page.evaluate(() => window.__avirThreeCamera!.getOrientation());
     expect(orientationAfterZoom.y).toBeCloseTo(orientationAfterDrag.y, 1);
   });
 
   test('Test H: Rotation toggling does not recreate WebGL canvas element', async ({ page }) => {
-    await page.waitForFunction(() => (window as any).__avirThreeCamera !== undefined);
+    await page.waitForFunction(() => window.__avirThreeCamera !== undefined);
 
     const canvas = page.locator('canvas').first();
     await expect(canvas).toBeVisible();
 
     // Mark the canvas element with a custom property
     await page.evaluate(() => {
-      const c = document.querySelector('canvas');
-      if (c) (c as any).__testCanvasIdentity = 'VIR_CANVAS_INSTANCE_1';
+      const c = document.querySelector('canvas') as (HTMLCanvasElement & { __testCanvasIdentity?: string }) | null;
+      if (c) c.__testCanvasIdentity = 'VIR_CANVAS_INSTANCE_1';
     });
 
     // Toggle auto-rotation (Pause / Resume)
@@ -283,8 +281,8 @@ test.describe('Three.js Advanced Cesium-Style Zoom & Camera System E2E', () => {
 
     // Assert the canvas element identity remains identical (no DOM destruction/recreation)
     const canvasIdentity = await page.evaluate(() => {
-      const c = document.querySelector('canvas');
-      return (c as any)?.__testCanvasIdentity;
+      const c = document.querySelector('canvas') as (HTMLCanvasElement & { __testCanvasIdentity?: string }) | null;
+      return c?.__testCanvasIdentity;
     });
     expect(canvasIdentity).toBe('VIR_CANVAS_INSTANCE_1');
   });
@@ -298,7 +296,7 @@ test.describe('Three.js Advanced Cesium-Style Zoom & Camera System E2E', () => {
       }
     });
 
-    await page.waitForFunction(() => (window as any).__avirThreeCamera !== undefined);
+    await page.waitForFunction(() => window.__avirThreeCamera !== undefined);
 
     // Ensure page is scrollable
     const canScrollPage = await page.evaluate(
@@ -321,14 +319,14 @@ test.describe('Three.js Advanced Cesium-Style Zoom & Camera System E2E', () => {
     expect(hitTag).toBe('CANVAS');
 
     const initialScrollY = await page.evaluate(() => window.scrollY);
-    const initialDistance = await page.evaluate(() => (window as any).__avirThreeCamera.getTargetDistance());
+    const initialDistance = await page.evaluate(() => window.__avirThreeCamera!.getTargetDistance());
     expect(initialScrollY).toBe(0);
 
     await page.mouse.move(targetX, targetY);
     await page.mouse.wheel(0, -120);
     await page.waitForTimeout(150);
 
-    const distanceAfterWheel = await page.evaluate(() => (window as any).__avirThreeCamera.getTargetDistance());
+    const distanceAfterWheel = await page.evaluate(() => window.__avirThreeCamera!.getTargetDistance());
     const scrollYAfterWheel = await page.evaluate(() => window.scrollY);
 
     // Expected proportional zoom in from 260: 90 + 170 * exp(-120 * 0.0015) ≈ 231.997
@@ -339,7 +337,7 @@ test.describe('Three.js Advanced Cesium-Style Zoom & Camera System E2E', () => {
   });
 
   test('Wheel Scroll B: Reverse wheel scroll over Three.js zooms out without scrolling page', async ({ page }) => {
-    await page.waitForFunction(() => (window as any).__avirThreeCamera !== undefined);
+    await page.waitForFunction(() => window.__avirThreeCamera !== undefined);
     await page.evaluate(() => window.scrollTo(0, 0));
 
     const canvas = page.locator('canvas').first();
@@ -351,11 +349,11 @@ test.describe('Three.js Advanced Cesium-Style Zoom & Camera System E2E', () => {
 
     await page.mouse.move(targetX, targetY);
     await page.mouse.wheel(0, -120);
-    const afterIn = await page.evaluate(() => (window as any).__avirThreeCamera.getTargetDistance());
+    const afterIn = await page.evaluate(() => window.__avirThreeCamera!.getTargetDistance());
 
     await page.mouse.wheel(0, 120);
     await page.waitForTimeout(150);
-    const afterOut = await page.evaluate(() => (window as any).__avirThreeCamera.getTargetDistance());
+    const afterOut = await page.evaluate(() => window.__avirThreeCamera!.getTargetDistance());
     const scrollY = await page.evaluate(() => window.scrollY);
 
     expect(afterOut).toBeGreaterThan(afterIn);
@@ -363,14 +361,14 @@ test.describe('Three.js Advanced Cesium-Style Zoom & Camera System E2E', () => {
   });
 
   test('Wheel Scroll C: Scrolling outside Three.js scrolls page normally without changing globe zoom', async ({ page }) => {
-    await page.waitForFunction(() => (window as any).__avirThreeCamera !== undefined);
+    await page.waitForFunction(() => window.__avirThreeCamera !== undefined);
     await page.evaluate(() => window.scrollTo(0, 0));
 
     const canvas = page.locator('canvas').first();
     const box = await canvas.boundingBox();
     expect(box).not.toBeNull();
 
-    const targetBeforeOutside = await page.evaluate(() => (window as any).__avirThreeCamera.getTargetDistance());
+    const targetBeforeOutside = await page.evaluate(() => window.__avirThreeCamera!.getTargetDistance());
 
     // Move pointer clearly below the globe over normal page content
     const outsideX = box!.x + box!.width * 0.5;
@@ -386,7 +384,7 @@ test.describe('Three.js Advanced Cesium-Style Zoom & Camera System E2E', () => {
 
     await page.waitForFunction(() => window.scrollY > 50, undefined, { timeout: 5000 });
     const scrollYAfterOutside = await page.evaluate(() => window.scrollY);
-    const targetAfterOutside = await page.evaluate(() => (window as any).__avirThreeCamera.getTargetDistance());
+    const targetAfterOutside = await page.evaluate(() => window.__avirThreeCamera!.getTargetDistance());
 
     expect(scrollYAfterOutside).toBeGreaterThan(50);
     expect(targetAfterOutside).toBe(targetBeforeOutside);
@@ -400,7 +398,7 @@ test.describe('Three.js Advanced Cesium-Style Zoom & Camera System E2E', () => {
       }
     });
 
-    await page.waitForFunction(() => (window as any).__avirThreeCamera !== undefined);
+    await page.waitForFunction(() => window.__avirThreeCamera !== undefined);
     await page.evaluate(() => window.scrollTo(0, 0));
 
     const canvas = page.locator('canvas').first();
@@ -411,7 +409,7 @@ test.describe('Three.js Advanced Cesium-Style Zoom & Camera System E2E', () => {
     const targetY = box!.y + box!.height * 0.42;
     await page.mouse.move(targetX, targetY);
 
-    const initialDistance = await page.evaluate(() => (window as any).__avirThreeCamera.getTargetDistance());
+    const initialDistance = await page.evaluate(() => window.__avirThreeCamera!.getTargetDistance());
 
     // 10 small trackpad-like scroll steps of -12px
     for (let i = 0; i < 10; i++) {
@@ -419,7 +417,7 @@ test.describe('Three.js Advanced Cesium-Style Zoom & Camera System E2E', () => {
     }
 
     await page.waitForTimeout(150);
-    const afterTrackpad = await page.evaluate(() => (window as any).__avirThreeCamera.getTargetDistance());
+    const afterTrackpad = await page.evaluate(() => window.__avirThreeCamera!.getTargetDistance());
 
     // Single execution invariant: 10 steps of -12px from 260 equals exp(10 * -12 * 0.0015) ≈ exp(-0.18)
     const expectedSingle = 90 + (initialDistance - 90) * Math.exp(-120 * 0.0015);
@@ -427,7 +425,7 @@ test.describe('Three.js Advanced Cesium-Style Zoom & Camera System E2E', () => {
 
     // Trackpad pinch represented as ctrlKey wheel event
     await canvas.dispatchEvent('wheel', { deltaY: -40, deltaMode: 0, ctrlKey: true });
-    const afterPinchWheel = await page.evaluate(() => (window as any).__avirThreeCamera.getTargetDistance());
+    const afterPinchWheel = await page.evaluate(() => window.__avirThreeCamera!.getTargetDistance());
     expect(afterPinchWheel).toBeLessThan(afterTrackpad);
     expect(await page.evaluate(() => window.scrollY)).toBe(0);
     expect(passiveWarnings).toEqual([]);
@@ -437,7 +435,7 @@ test.describe('Three.js Advanced Cesium-Style Zoom & Camera System E2E', () => {
     const pageErrors: string[] = [];
     page.on('pageerror', (err) => pageErrors.push(err.message));
 
-    await page.waitForFunction(() => (window as any).__avirThreeCamera !== undefined);
+    await page.waitForFunction(() => window.__avirThreeCamera !== undefined);
     await page.evaluate(() => window.scrollTo(0, 0));
 
     const zoomInBtn = page.getByRole('button', { name: 'Zoom In' });
@@ -445,14 +443,12 @@ test.describe('Three.js Advanced Cesium-Style Zoom & Camera System E2E', () => {
     const canvas = page.locator('canvas').first();
     const box = await canvas.boundingBox();
     expect(box).not.toBeNull();
-    const targetX = box!.x + box!.width * 0.62;
-    const targetY = box!.y + box!.height * 0.42;
 
     // Hit minimum bound (102) then scroll deeper in over globe
     for (let i = 0; i < 12; i++) {
       await zoomInBtn.click({ force: true });
     }
-    expect(await page.evaluate(() => (window as any).__avirThreeCamera.getTargetDistance())).toBeCloseTo(102, 1);
+    expect(await page.evaluate(() => window.__avirThreeCamera!.getTargetDistance())).toBeCloseTo(102, 1);
 
     await page.evaluate(() => window.scrollTo(0, 0));
     const minBox = await canvas.boundingBox();
@@ -462,14 +458,14 @@ test.describe('Three.js Advanced Cesium-Style Zoom & Camera System E2E', () => {
     await page.mouse.wheel(0, -240);
     await page.waitForTimeout(150);
 
-    expect(await page.evaluate(() => (window as any).__avirThreeCamera.getTargetDistance())).toBeCloseTo(102, 1);
+    expect(await page.evaluate(() => window.__avirThreeCamera!.getTargetDistance())).toBeCloseTo(102, 1);
     expect(await page.evaluate(() => window.scrollY)).toBe(0);
 
     // Hit maximum bound (1000) then scroll farther out over globe
     for (let i = 0; i < 14; i++) {
       await zoomOutBtn.click({ force: true });
     }
-    expect(await page.evaluate(() => (window as any).__avirThreeCamera.getTargetDistance())).toBeCloseTo(1000, 1);
+    expect(await page.evaluate(() => window.__avirThreeCamera!.getTargetDistance())).toBeCloseTo(1000, 1);
 
     await page.evaluate(() => window.scrollTo(0, 0));
     const maxBox = await canvas.boundingBox();
@@ -479,13 +475,13 @@ test.describe('Three.js Advanced Cesium-Style Zoom & Camera System E2E', () => {
     await page.mouse.wheel(0, 240);
     await page.waitForTimeout(150);
 
-    expect(await page.evaluate(() => (window as any).__avirThreeCamera.getTargetDistance())).toBeCloseTo(1000, 1);
+    expect(await page.evaluate(() => window.__avirThreeCamera!.getTargetDistance())).toBeCloseTo(1000, 1);
     expect(await page.evaluate(() => window.scrollY)).toBe(0);
     expect(pageErrors).toEqual([]);
   });
 
   test('Wheel Scroll F: Switching Three.js -> Cesium -> Three.js maintains single listener without leaks or page scroll', async ({ page }) => {
-    await page.waitForFunction(() => (window as any).__avirThreeCamera !== undefined);
+    await page.waitForFunction(() => window.__avirThreeCamera !== undefined);
     await page.evaluate(() => window.scrollTo(0, 0));
 
     // Switch Three.js -> Cesium and wait for Cesium to initialize cleanly
@@ -498,7 +494,7 @@ test.describe('Three.js Advanced Cesium-Style Zoom & Camera System E2E', () => {
     await page.getByRole('button', { name: /currently CesiumJS/i }).click({ force: true });
     await expect(page.getByRole('button', { name: /currently Three\.js/i })).toBeVisible({ timeout: 10000 });
 
-    await page.waitForFunction(() => (window as any).__avirThreeCamera !== undefined);
+    await page.waitForFunction(() => window.__avirThreeCamera !== undefined);
     await page.evaluate(() => window.scrollTo(0, 0));
     await page.waitForTimeout(100);
 
@@ -523,12 +519,12 @@ test.describe('Three.js Advanced Cesium-Style Zoom & Camera System E2E', () => {
     expect(debugInfo.globeCanvasCount).toBe(1);
     expect(debugInfo.cesiumCount).toBe(0);
 
-    const initialDistance = await page.evaluate(() => (window as any).__avirThreeCamera.getTargetDistance());
+    const initialDistance = await page.evaluate(() => window.__avirThreeCamera!.getTargetDistance());
     await page.mouse.move(targetX, targetY);
     await page.mouse.wheel(0, -120);
     await page.waitForTimeout(150);
 
-    const afterDistance = await page.evaluate(() => (window as any).__avirThreeCamera.getTargetDistance());
+    const afterDistance = await page.evaluate(() => window.__avirThreeCamera!.getTargetDistance());
     const expectedSingle = 90 + (initialDistance - 90) * Math.exp(-120 * 0.0015);
 
     // Must match single zoom update (if listener leaked/duplicated, delta would be twice as steep)
@@ -537,8 +533,8 @@ test.describe('Three.js Advanced Cesium-Style Zoom & Camera System E2E', () => {
   });
 
   test('Wheel Scroll G: Scrolling inside Environmental Details drawer scrolls drawer without affecting globe zoom', async ({ page }) => {
-    await page.waitForFunction(() => (window as any).__avirThreeCamera !== undefined);
-    const targetBeforeDrawer = await page.evaluate(() => (window as any).__avirThreeCamera.getTargetDistance());
+    await page.waitForFunction(() => window.__avirThreeCamera !== undefined);
+    const targetBeforeDrawer = await page.evaluate(() => window.__avirThreeCamera!.getTargetDistance());
 
     const detailsBtn = page.getByRole('button', { name: /View Environmental Details/i });
     await detailsBtn.click();
@@ -556,20 +552,20 @@ test.describe('Three.js Advanced Cesium-Style Zoom & Camera System E2E', () => {
     await page.waitForTimeout(150);
 
     const scrollTopAfter = await scrollablePanel.evaluate((el) => el.scrollTop);
-    const targetAfterDrawerScroll = await page.evaluate(() => (window as any).__avirThreeCamera.getTargetDistance());
+    const targetAfterDrawerScroll = await page.evaluate(() => window.__avirThreeCamera!.getTargetDistance());
 
     expect(scrollTopAfter).toBeGreaterThan(scrollTopBefore);
     expect(targetAfterDrawerScroll).toBe(targetBeforeDrawer);
   });
 
   test('Wheel Scroll H: Touch pinch gesture over Three.js continues to scale camera distance', async ({ page }) => {
-    await page.waitForFunction(() => (window as any).__avirThreeCamera !== undefined);
+    await page.waitForFunction(() => window.__avirThreeCamera !== undefined);
 
     const canvas = page.locator('canvas').first();
     const box = await canvas.boundingBox();
     expect(box).not.toBeNull();
 
-    const initialDistance = await page.evaluate(() => (window as any).__avirThreeCamera.getTargetDistance());
+    const initialDistance = await page.evaluate(() => window.__avirThreeCamera!.getTargetDistance());
     const cx = box!.x + box!.width * 0.62;
     const cy = box!.y + box!.height * 0.42;
 
@@ -587,7 +583,7 @@ test.describe('Three.js Advanced Cesium-Style Zoom & Camera System E2E', () => {
       { x: cx, y: cy }
     );
 
-    const afterPinch = await page.evaluate(() => (window as any).__avirThreeCamera.getTargetDistance());
+    const afterPinch = await page.evaluate(() => window.__avirThreeCamera!.getTargetDistance());
     expect(afterPinch).toBeLessThan(initialDistance);
     expect(afterPinch).toBeCloseTo(90 + (initialDistance - 90) / 2, 1);
   });

@@ -2,10 +2,7 @@ import { describe, it, expect } from 'vitest';
 import React from 'react';
 import ReactDOMServer from 'react-dom/server';
 import { RoutineBuilder } from '@/components/RoutineBuilder';
-import {
-  calculateDailyScheduleExposure,
-  calculateActivityInhaledMass,
-} from '@/services/exposure/exposure-engine';
+import { calculateDailyScheduleExposure } from '@/services/exposure/exposure-engine';
 import { createDefaultSchedule } from '@/services/routines/routine-manager';
 
 describe('Phase B Critical Regression Suite: Exposure Integrity (C02)', () => {
@@ -43,9 +40,9 @@ describe('Phase B Critical Regression Suite: Exposure Integrity (C02)', () => {
 
   it('Exposure engine returns typed unavailable result when ambient PM2.5 is null or invalid', () => {
     const schedule = createDefaultSchedule();
-    const resultNull = calculateDailyScheduleExposure(schedule, null as any);
+    const resultNull = calculateDailyScheduleExposure(schedule, null);
     expect(resultNull.status).toBe('unavailable');
-    expect((resultNull as any).totalInhaledMassUg).toBeNull();
+    expect((resultNull as unknown as Record<string, unknown>).totalInhaledMassUg).toBeNull();
 
     const resultNegative = calculateDailyScheduleExposure(schedule, -10);
     expect(resultNegative.status).toBe('unavailable');

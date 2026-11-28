@@ -439,18 +439,18 @@ describe('Avir PR #32 — Source-Selection Consistency & Planning Lifecycle Regr
     expect(serverPlan.metrics.aqiEvidence.isOfficialPublished).toBe(false);
 
     // Browser path (typeof window !== 'undefined') transmits currentAmbient* fields cleanly to /api/ai/plan
-    let forwardedBody: any = null;
+    let forwardedBody: Record<string, unknown> | null = null;
     vi.stubGlobal('window', {});
     vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
-      forwardedBody = JSON.parse(String(init?.body));
+      forwardedBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
       return { ok: true, json: async () => serverPlan } as Response;
     }));
 
     const browserPlan = await generateAirQualityPlan(planRequest);
-    expect(forwardedBody.currentAmbientPm25).toBe(180);
-    expect(forwardedBody.currentAmbientUsAqi).toBe(calculateAQIFromPM25(180));
-    expect(forwardedBody.currentAmbientSource).toBe('Anand Vihar CAAQMS');
-    expect(forwardedBody.selectedSourceUnavailable).toBe(false);
+    expect(forwardedBody!.currentAmbientPm25).toBe(180);
+    expect(forwardedBody!.currentAmbientUsAqi).toBe(calculateAQIFromPM25(180));
+    expect(forwardedBody!.currentAmbientSource).toBe('Anand Vihar CAAQMS');
+    expect(forwardedBody!.selectedSourceUnavailable).toBe(false);
     expect(browserPlan.routineShifts[0].baselineExposureUg).toBe(504);
 
     // Unavailable source server parity

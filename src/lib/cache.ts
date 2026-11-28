@@ -106,4 +106,4 @@ export class MemoryCache<T> {
 }
 
 // Global telemetry cache singleton
-export const telemetryCache = new MemoryCache<any>(150);
+export const telemetryCache = new MemoryCache<object>(150);

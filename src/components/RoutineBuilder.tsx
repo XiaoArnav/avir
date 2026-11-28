@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
+import React, { useState } from 'react';
+import { motion, useReducedMotion } from 'motion/react';
 import { useAccessibleDialog } from '@/components/ui/AccessibleDialog';
 import { springs } from '@/lib/motion-tokens';
 import {
@@ -37,11 +37,7 @@ import {
   ChevronDown,
   RotateCcw,
   Sparkles,
-  Activity,
-  Shield,
-  Layers,
   Edit2,
-  Check,
   X,
 } from 'lucide-react';
 
@@ -106,7 +102,7 @@ export const RoutineBuilder: React.FC<RoutineBuilderProps> = ({
   };
 
   const isPmValid = typeof currentPm25 === 'number' && !isNaN(currentPm25) && currentPm25 >= 0;
-  const exposure = calculateDailyScheduleExposure(schedule, isPmValid ? currentPm25 : (null as any));
+  const exposure = calculateDailyScheduleExposure(schedule, isPmValid ? currentPm25 : null);
 
   const handleOpenAdd = () => {
     setEditingActivity({
@@ -144,13 +140,22 @@ export const RoutineBuilder: React.FC<RoutineBuilderProps> = ({
         updateScheduleState(updated);
       } else {
         // Add
-        const added = addActivityToSchedule(schedule, editingActivity as any);
+        const added = addActivityToSchedule(schedule, {
+          name: editingActivity.name || '',
+          startTime: editingActivity.startTime || '07:00',
+          endTime: editingActivity.endTime || '08:00',
+          intensity: editingActivity.intensity || 'moderate',
+          environment: editingActivity.environment || 'outdoor',
+          isFlexible: Boolean(editingActivity.isFlexible),
+          allowableStartRange: editingActivity.allowableStartRange,
+          notes: editingActivity.notes,
+        });
         updateScheduleState(added);
       }
       setIsEditingModalOpen(false);
       setEditingActivity(null);
-    } catch (e: any) {
-      setFormErrors([e.message]);
+    } catch (e: unknown) {
+      setFormErrors([e instanceof Error ? e.message : String(e)]);
     }
   };
 

@@ -66,8 +66,24 @@ function normalizeLngDelta(a: number, b: number): number {
   return diff > 180 ? 360 - diff : diff;
 }
 
+interface OpenMeteoWindResponse {
+  latitude?: unknown;
+  longitude?: unknown;
+  utc_offset_seconds?: unknown;
+  model_run_at?: unknown;
+  hourly_units?: {
+    wind_speed_10m?: unknown;
+    wind_direction_10m?: unknown;
+  };
+  hourly?: {
+    time?: unknown[];
+    wind_speed_10m?: unknown[];
+    wind_direction_10m?: unknown[];
+  };
+}
+
 function coordinatesMatchProbe(
-  resp: any,
+  resp: OpenMeteoWindResponse,
   expectedLat: number,
   expectedLng: number
 ): { ok: boolean; lat: number; lng: number } {
@@ -128,7 +144,7 @@ export function parseOpenMeteoUtcEpoch(timeStr: unknown, utcOffsetSeconds: unkno
   return Date.UTC(year, month, day, hour, minute, second) - offsetSec * 1000;
 }
 
-function buildHourlyIndexByUtcEpoch(resp: any): {
+function buildHourlyIndexByUtcEpoch(resp: OpenMeteoWindResponse): {
   entriesByEpoch: Map<number, { speedKmh: number; directionDeg: number }>;
   orderedEpochs: number[];
 } | null {
@@ -425,7 +441,7 @@ export async function fetchWindForecast(params: {
       throw new Error(failureReason);
     }
 
-    const responses: any[] = Array.isArray(payload) ? payload : [payload];
+    const responses: unknown[] = Array.isArray(payload) ? payload : [payload];
     if (responses.length === 0 || responses.length > allProbes.length) {
       failureStatus = 'invalid_upstream_response';
       failureReason = 'Upstream multi-location response count did not match requested locations.';
@@ -434,14 +450,15 @@ export async function fetchWindForecast(params: {
 
     const indexedSeries = responses.map((resp, idx) => {
       const probe = allProbes[idx];
-      if (!probe || !resp || typeof resp !== 'object') return null;
-      const coordCheck = coordinatesMatchProbe(resp, probe.lat, probe.lng);
+      if (!probe || !resp || typeof resp !== 'object' || Array.isArray(resp)) return null;
+      const typedResp = resp as OpenMeteoWindResponse;
+      const coordCheck = coordinatesMatchProbe(typedResp, probe.lat, probe.lng);
       if (!coordCheck.ok) return null;
-      const parsedSeries = buildHourlyIndexByUtcEpoch(resp);
+      const parsedSeries = buildHourlyIndexByUtcEpoch(typedResp);
       if (!parsedSeries) return null;
       return {
         probe,
-        resp,
+        resp: typedResp,
         ...parsedSeries,
       };
     });
@@ -569,8 +586,12 @@ export async function fetchWindForecast(params: {
     }
 
     return result;
-  } catch (err: any) {
-    if (err?.name === 'AbortError' || err?.name === 'TimeoutError') {
+  } catch (err: unknown) {
+    const errName =
+      typeof err === 'object' && err !== null && 'name' in err
+        ? (err as { name?: unknown }).name
+        : undefined;
+    if (errName === 'AbortError' || errName === 'TimeoutError') {
       failureStatus = 'upstream_timeout';
       failureReason = 'Upstream Open-Meteo API request timed out.';
     }

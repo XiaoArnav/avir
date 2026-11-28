@@ -26,7 +26,6 @@ interface GroundStationBadgeProps {
 export function GroundStationBadge({
   station,
   delta,
-  onRefresh,
 }: GroundStationBadgeProps) {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);

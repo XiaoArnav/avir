@@ -82,16 +82,23 @@ export class TelemetryLogger {
         statusCode: 200,
       });
       return result;
-    } catch (err: any) {
+    } catch (err: unknown) {
       const durationMs = Date.now() - start;
+      const statusCode =
+        typeof err === 'object' &&
+        err !== null &&
+        'status' in err &&
+        typeof (err as { status?: unknown }).status === 'number'
+          ? (err as { status: number }).status
+          : 500;
       this.record({
         provider,
         operation,
         durationMs,
         success: false,
-        statusCode: err?.status || 500,
-        errorCategory: err?.name || 'UpstreamError',
-        errorMessage: err?.message || 'Unknown upstream failure',
+        statusCode,
+        errorCategory: err instanceof Error ? err.name : 'UpstreamError',
+        errorMessage: err instanceof Error ? err.message : 'Unknown upstream failure',
       });
       throw err;
     }

@@ -23,7 +23,7 @@ export interface ValidatedDeviceAddress {
  */
 export function isPrivateIpv4(octets: number[]): boolean {
   if (octets.length !== 4) return false;
-  const [a, b, c, d] = octets;
+  const [a, b] = octets;
   if (octets.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return false;
 
   // 10.0.0.0/8

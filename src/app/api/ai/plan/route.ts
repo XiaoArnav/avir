@@ -12,7 +12,9 @@ import {
   optimizeScheduleWithForecast,
   HourlyForecastPoint,
 } from '@/services/optimization/forecast-optimizer';
-import { AiPlanExplanation } from '@/domain/planning-types';
+import { ActivityShiftDetail, AiPlanExplanation, GeneralizedSensitivity } from '@/domain/planning-types';
+import { DailySchedule } from '@/domain/routine-types';
+import { AtmosphericMetrics, DataProvenance, UserVulnerabilityProfile } from '@/domain/types';
 import { aiPlanRateLimiter, extractClientIp } from '@/lib/security/rate-limiter';
 import { readBoundedJson } from '@/lib/security/request-limiter';
 import {
@@ -24,6 +26,67 @@ import {
 import { generateDeterministicStructuredExplanation } from '@/services/ai/deterministic-assistant';
 
 const GEMINI_API_TIMEOUT_MS = 8000;
+
+interface RawCoordinatesInput {
+  lat?: unknown;
+  lng?: unknown;
+  latitude?: unknown;
+  longitude?: unknown;
+}
+
+interface RawSourceInput {
+  provider?: unknown;
+  isModel?: unknown;
+  stationName?: unknown;
+  distanceKm?: unknown;
+  observationTime?: unknown;
+  freshnessHours?: unknown;
+}
+
+interface RawMetricsInput extends Omit<Partial<AtmosphericMetrics>, 'location' | 'cpcbCategory'> {
+  location?: {
+    latitude?: unknown;
+    longitude?: unknown;
+  };
+  cpcbCategory?: unknown;
+}
+
+interface RawAiPlanBody {
+  city?: unknown;
+  country?: unknown;
+  timezone?: unknown;
+  aqiStandard?: unknown;
+  coordinates?: RawCoordinatesInput;
+  schedule?: DailySchedule;
+  hourlyForecast?: Array<Record<string, unknown>>;
+  decisionContext?: EnvironmentalDecisionContext;
+  metrics?: RawMetricsInput;
+  profile?: Partial<UserVulnerabilityProfile>;
+  roomSizeSqFt?: unknown;
+  customRoutine?: unknown;
+  currentAmbientSource?: unknown;
+  currentAmbientProvenance?: unknown;
+  currentAmbientPm25?: unknown;
+  currentAmbientUsAqi?: unknown;
+  currentAmbientCpcbAqi?: unknown;
+  selectedSourceUnavailable?: unknown;
+  generalizedSensitivity?: unknown;
+  commuteMode?: EnvironmentalDecisionContext['userContext']['commuteMode'];
+  indoorAirPurification?: EnvironmentalDecisionContext['userContext']['indoorAirPurification'];
+  source?: RawSourceInput;
+}
+
+const VALID_PROVENANCES: readonly DataProvenance[] = [
+  'observed',
+  'modeled_forecast',
+  'derived_calculation',
+  'estimated_outcome',
+  'unavailable',
+];
+
+function isValidProvenance(value: unknown): value is DataProvenance {
+  return typeof value === 'string' && (VALID_PROVENANCES as readonly string[]).includes(value);
+}
 
 const UNSAFE_MEDICAL_OR_GUARANTEE_PATTERNS = [
   /\b(asthma|copd|angina|pregnan(?:t|cy)|bronchitis|emphysema|cardiovascular disease)\b/i,
@@ -81,7 +144,7 @@ export async function POST(req: NextRequest) {
     // =========================================================================
     // STEP 22: BOUNDED PAYLOAD SIZE CHECK (100 KB CEILING)
     // =========================================================================
-    const boundedRead = await readBoundedJson(req);
+    const boundedRead = await readBoundedJson<RawAiPlanBody>(req);
     if (!boundedRead.success) {
       const status = boundedRead.errorCode === 'PAYLOAD_TOO_LARGE' ? 413 : 400;
       return NextResponse.json(
@@ -176,14 +239,55 @@ export async function POST(req: NextRequest) {
     const legacyPlanFallback = isModernSchedule
       ? null
       : generateLocalHeuristicPlan({
-          ...rawBody,
+          city: typeof rawBody.city === 'string' ? rawBody.city : '',
+          metrics: rawBody.metrics as AtmosphericMetrics,
+          profile: {
+            ageGroup: rawBody.profile?.ageGroup ?? 'adult',
+            hasAsthmaOrRespiratory: Boolean(rawBody.profile?.hasAsthmaOrRespiratory),
+            hasCardiovascularCondition: Boolean(rawBody.profile?.hasCardiovascularCondition),
+            isPregnant: Boolean(rawBody.profile?.isPregnant),
+            isOutdoorWorker: Boolean(rawBody.profile?.isOutdoorWorker),
+          },
+          generalizedSensitivity:
+            rawBody.generalizedSensitivity === 'standard' ||
+            rawBody.generalizedSensitivity === 'sensitive' ||
+            rawBody.generalizedSensitivity === 'highly_sensitive'
+              ? rawBody.generalizedSensitivity
+              : undefined,
+          roomSizeSqFt: typeof rawBody.roomSizeSqFt === 'number' ? rawBody.roomSizeSqFt : undefined,
+          customRoutine: typeof rawBody.customRoutine === 'string' ? rawBody.customRoutine : undefined,
+          currentAmbientPm25:
+            typeof rawBody.currentAmbientPm25 === 'number' || rawBody.currentAmbientPm25 === null
+              ? rawBody.currentAmbientPm25
+              : undefined,
+          currentAmbientUsAqi:
+            typeof rawBody.currentAmbientUsAqi === 'number' || rawBody.currentAmbientUsAqi === null
+              ? rawBody.currentAmbientUsAqi
+              : undefined,
+          currentAmbientCpcbAqi:
+            typeof rawBody.currentAmbientCpcbAqi === 'number' || rawBody.currentAmbientCpcbAqi === null
+              ? rawBody.currentAmbientCpcbAqi
+              : undefined,
+          currentAmbientSource:
+            typeof rawBody.currentAmbientSource === 'string' || rawBody.currentAmbientSource === null
+              ? rawBody.currentAmbientSource
+              : undefined,
+          currentAmbientProvenance: isValidProvenance(rawBody.currentAmbientProvenance)
+            ? rawBody.currentAmbientProvenance
+            : undefined,
+          selectedSourceUnavailable:
+            typeof rawBody.selectedSourceUnavailable === 'boolean'
+              ? rawBody.selectedSourceUnavailable
+              : undefined,
           isServerUnverifiedPayload: true,
         });
     let deterministicPlan;
 
-    if (isModernSchedule) {
+    if (isModernSchedule && rawBody.schedule) {
       const isClientForecast = Array.isArray(rawBody.hourlyForecast) && rawBody.hourlyForecast.length > 0;
-      const forecast: HourlyForecastPoint[] = isClientForecast ? rawBody.hourlyForecast : [];
+      const forecast: HourlyForecastPoint[] = isClientForecast
+        ? (rawBody.hourlyForecast as HourlyForecastPoint[])
+        : [];
 
       deterministicPlan = optimizeScheduleWithForecast(rawBody.schedule, forecast, {
         isUserSupplied: isClientForecast,
@@ -193,7 +297,7 @@ export async function POST(req: NextRequest) {
       // Map legacy fallback to DeterministicPlanResult
       const fb = legacyPlanFallback!;
       const { totalInhaledBaselineUg, totalInhaledOptimizedUg, netAvoidedPM25Ug } = fb.impactMetrics;
-      const points = daytimeForecastForPlan(rawBody.metrics);
+      const points = daytimeForecastForPlan(rawBody.metrics as AtmosphericMetrics);
 
       deterministicPlan = {
         status: fb.routineShifts.some((s) => s.isOptimizationAvailable) ? 'optimal' : 'unavailable',
@@ -249,10 +353,12 @@ export async function POST(req: NextRequest) {
     // Sanitize clinical flags to generalized sensitivity tier (B-011).
     // =========================================================================
     const apiKey = process.env.GEMINI_API_KEY;
-    const sensitivity =
-      (['standard', 'sensitive', 'highly_sensitive'].includes(rawBody.generalizedSensitivity) &&
-        rawBody.generalizedSensitivity) ||
-      sanitizeUserHealthContext(rawBody.profile);
+    const sensitivity: GeneralizedSensitivity =
+      rawBody.generalizedSensitivity === 'standard' ||
+      rawBody.generalizedSensitivity === 'sensitive' ||
+      rawBody.generalizedSensitivity === 'highly_sensitive'
+        ? rawBody.generalizedSensitivity
+        : sanitizeUserHealthContext(rawBody.profile ?? {});
 
     // =========================================================================
     // TIER 2.5: DECISION CONTEXT AGGREGATION & VALIDATION (PHASE 2)
@@ -329,7 +435,7 @@ Return only valid JSON matching this schema:
                         optimizedExposureUg: deterministicPlan.optimizedExposureUg,
                         savingsUg: deterministicPlan.absoluteSavingsUg,
                         percentageSavings: deterministicPlan.percentageSavings,
-                        shifts: deterministicPlan.activityShifts.map((s: any) => ({
+                        shifts: deterministicPlan.activityShifts.map((s: ActivityShiftDetail) => ({
                           activity: s.activityName,
                           from: s.originalStart,
                           to: s.proposedStart,
@@ -351,33 +457,36 @@ Return only valid JSON matching this schema:
           const geminiData = await geminiRes.json();
           const candidateText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
           if (candidateText) {
-            const parsed = JSON.parse(candidateText);
+            const parsedRaw: unknown = JSON.parse(candidateText);
+            const parsedObj =
+              parsedRaw && typeof parsedRaw === 'object' && !Array.isArray(parsedRaw)
+                ? (parsedRaw as Record<string, unknown>)
+                : null;
+            const isSafeAiText = (value: unknown): value is string =>
+              typeof value === 'string' &&
+              value.trim().length > 0 &&
+              value.length <= 1500 &&
+              !/\d/.test(value.replace(/\b(?:PM2\.5|PM10|N95|FFP2|CO2)\b/gi, '')) &&
+              !containsUnsafeMedicalOrGuaranteeClaim(value) &&
+              !inspectPromptInjection(value).isThreatDetected;
+
             if (
-              !Array.isArray(parsed?.actionableRecommendations) ||
-              parsed.actionableRecommendations.length === 0 ||
-              parsed.actionableRecommendations.length > 8 ||
-              ![
-                parsed.summary,
-                parsed.narrative,
-                parsed.healthContext,
-                ...parsed.actionableRecommendations,
-              ].every(
-                (value: any) =>
-                  typeof value === 'string' &&
-                  value.trim().length > 0 &&
-                  value.length <= 1500 &&
-                  !/\d/.test(value.replace(/\b(?:PM2\.5|PM10|N95|FFP2|CO2)\b/gi, '')) &&
-                  !containsUnsafeMedicalOrGuaranteeClaim(value) &&
-                  !inspectPromptInjection(value).isThreatDetected
-              )
+              !parsedObj ||
+              !Array.isArray(parsedObj.actionableRecommendations) ||
+              parsedObj.actionableRecommendations.length === 0 ||
+              parsedObj.actionableRecommendations.length > 8 ||
+              !isSafeAiText(parsedObj.summary) ||
+              !isSafeAiText(parsedObj.narrative) ||
+              !isSafeAiText(parsedObj.healthContext) ||
+              !parsedObj.actionableRecommendations.every(isSafeAiText)
             ) {
               throw new Error('Unusable explanation');
             }
             aiExplanation = {
-              summary: parsed.summary.trim(),
-              narrative: parsed.narrative.trim(),
-              actionableRecommendations: parsed.actionableRecommendations.map((r: string) => r.trim()),
-              healthContext: parsed.healthContext.trim(),
+              summary: parsedObj.summary.trim(),
+              narrative: parsedObj.narrative.trim(),
+              actionableRecommendations: parsedObj.actionableRecommendations.map((r) => r.trim()),
+              healthContext: parsedObj.healthContext.trim(),
               modelAttribution: 'Gemini 2.5 Flash (Verified Server-Side)',
               generatedAt: new Date().toISOString(),
               isDeterministicVerified: true,
@@ -393,13 +502,13 @@ Return only valid JSON matching this schema:
             explanationSource = 'llm_generated';
           }
         }
-      } catch (geminiErr: any) {
-        if (geminiErr.name === 'AbortError') {
+      } catch (geminiErr: unknown) {
+        if (geminiErr instanceof Error && geminiErr.name === 'AbortError') {
           console.warn('Gemini explanation call timed out after 8s, falling back to deterministic explanation.');
         } else {
           console.warn(
             'Gemini explanation call failed, using deterministic explanation fallback:',
-            geminiErr?.message || geminiErr
+            geminiErr instanceof Error ? geminiErr.message : geminiErr
           );
         }
       } finally {
@@ -450,7 +559,7 @@ Return only valid JSON matching this schema:
       structuredExplanation,
       decisionContext,
     });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('AI plan route error:', err);
     return NextResponse.json(
       { error: 'Internal server error while generating plan', code: 'INTERNAL_ERROR' },
@@ -485,7 +594,7 @@ function normalizeValidatedDecisionContext(
   };
 }
 
-function extractVerifiedCoordinates(rawBody: any): { latitude: number | null; longitude: number | null } {
+function extractVerifiedCoordinates(rawBody: RawAiPlanBody): { latitude: number | null; longitude: number | null } {
   const candidates = [
     { lat: rawBody.coordinates?.lat, lng: rawBody.coordinates?.lng },
     { lat: rawBody.coordinates?.latitude, lng: rawBody.coordinates?.longitude },
@@ -511,7 +620,7 @@ function extractVerifiedCoordinates(rawBody: any): { latitude: number | null; lo
   return { latitude: null, longitude: null };
 }
 
-function classifySourceProvenance(rawBody: any): {
+function classifySourceProvenance(rawBody: RawAiPlanBody): {
   provider: string;
   isModel: boolean | null;
   sourceType: DecisionSourceType;
@@ -590,7 +699,7 @@ function classifySourceProvenance(rawBody: any): {
         : undefined;
 
   const rawDist =
-    rawBody.source?.distanceKm !== undefined && rawBody.source?.distanceKm !== null
+    typeof rawBody.source?.distanceKm === 'number' && Number.isFinite(rawBody.source.distanceKm)
       ? rawBody.source.distanceKm
       : sourceType === 'physical_monitor' &&
           typeof rawBody.metrics?.groundStation?.distanceKm === 'number' &&
@@ -607,7 +716,10 @@ function classifySourceProvenance(rawBody: any): {
   };
 }
 
-function buildFallbackDecisionContext(rawBody: any, sensitivity: any): EnvironmentalDecisionContext {
+function buildFallbackDecisionContext(
+  rawBody: RawAiPlanBody,
+  sensitivity: GeneralizedSensitivity
+): EnvironmentalDecisionContext {
   const cityName =
     typeof rawBody.city === 'string' && rawBody.city.trim()
       ? sanitizeTextLabel(rawBody.city, 'Selected Location')
@@ -619,7 +731,7 @@ function buildFallbackDecisionContext(rawBody: any, sensitivity: any): Environme
   const fallbackTimezone = rawBody.metrics?.timezone;
   const timezone =
     explicitTimezone !== undefined && explicitTimezone !== null && explicitTimezone !== ''
-      ? (isValidTimeZone(explicitTimezone) ? explicitTimezone.trim() : explicitTimezone)
+      ? (isValidTimeZone(explicitTimezone) ? explicitTimezone.trim() : (explicitTimezone as string))
       : isValidTimeZone(fallbackTimezone)
         ? fallbackTimezone.trim()
         : null;
@@ -632,7 +744,7 @@ function buildFallbackDecisionContext(rawBody: any, sensitivity: any): Environme
     (sourceInfo.sourceType === 'physical_monitor' ? rawBody.metrics?.groundStation?.observedAt : undefined);
   const observationTime =
     explicitObsTime !== undefined && explicitObsTime !== null
-      ? (typeof explicitObsTime === 'string' ? explicitObsTime.trim() : explicitObsTime)
+      ? (typeof explicitObsTime === 'string' ? explicitObsTime.trim() : (explicitObsTime as string))
       : typeof fallbackObsTime === 'string' &&
           fallbackObsTime.trim().length > 0 &&
           !Number.isNaN(Date.parse(fallbackObsTime))
@@ -719,26 +831,27 @@ function buildFallbackDecisionContext(rawBody: any, sensitivity: any): Environme
     category = 'Unavailable';
   }
 
-  const rawForecastList = Array.isArray(rawBody.hourlyForecast)
+  const rawForecastList: unknown[] | null = Array.isArray(rawBody.hourlyForecast)
     ? rawBody.hourlyForecast
     : Array.isArray(rawBody.metrics?.hourlyForecast)
       ? rawBody.metrics.hourlyForecast
       : null;
 
   const normalizedForecast = rawForecastList
-    ? rawForecastList.map((pt: any) => {
+    ? rawForecastList.map((pt: unknown) => {
         if (!pt || typeof pt !== 'object' || Array.isArray(pt)) return pt;
-        const resolvedTime = pt.validAtUtc ?? pt.timestamp ?? pt.time;
-        const entry: Record<string, any> = {
+        const ptObj = pt as Record<string, unknown>;
+        const resolvedTime = ptObj.validAtUtc ?? ptObj.timestamp ?? ptObj.time;
+        const entry: Record<string, unknown> = {
           time: resolvedTime,
-          pm25: pt.pm25UgM3 !== undefined ? pt.pm25UgM3 : (pt.pm25 ?? null),
-          aqi: pt.aqi !== undefined ? pt.aqi : (pt.usAqi ?? null),
-          windSpeedKmh: pt.windSpeedKmh !== undefined ? pt.windSpeedKmh : (pt.windSpeed ?? null),
-          boundaryLayerHeight: pt.boundaryLayerHeight ?? null,
+          pm25: ptObj.pm25UgM3 !== undefined ? ptObj.pm25UgM3 : (ptObj.pm25 ?? null),
+          aqi: ptObj.aqi !== undefined ? ptObj.aqi : (ptObj.usAqi ?? null),
+          windSpeedKmh: ptObj.windSpeedKmh !== undefined ? ptObj.windSpeedKmh : (ptObj.windSpeed ?? null),
+          boundaryLayerHeight: ptObj.boundaryLayerHeight ?? null,
         };
-        if (pt.units !== undefined) entry.units = pt.units;
-        if (typeof pt.timezone === 'string' && pt.timezone.trim()) {
-          entry.timezone = pt.timezone.trim();
+        if (ptObj.units !== undefined) entry.units = ptObj.units;
+        if (typeof ptObj.timezone === 'string' && ptObj.timezone.trim()) {
+          entry.timezone = ptObj.timezone.trim();
         }
         return entry;
       })
@@ -749,11 +862,11 @@ function buildFallbackDecisionContext(rawBody: any, sensitivity: any): Environme
       ? null
       : typeof rawBody.country === 'string' && rawBody.country.trim()
         ? sanitizeTextLabel(rawBody.country, 'Unspecified Country')
-        : rawBody.country;
+        : (rawBody.country as string);
 
   const rawFreshness = rawBody.source?.freshnessHours;
   const freshness =
-    rawFreshness !== undefined && rawFreshness !== null ? rawFreshness : null;
+    rawFreshness !== undefined && rawFreshness !== null ? (rawFreshness as number) : null;
 
   const sanitizedTemp =
     typeof rawBody.metrics?.temperature === 'number' &&
@@ -816,6 +929,6 @@ function buildFallbackDecisionContext(rawBody: any, sensitivity: any): Environme
       indoorAirPurification: rawBody.indoorAirPurification ?? 'unknown',
     },
     schedule: rawBody.schedule,
-    hourlyForecast: normalizedForecast,
+    hourlyForecast: normalizedForecast as EnvironmentalDecisionContext['hourlyForecast'],
   };
 }

@@ -438,13 +438,13 @@ describe('Phase 2: Pure-TS GRIB2 Decoder, Cycle Selection & Global Wind Proxy AP
         model: 'gfs',
         overlay: 'temperature',
         now: () => fixedNow,
-        fetchImpl: fetchMock as any,
+        fetchImpl: fetchMock as unknown as typeof fetch,
       }),
       fetchGlobalWindSnapshot({
         model: 'gfs',
         overlay: 'temperature',
         now: () => fixedNow,
-        fetchImpl: fetchMock as any,
+        fetchImpl: fetchMock as unknown as typeof fetch,
       }),
     ]);
 
@@ -469,7 +469,7 @@ describe('Phase 2: Pure-TS GRIB2 Decoder, Cycle Selection & Global Wind Proxy AP
       hour: 0,
       forecastHour: 9,
       now: () => fixedNow,
-      fetchImpl: fetchMock as any,
+      fetchImpl: fetchMock as unknown as typeof fetch,
     });
     expect(byCycle.bytes.byteLength).toBe(bin.byteLength);
 
@@ -478,7 +478,7 @@ describe('Phase 2: Pure-TS GRIB2 Decoder, Cycle Selection & Global Wind Proxy AP
       model: 'gfs',
       overlay: 'temperature',
       now: () => fixedNow + 40 * 60_000,
-      fetchImpl: vi.fn().mockRejectedValue(new Error('Network down')) as any,
+      fetchImpl: vi.fn().mockRejectedValue(new Error('Network down')) as unknown as typeof fetch,
     });
     expect(stale.manifest.status).toBe('stale_cached');
     expect(stale.manifest.isStale).toBe(true);
@@ -571,7 +571,7 @@ describe('Phase 2: Pure-TS GRIB2 Decoder, Cycle Selection & Global Wind Proxy AP
     const first = await fetchClientGlobalWindSnapshot({
       model: 'ifs',
       overlay: 'none',
-      fetchImpl: fetchMock as any,
+      fetchImpl: fetchMock as unknown as typeof fetch,
     });
     expect(first.snapshot).not.toBeNull();
     expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -580,7 +580,7 @@ describe('Phase 2: Pure-TS GRIB2 Decoder, Cycle Selection & Global Wind Proxy AP
     const second = await fetchClientGlobalWindSnapshot({
       model: 'ifs',
       overlay: 'speed',
-      fetchImpl: fetchMock as any,
+      fetchImpl: fetchMock as unknown as typeof fetch,
     });
     expect(second.snapshot).not.toBeNull();
     expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -597,7 +597,7 @@ describe('Phase 2: Pure-TS GRIB2 Decoder, Cycle Selection & Global Wind Proxy AP
     const failed = await fetchClientGlobalWindSnapshot({
       model: 'ifs',
       overlay: 'none',
-      fetchImpl: corruptFetch as any,
+      fetchImpl: corruptFetch as unknown as typeof fetch,
     });
     expect(failed.snapshot).toBeNull();
     expect(failed.error).toMatch(/non-finite/i);
@@ -770,12 +770,12 @@ describe('PR #42 Blocker 1: Shared Wind Request Cancellation Isolation', () => {
     const p1 = fetchGlobalWindSnapshot({
       model: 'gfs',
       now: () => fixedNow,
-      fetchImpl: harness.mock as any,
+      fetchImpl: harness.mock as unknown as typeof fetch,
     });
     const p2 = fetchGlobalWindSnapshot({
       model: 'gfs',
       now: () => fixedNow,
-      fetchImpl: harness.mock as any,
+      fetchImpl: harness.mock as unknown as typeof fetch,
     });
 
     expect(getGlobalWindCacheStats().inflightCount).toBe(1);
@@ -811,13 +811,13 @@ describe('PR #42 Blocker 1: Shared Wind Request Cancellation Isolation', () => {
     const pA = fetchGlobalWindSnapshot({
       model: 'gfs',
       now: () => fixedNow,
-      fetchImpl: harness.mock as any,
+      fetchImpl: harness.mock as unknown as typeof fetch,
       signal: acA.signal,
     });
     const pB = fetchGlobalWindSnapshot({
       model: 'gfs',
       now: () => fixedNow,
-      fetchImpl: harness.mock as any,
+      fetchImpl: harness.mock as unknown as typeof fetch,
       signal: acB.signal,
     });
 
@@ -856,7 +856,7 @@ describe('PR #42 Blocker 1: Shared Wind Request Cancellation Isolation', () => {
     const soloPromise = fetchGlobalWindSnapshot({
       model: 'gfs',
       now: () => fixedNow,
-      fetchImpl: cancelledFetch.mock as any,
+      fetchImpl: cancelledFetch.mock as unknown as typeof fetch,
       signal: acSolo.signal,
     });
 
@@ -871,7 +871,7 @@ describe('PR #42 Blocker 1: Shared Wind Request Cancellation Isolation', () => {
     const recovered = await fetchGlobalWindSnapshot({
       model: 'gfs',
       now: () => fixedNow + 500,
-      fetchImpl: healthyFetch.mock as any,
+      fetchImpl: healthyFetch.mock as unknown as typeof fetch,
     });
     expect(recovered.manifest.isAvailable).toBe(true);
     expect(healthyFetch.getIdxCalls()).toBe(1);
@@ -886,7 +886,7 @@ describe('PR #42 Blocker 1: Shared Wind Request Cancellation Isolation', () => {
         onSignalAbort: () => {
           routeUpstreamAborted = true;
         },
-      }).mock as any
+      }).mock as unknown as typeof fetch
     );
     const reqAc = new AbortController();
     const routePromise = getGlobalManifest(
@@ -911,7 +911,7 @@ describe('PR #42 Blocker 1: Shared Wind Request Cancellation Isolation', () => {
     const fail1 = await fetchGlobalWindSnapshot({
       model: 'gfs',
       now: () => fixedNow,
-      fetchImpl: failingFetch as any,
+      fetchImpl: failingFetch as unknown as typeof fetch,
     });
     expect(fail1.manifest.isAvailable).toBe(false);
     expect(fail1.manifest.status).toBe('temporarily_unavailable');
@@ -922,7 +922,7 @@ describe('PR #42 Blocker 1: Shared Wind Request Cancellation Isolation', () => {
     const fail2 = await fetchGlobalWindSnapshot({
       model: 'gfs',
       now: () => fixedNow + 10_000,
-      fetchImpl: failingFetch as any,
+      fetchImpl: failingFetch as unknown as typeof fetch,
     });
     expect(fail2.manifest.isAvailable).toBe(false);
     expect(failingFetch.mock.calls.length).toBe(callsAtFail);
@@ -932,7 +932,7 @@ describe('PR #42 Blocker 1: Shared Wind Request Cancellation Isolation', () => {
     const ok = await fetchGlobalWindSnapshot({
       model: 'gfs',
       now: () => fixedNow + 61_000,
-      fetchImpl: healthyFetch.mock as any,
+      fetchImpl: healthyFetch.mock as unknown as typeof fetch,
     });
     expect(ok.manifest.isAvailable).toBe(true);
     expect(getGlobalWindCacheStats().failureCount).toBe(0);
@@ -946,7 +946,7 @@ describe('PR #42 Blocker 1: Shared Wind Request Cancellation Isolation', () => {
     await fetchGlobalWindSnapshot({
       model: 'gfs',
       now: () => fixedNow,
-      fetchImpl: okHarness.mock as any,
+      fetchImpl: okHarness.mock as unknown as typeof fetch,
     });
     expect(getGlobalWindCacheStats().inflightCount).toBe(0);
 
@@ -957,7 +957,7 @@ describe('PR #42 Blocker 1: Shared Wind Request Cancellation Isolation', () => {
     const cancelledCall = fetchGlobalWindSnapshot({
       model: 'gfs',
       now: () => fixedNow,
-      fetchImpl: pendingHarness.mock as any,
+      fetchImpl: pendingHarness.mock as unknown as typeof fetch,
       signal: cancelAc.signal,
     });
     expect(getGlobalWindCacheStats().inflightCount).toBe(1);
@@ -969,7 +969,7 @@ describe('PR #42 Blocker 1: Shared Wind Request Cancellation Isolation', () => {
     const errCall = await fetchGlobalWindSnapshot({
       model: 'ifs',
       now: () => fixedNow,
-      fetchImpl: vi.fn().mockRejectedValue(new Error('503')) as any,
+      fetchImpl: vi.fn().mockRejectedValue(new Error('503')) as unknown as typeof fetch,
     });
     expect(errCall.manifest.isAvailable).toBe(false);
     expect(getGlobalWindCacheStats().inflightCount).toBe(0);
@@ -999,7 +999,7 @@ describe('PR #42 Blocker 2: Bounded Forecast Caches & Horizon Validation', () =>
         model: 'gfs',
         targetValidTimeUtc: targetIso,
         now: () => fixedNow,
-        fetchImpl: harness.mock as any,
+        fetchImpl: harness.mock as unknown as typeof fetch,
       });
       expect(snap.manifest.isAvailable).toBe(true);
     }
@@ -1016,7 +1016,7 @@ describe('PR #42 Blocker 2: Bounded Forecast Caches & Horizon Validation', () =>
         model: 'ifs',
         targetValidTimeUtc: targetIso,
         now: () => fixedNow,
-        fetchImpl: failingMock as any,
+        fetchImpl: failingMock as unknown as typeof fetch,
       });
     }
     expect(getGlobalWindCacheStats().failureCount).toBeLessThanOrEqual(
@@ -1038,7 +1038,7 @@ describe('PR #42 Blocker 2: Bounded Forecast Caches & Horizon Validation', () =>
         model: 'gfs',
         targetValidTimeUtc: new Date(Date.UTC(2026, 10, 25, 6, 0, 0) + h * 3600_000).toISOString(),
         now: () => fixedNow + h,
-        fetchImpl: harness.mock as any,
+        fetchImpl: harness.mock as unknown as typeof fetch,
       });
     }
 
@@ -1048,7 +1048,7 @@ describe('PR #42 Blocker 2: Bounded Forecast Caches & Horizon Validation', () =>
       model: 'gfs',
       targetValidTimeUtc: '2026-11-25T06:00:00.000Z',
       now: () => fixedNow + 100,
-      fetchImpl: harness.mock as any,
+      fetchImpl: harness.mock as unknown as typeof fetch,
     });
     expect(requestedSteps).toHaveLength(0);
 
@@ -1062,7 +1062,7 @@ describe('PR #42 Blocker 2: Bounded Forecast Caches & Horizon Validation', () =>
       model: 'gfs',
       targetValidTimeUtc: new Date(Date.UTC(2026, 10, 25, 6, 0, 0) + 30 * 3600_000).toISOString(),
       now: () => fixedNow + 200,
-      fetchImpl: slowHarness.mock as any,
+      fetchImpl: slowHarness.mock as unknown as typeof fetch,
     });
     expect(getGlobalWindCacheStats().inflightCount).toBe(1);
 
@@ -1073,7 +1073,7 @@ describe('PR #42 Blocker 2: Bounded Forecast Caches & Horizon Validation', () =>
         Date.UTC(2026, 10, 25, 6, 0, 0) + GLOBAL_WIND_CACHE_MAX_SNAPSHOTS * 3600_000
       ).toISOString(),
       now: () => fixedNow + 300,
-      fetchImpl: harness.mock as any,
+      fetchImpl: harness.mock as unknown as typeof fetch,
     });
     expect(getGlobalWindCacheStats().inflightCount).toBe(1);
 
@@ -1088,7 +1088,7 @@ describe('PR #42 Blocker 2: Bounded Forecast Caches & Horizon Validation', () =>
       model: 'gfs',
       targetValidTimeUtc: '2026-11-25T06:00:00.000Z',
       now: () => fixedNow + 400,
-      fetchImpl: harness.mock as any,
+      fetchImpl: harness.mock as unknown as typeof fetch,
     });
     expect(requestedSteps).toHaveLength(0);
 
@@ -1096,7 +1096,7 @@ describe('PR #42 Blocker 2: Bounded Forecast Caches & Horizon Validation', () =>
       model: 'gfs',
       targetValidTimeUtc: '2026-11-25T07:00:00.000Z',
       now: () => fixedNow + 500,
-      fetchImpl: harness.mock as any,
+      fetchImpl: harness.mock as unknown as typeof fetch,
     });
     expect(requestedSteps).toEqual([1]);
 
@@ -1120,19 +1120,19 @@ describe('PR #42 Blocker 2: Bounded Forecast Caches & Horizon Validation', () =>
       model: 'ifs',
       targetValidTimeUtc: '2026-11-25T08:20:00.000Z',
       now: () => fixedNow,
-      fetchImpl: ifsHarness.mock as any,
+      fetchImpl: ifsHarness.mock as unknown as typeof fetch,
     });
     const s2 = await fetchGlobalWindSnapshot({
       model: 'ifs',
       targetValidTimeUtc: '2026-11-25T09:00:00.000Z',
       now: () => fixedNow + 5000,
-      fetchImpl: ifsHarness.mock as any,
+      fetchImpl: ifsHarness.mock as unknown as typeof fetch,
     });
     const s3 = await fetchGlobalWindSnapshot({
       model: 'ifs',
       targetValidTimeUtc: '2026-11-25T09:40:00.000Z',
       now: () => fixedNow + 10_000,
-      fetchImpl: ifsHarness.mock as any,
+      fetchImpl: ifsHarness.mock as unknown as typeof fetch,
     });
 
     expect(s1.manifest.validTimeUtc).toBe('2026-11-25T09:00:00.000Z');
@@ -1152,13 +1152,13 @@ describe('PR #42 Blocker 2: Bounded Forecast Caches & Horizon Validation', () =>
       model: 'gfs',
       targetValidTimeUtc: t122,
       now: () => fixedNow,
-      fetchImpl: gfsHarness.mock as any,
+      fetchImpl: gfsHarness.mock as unknown as typeof fetch,
     });
     const reuse124 = await fetchGlobalWindSnapshot({
       model: 'gfs',
       targetValidTimeUtc: t124,
       now: () => fixedNow,
-      fetchImpl: gfsHarness.mock as any,
+      fetchImpl: gfsHarness.mock as unknown as typeof fetch,
     });
     expect(reuse124.manifest.forecastHour).toBe(123);
     expect(reuse124.manifest.isCached).toBe(true);
@@ -1173,7 +1173,7 @@ describe('PR #42 Blocker 2: Bounded Forecast Caches & Horizon Validation', () =>
       hour: 6,
       forecastHour: 123,
       now: () => fixedNow,
-      fetchImpl: gfsHarness.mock as any,
+      fetchImpl: gfsHarness.mock as unknown as typeof fetch,
     });
     expect(bin.bytes.byteLength).toBe(360 * 181 * 8);
     expect(gfsHarness.getIdxCalls()).toBe(1);
@@ -1250,7 +1250,7 @@ describe('PR #42 Blocker 2: Bounded Forecast Caches & Horizon Validation', () =>
     const live = await fetchGlobalWindSnapshot({
       model: 'gfs',
       now: () => fixedNow,
-      fetchImpl: harness.mock as any,
+      fetchImpl: harness.mock as unknown as typeof fetch,
     });
     expect(live.manifest.status).toBe('available');
 
@@ -1258,7 +1258,7 @@ describe('PR #42 Blocker 2: Bounded Forecast Caches & Horizon Validation', () =>
     const stale = await fetchGlobalWindSnapshot({
       model: 'gfs',
       now: () => fixedNow + 45 * 60_000,
-      fetchImpl: vi.fn().mockRejectedValue(new Error('Upstream outage')) as any,
+      fetchImpl: vi.fn().mockRejectedValue(new Error('Upstream outage')) as unknown as typeof fetch,
     });
     expect(stale.manifest.status).toBe('stale_cached');
     expect(stale.manifest.isStale).toBe(true);
@@ -1269,7 +1269,7 @@ describe('PR #42 Blocker 2: Bounded Forecast Caches & Horizon Validation', () =>
     const expired = await fetchGlobalWindSnapshot({
       model: 'gfs',
       now: () => fixedNow + 7 * 3600_000,
-      fetchImpl: vi.fn().mockRejectedValue(new Error('Upstream outage')) as any,
+      fetchImpl: vi.fn().mockRejectedValue(new Error('Upstream outage')) as unknown as typeof fetch,
     });
     expect(expired.manifest.isAvailable).toBe(false);
     expect(expired.manifest.freshness).toBe('unavailable');
@@ -1420,7 +1420,7 @@ describe('PR #42 Final Fix: Historical Wind Forecast Cycle Accuracy', () => {
       model: 'gfs',
       targetValidTimeUtc: '2026-11-24T17:00:00Z',
       now: () => fixedNow,
-      fetchImpl: harness.mock as any,
+      fetchImpl: harness.mock as unknown as typeof fetch,
     });
 
     expect(snap.manifest.isAvailable).toBe(true);
@@ -1444,7 +1444,7 @@ describe('PR #42 Final Fix: Historical Wind Forecast Cycle Accuracy', () => {
       model: 'gfs',
       targetValidTimeUtc: '2026-11-25T03:00:00Z',
       now: () => fixedNow,
-      fetchImpl: harness.mock as any,
+      fetchImpl: harness.mock as unknown as typeof fetch,
     });
 
     expect(snap.manifest.isAvailable).toBe(true);
@@ -1464,7 +1464,7 @@ describe('PR #42 Final Fix: Historical Wind Forecast Cycle Accuracy', () => {
       model: 'gfs',
       targetValidTimeUtc: '2026-11-24T23:00:00+00:00',
       now: () => fixedNow,
-      fetchImpl: harness.mock as any,
+      fetchImpl: harness.mock as unknown as typeof fetch,
     });
 
     expect(preMidnight.manifest.initTimeUtc).toBe('2026-11-24T18:00:00.000Z');
@@ -1477,7 +1477,7 @@ describe('PR #42 Final Fix: Historical Wind Forecast Cycle Accuracy', () => {
       model: 'gfs',
       targetValidTimeUtc: '2026-11-25T04:30:00+05:30',
       now: () => fixedNow,
-      fetchImpl: harness.mock as any,
+      fetchImpl: harness.mock as unknown as typeof fetch,
     });
     expect(istEquiv.manifest.initTimeUtc).toBe('2026-11-24T18:00:00.000Z');
     expect(istEquiv.manifest.validTimeUtc).toBe('2026-11-24T23:00:00.000Z');
@@ -1490,7 +1490,7 @@ describe('PR #42 Final Fix: Historical Wind Forecast Cycle Accuracy', () => {
     const current = await fetchGlobalWindSnapshot({
       model: 'gfs',
       now: () => fixedNow,
-      fetchImpl: harness.mock as any,
+      fetchImpl: harness.mock as unknown as typeof fetch,
     });
 
     expect(current.manifest.isAvailable).toBe(true);
@@ -1509,7 +1509,7 @@ describe('PR #42 Final Fix: Historical Wind Forecast Cycle Accuracy', () => {
       model: 'gfs',
       targetValidTimeUtc: '2026-11-26T18:00:00Z', // 36h past 2026-11-25T06:00Z
       now: () => fixedNow,
-      fetchImpl: harness.mock as any,
+      fetchImpl: harness.mock as unknown as typeof fetch,
     });
 
     expect(future.manifest.isAvailable).toBe(true);
@@ -1529,7 +1529,7 @@ describe('PR #42 Final Fix: Historical Wind Forecast Cycle Accuracy', () => {
       model: 'ifs',
       targetValidTimeUtc: '2026-11-24T17:00:00Z',
       now: () => fixedNow,
-      fetchImpl: harness.mock as any,
+      fetchImpl: harness.mock as unknown as typeof fetch,
     });
 
     expect(ifsHist.manifest.isAvailable).toBe(true);
@@ -1557,7 +1557,7 @@ describe('PR #42 Final Fix: Historical Wind Forecast Cycle Accuracy', () => {
       model: 'gfs',
       targetValidTimeUtc: '2026-11-24T17:00:00Z',
       now: () => fixedNow,
-      fetchImpl: harness.mock as any,
+      fetchImpl: harness.mock as unknown as typeof fetch,
     });
 
     expect(missingHist.manifest.isAvailable).toBe(false);
@@ -1575,13 +1575,13 @@ describe('PR #42 Final Fix: Historical Wind Forecast Cycle Accuracy', () => {
     const latestSnap = await fetchGlobalWindSnapshot({
       model: 'gfs',
       now: () => fixedNow,
-      fetchImpl: harness.mock as any,
+      fetchImpl: harness.mock as unknown as typeof fetch,
     });
     const init06Snap = await fetchGlobalWindSnapshot({
       model: 'gfs',
       targetValidTimeUtc: '2026-11-25T06:00:00Z',
       now: () => fixedNow,
-      fetchImpl: harness.mock as any,
+      fetchImpl: harness.mock as unknown as typeof fetch,
     });
     expect(latestSnap.manifest.validTimeUtc).toBe('2026-11-25T11:00:00.000Z');
     expect(init06Snap.manifest.validTimeUtc).toBe('2026-11-25T06:00:00.000Z');
@@ -1592,7 +1592,7 @@ describe('PR #42 Final Fix: Historical Wind Forecast Cycle Accuracy', () => {
       model: 'gfs',
       targetValidTimeUtc: '2026-11-24T17:00:00Z',
       now: () => fixedNow + 1000,
-      fetchImpl: harness.mock as any,
+      fetchImpl: harness.mock as unknown as typeof fetch,
     });
 
     expect(harness.requests.length).toBeGreaterThan(callsBeforeHist);
@@ -1607,7 +1607,7 @@ describe('PR #42 Final Fix: Historical Wind Forecast Cycle Accuracy', () => {
       model: 'gfs',
       targetValidTimeUtc: '2026-11-24T17:15:00Z',
       now: () => fixedNow + 2000,
-      fetchImpl: harness.mock as any,
+      fetchImpl: harness.mock as unknown as typeof fetch,
     });
     expect(harness.requests.length).toBe(callsAfterHist);
     expect(cachedHistSnap.manifest.isCached).toBe(true);

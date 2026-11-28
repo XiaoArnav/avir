@@ -6,10 +6,7 @@ import {
   RefreshCw,
   SlidersHorizontal,
   ChevronRight,
-  ShieldCheck,
-  Radio,
   Database,
-  Sliders,
 } from 'lucide-react';
 import { AqiStandard } from '@/services/geo/geographic-observation-adapter';
 import { ResolvedSourceData } from '@/services/source-control/source-control-types';
@@ -38,13 +35,11 @@ export interface CompactCityCardProps {
 export function CompactCityCard({
   cityName,
   admin1,
-  country = 'India',
   aqiValue,
   categoryLabel,
   categoryColor,
   primaryPollutant,
   standard,
-  onToggleStandard,
   provenanceLabel,
   isOfficialGround,
   freshnessLabel,

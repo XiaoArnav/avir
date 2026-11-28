@@ -25,12 +25,11 @@ export function FirstVisitLocationModal({
   isOpen,
   onClose,
   onSelectCity,
-  onOpenSearchPicker,
 }: FirstVisitLocationModalProps) {
   const [geoStatus, setGeoStatus] = useState<'idle' | 'requesting' | 'denied' | 'error' | 'success'>('idle');
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');
-  const [isSearchActive, setIsSearchActive] = useState(false);
+  const [, setIsSearchActive] = useState(false);
 
   if (!isOpen) return null;
 
@@ -92,7 +91,7 @@ export function FirstVisitLocationModal({
             onSelectCity(detectedLocation, 'ephemeral_gps');
             onClose();
           }, 400);
-        } catch (err: any) {
+        } catch {
           setGeoStatus('error');
           setErrorMessage('Failed to resolve coordinates. Please choose a city below.');
         }

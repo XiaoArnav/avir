@@ -1,9 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  buildGeographicObservations,
-  getCpcbCategory,
-  getEpaCategory,
-} from '@/services/geo/geographic-observation-adapter';
+import { buildGeographicObservations } from '@/services/geo/geographic-observation-adapter';
 import { assessJurisdiction, resolveOfficialGrapStatus } from '@/services/advisories/grap-status-resolver';
 import { isThermalInversion } from '@/domain/air-math';
 import { AtmosphericMetrics } from '@/domain/types';

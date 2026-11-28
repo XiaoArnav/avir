@@ -4,8 +4,7 @@ import {
   calculateActivityInhaledMass,
   calculateExposureReduction,
 } from '@/services/exposure/exposure-engine';
-import { DailySchedule, RoutineActivity } from '@/domain/routine-types';
-import { MINUTE_VENTILATION_RATES_M3_MIN } from '@/domain/exposure-types';
+import { DailySchedule } from '@/domain/routine-types';
 
 describe('Step 13 — Scientifically Defensible Exposure Engine', () => {
   describe('Inhaled Mass Physics Formulation', () => {
@@ -88,8 +87,8 @@ describe('Step 13 — Scientifically Defensible Exposure Engine', () => {
       };
 
       const result = calculateDailyScheduleExposure(schedule, 80);
-      expect((result as any).berkeleyCigarettes).toBeUndefined();
-      expect((result as any).cigaretteFraction).toBeUndefined();
+      expect((result as unknown as Record<string, unknown>).berkeleyCigarettes).toBeUndefined();
+      expect((result as unknown as Record<string, unknown>).cigaretteFraction).toBeUndefined();
       expect(result.calculationMethod).toBe('discrete_time_integral');
       expect(result.totalInhaledMassUg).toBeGreaterThan(0);
     });

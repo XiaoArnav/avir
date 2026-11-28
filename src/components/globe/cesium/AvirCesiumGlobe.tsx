@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
+import type * as CesiumTypes from 'cesium';
 import type { GeographicObservationPoint, AqiStandard } from '@/services/geo/geographic-observation-adapter';
 import type { FirmsHotspot } from '@/domain/firms-types';
 import type { GlobalWindOverlayKind, GlobalWindSnapshot } from '@/domain/wind-types';
@@ -78,9 +79,9 @@ export function AvirCesiumGlobe({
 
   // Mutable refs to prevent stale closures inside Cesium asynchronous callbacks and event listeners
   const viewerRef = useRef<{
-    viewer: any;
-    Cesium: any;
-    handler: any;
+    viewer: CesiumTypes.Viewer;
+    Cesium: typeof CesiumTypes;
+    handler: CesiumTypes.ScreenSpaceEventHandler;
     removeTickListener?: () => void;
   } | null>(null);
 
@@ -105,9 +106,21 @@ export function AvirCesiumGlobe({
   const onInspectWindCoordsRef = useRef(onInspectWindCoords);
   onInspectWindCoordsRef.current = onInspectWindCoords;
 
+  const activeCityNameRef = useRef(activeCityName);
+  activeCityNameRef.current = activeCityName;
+
+  const themeModeRef = useRef(themeMode);
+  themeModeRef.current = themeMode;
+
+  const onReadyRef = useRef(onReady);
+  onReadyRef.current = onReady;
+
+  const onFallbackToThreeRef = useRef(onFallbackToThree);
+  onFallbackToThreeRef.current = onFallbackToThree;
+
   const isUserInteractingRef = useRef(false);
-  const entitiesMapRef = useRef<Map<string, any>>(new Map());
-  const fireEntitiesMapRef = useRef<Map<string, any>>(new Map());
+  const entitiesMapRef = useRef<Map<string, CesiumTypes.Entity>>(new Map());
+  const fireEntitiesMapRef = useRef<Map<string, CesiumTypes.Entity>>(new Map());
   const terrainControllerRef = useRef<CesiumTerrainController | null>(null);
   const windControllerRef = useRef<CesiumWindController | null>(null);
 
@@ -122,7 +135,7 @@ export function AvirCesiumGlobe({
       try {
         // 1. Configure Cesium static assets base URL before importing modules
         if (typeof window !== 'undefined') {
-          (window as any).CESIUM_BASE_URL = '/cesium';
+          window.CESIUM_BASE_URL = '/cesium';
         }
 
         // 2. Ensure Cesium widgets stylesheet is loaded
@@ -145,7 +158,7 @@ export function AvirCesiumGlobe({
         }
 
         // 5. Licensed satellite imagery provider (Esri World Imagery with OSM fallback)
-        let baseLayer: any;
+        let baseLayer: CesiumTypes.ImageryLayer;
         try {
           const esriProvider = await Cesium.ArcGisMapServerImageryProvider.fromUrl(
             'https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer',
@@ -166,7 +179,8 @@ export function AvirCesiumGlobe({
 
         // 6. Remove unnecessary Cesium ion branding since no Cesium ion services are used at runtime
         try {
-          (Cesium.CreditDisplay as any).cesiumCredit = undefined;
+          (Cesium.CreditDisplay as unknown as { cesiumCredit?: unknown }).cesiumCredit =
+            undefined;
         } catch {
           // Fallback handled by scoped styling
         }
@@ -198,13 +212,13 @@ export function AvirCesiumGlobe({
         viewer.scene.globe.enableLighting = true;
         viewer.scene.globe.depthTestAgainstTerrain = true;
         viewer.scene.backgroundColor = Cesium.Color.fromCssColorString(
-          themeMode === 'light' ? '#0F172A' : '#030712'
+          themeModeRef.current === 'light' ? '#0F172A' : '#030712'
         );
 
         // 8. Initial Camera Orientation over Active City or Default Coordinates (India / Asia)
         const currentPoints = pointsRef.current;
         const initialPoint = currentPoints.find(
-          (p) => p.name.toLowerCase() === activeCityName?.toLowerCase()
+          (p) => p.name.toLowerCase() === activeCityNameRef.current?.toLowerCase()
         ) || currentPoints[0];
 
         const initialLon = initialPoint?.longitude ?? 77.5946;
@@ -248,7 +262,7 @@ export function AvirCesiumGlobe({
         }, Cesium.ScreenSpaceEventType.PINCH_END);
 
         // Entity picking with EllipsoidalOccluder to completely prevent back-side horizon picking
-        handler.setInputAction((click: any) => {
+        handler.setInputAction((click: CesiumTypes.ScreenSpaceEventHandler.PositionedEvent) => {
           const pickedObject = viewer.scene.pick(click.position);
           if (Cesium.defined(pickedObject) && pickedObject.id && pickedObject.id.properties) {
             const pointData = pickedObject.id.properties.pointData?.getValue();
@@ -299,19 +313,28 @@ export function AvirCesiumGlobe({
           terrainControllerRef.current = createCesiumTerrainController();
           windControllerRef.current = createCesiumWindController();
           setLifecycle('ready');
-          onReady?.();
+          onReadyRef.current?.();
         }
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error('CesiumJS initialization failed:', err);
-        const message = err?.message || 'Cesium WebGL failed to initialize';
+        const errMessage =
+          typeof err === 'object' &&
+          err !== null &&
+          'message' in err &&
+          typeof (err as { message?: unknown }).message === 'string' &&
+          (err as { message: string }).message
+            ? (err as { message: string }).message
+            : 'Cesium WebGL failed to initialize';
         if (isMounted) {
           setLifecycle('failed');
-          setErrorMessage(message);
-          onFallbackToThree?.(message);
+          setErrorMessage(errMessage);
+          onFallbackToThreeRef.current?.(errMessage);
         }
       }
     }
 
+    const entitiesMap = entitiesMapRef.current;
+    const fireEntitiesMap = fireEntitiesMapRef.current;
     initCesium();
 
     return () => {
@@ -328,8 +351,8 @@ export function AvirCesiumGlobe({
         if (viewer && !viewer.isDestroyed()) viewer.destroy();
         viewerRef.current = null;
       }
-      entitiesMapRef.current.clear();
-      fireEntitiesMapRef.current.clear();
+      entitiesMap.clear();
+      fireEntitiesMap.clear();
     };
   }, []);
 
@@ -410,7 +433,7 @@ export function AvirCesiumGlobe({
       const hasValidAqi = aqiVal !== null && aqiVal !== undefined && !Number.isNaN(aqiVal);
 
       // Honest color mapping: neutral slate if unavailable (never default green!)
-      let color: any;
+      let color: CesiumTypes.Color;
       if (!hasValidAqi) {
         color = Cesium.Color.fromCssColorString('#64748B');
       } else if (isSelected) {
@@ -427,11 +450,17 @@ export function AvirCesiumGlobe({
 
       if (entity) {
         // Update existing entity properties
-        entity.point.color = color;
-        entity.point.pixelSize = pointSize;
-        entity.point.outlineWidth = outlineWidth;
-        entity.label.text = labelText;
-        entity.properties.pointData = point;
+        if (entity.point) {
+          entity.point.color = new Cesium.ConstantProperty(color);
+          entity.point.pixelSize = new Cesium.ConstantProperty(pointSize);
+          entity.point.outlineWidth = new Cesium.ConstantProperty(outlineWidth);
+        }
+        if (entity.label) {
+          entity.label.text = new Cesium.ConstantProperty(labelText);
+        }
+        if (entity.properties) {
+          entity.properties.pointData = point;
+        }
       } else {
         // Create new entity
         entity = viewer.entities.add({

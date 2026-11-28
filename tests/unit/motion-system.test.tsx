@@ -5,7 +5,6 @@ import {
   duration,
   easing,
   springs,
-  transitions,
   motionVariants,
 } from '@/lib/motion-tokens';
 import {
@@ -36,9 +35,9 @@ describe('Motion Design System & Tokens (Stage 1 Foundations)', () => {
 
     it('3. Exports spring presets for snappy, gentle, bouncy, and atmospheric motion', () => {
       expect(springs.snappy.type).toBe('spring');
-      expect((springs.snappy as any).stiffness).toBeGreaterThan(300);
+      expect((springs.snappy as unknown as Record<string, unknown>).stiffness).toBeGreaterThan(300);
       expect(springs.gentle.type).toBe('spring');
-      expect((springs.gentle as any).damping).toBeDefined();
+      expect((springs.gentle as unknown as Record<string, unknown>).damping).toBeDefined();
       expect(springs.bouncy.type).toBe('spring');
       expect(springs.atmospheric.type).toBe('spring');
     });

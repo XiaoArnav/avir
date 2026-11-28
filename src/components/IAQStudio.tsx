@@ -5,14 +5,13 @@ import {
   calculateAch,
   calculateRoomDimensions,
   calculateWellMixedDecay,
-  convertCadr,
   CFM_TO_M3_PER_HOUR,
 } from '@/domain/indoor-air-types';
 import {
   calculateDiyPurifierBillOfMaterials,
   DIY_PURIFIER_PRESETS,
 } from '@/services/indoor-air/indoor-air-service';
-import { Wrench, Zap, DollarSign, Timer, CheckCircle2, Sparkles, Settings2 } from 'lucide-react';
+import { Wrench, Zap, Timer, CheckCircle2, Sparkles, Settings2 } from 'lucide-react';
 
 interface IAQStudioProps {
   initialRoomVolumeM3?: number;
@@ -25,10 +24,9 @@ interface IAQStudioProps {
   };
 }
 
-export const IAQStudio: React.FC<IAQStudioProps> = ({ initialRoomVolumeM3 = 45, spec }) => {
-  const effectiveInitialVolume = spec?.roomVolumeM3 || initialRoomVolumeM3;
+export const IAQStudio: React.FC<IAQStudioProps> = ({ initialRoomVolumeM3 = 45 }) => {
   const [selectedPresetId, setSelectedPresetId] = useState<string>('cr-box-4-filter');
-  const [customCadrCfm, setCustomCadrCfm] = useState<number>(450);
+  const [customCadrCfm] = useState<number>(450);
   const [unit, setUnit] = useState<'metric' | 'imperial'>('metric');
   const [roomLength, setRoomLength] = useState<number>(unit === 'metric' ? 5 : 16);
   const [roomWidth, setRoomWidth] = useState<number>(unit === 'metric' ? 3.5 : 12);

@@ -192,7 +192,7 @@ const FORBIDDEN_RAW_MEDICAL_KEYS = [
   'medications',
 ];
 
-function isPlainObject(value: unknown): value is Record<string, any> {
+function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const proto = Object.getPrototypeOf(value);
   return proto === Object.prototype || proto === null;
@@ -211,8 +211,12 @@ function isValidTimeZone(tz: string): boolean {
   }
 }
 
-function hasUnknownKeys(obj: Record<string, any>, allowed: readonly string[]): string[] {
+function hasUnknownKeys(obj: Record<string, unknown>, allowed: readonly string[]): string[] {
   return Object.keys(obj).filter((k) => !allowed.includes(k));
+}
+
+function isOneOf<T extends string>(value: unknown, allowed: readonly T[]): value is T {
+  return typeof value === 'string' && (allowed as readonly string[]).includes(value);
 }
 
 function isUnverifiedProviderLabel(provider: string): boolean {
@@ -340,7 +344,7 @@ export function validateDecisionContext(context: unknown): ValidationResult {
     }
 
     if (context.source.sourceType !== undefined && context.source.sourceType !== null) {
-      if (!VALID_SOURCE_TYPES.includes(context.source.sourceType)) {
+      if (!isOneOf(context.source.sourceType, VALID_SOURCE_TYPES)) {
         errors.push(`Invalid sourceType "${context.source.sourceType}".`);
       } else if (context.source.sourceType === 'unknown' && context.source.isModel !== null) {
         errors.push('Unknown sourceType must keep isModel as null.');
@@ -437,20 +441,20 @@ export function validateDecisionContext(context: unknown): ValidationResult {
       errors.push('aqiStandard must be "cpcb", "epa", or "unavailable".');
     }
 
-    if (pm25Unit !== undefined && pm25Unit !== null && !VALID_PM_UNITS.includes(pm25Unit)) {
+    if (pm25Unit !== undefined && pm25Unit !== null && !isOneOf(pm25Unit, VALID_PM_UNITS)) {
       errors.push(`Unsupported PM2.5 unit "${pm25Unit}". Expected "µg/m³" or "ug/m3".`);
     }
-    if (pm10Unit !== undefined && pm10Unit !== null && !VALID_PM_UNITS.includes(pm10Unit)) {
+    if (pm10Unit !== undefined && pm10Unit !== null && !isOneOf(pm10Unit, VALID_PM_UNITS)) {
       errors.push(`Unsupported PM10 unit "${pm10Unit}". Expected "µg/m³" or "ug/m3".`);
     }
     if (units !== undefined && units !== null) {
       if (!isPlainObject(units)) {
         errors.push('currentPollutants.units must be a plain object.');
       } else {
-        if (units.pm25 !== undefined && units.pm25 !== null && !VALID_PM_UNITS.includes(units.pm25)) {
+        if (units.pm25 !== undefined && units.pm25 !== null && !isOneOf(units.pm25, VALID_PM_UNITS)) {
           errors.push(`Unsupported units.pm25 "${units.pm25}". Expected "µg/m³" or "ug/m3".`);
         }
-        if (units.pm10 !== undefined && units.pm10 !== null && !VALID_PM_UNITS.includes(units.pm10)) {
+        if (units.pm10 !== undefined && units.pm10 !== null && !isOneOf(units.pm10, VALID_PM_UNITS)) {
           errors.push(`Unsupported units.pm10 "${units.pm10}". Expected "µg/m³" or "ug/m3".`);
         }
       }
@@ -472,7 +476,8 @@ export function validateDecisionContext(context: unknown): ValidationResult {
   if (!isPlainObject(context.userContext)) {
     errors.push('userContext is required.');
   } else {
-    const rawMedicalFound = FORBIDDEN_RAW_MEDICAL_KEYS.filter((k) => k in context.userContext);
+    const validatedUserContext = context.userContext;
+    const rawMedicalFound = FORBIDDEN_RAW_MEDICAL_KEYS.filter((k) => k in validatedUserContext);
     if (rawMedicalFound.length > 0) {
       errors.push(`Raw medical keys are not permitted in userContext: ${rawMedicalFound.join(', ')}.`);
     }
@@ -486,7 +491,7 @@ export function validateDecisionContext(context: unknown): ValidationResult {
       errors.push(`Unexpected userContext fields: ${unexpectedUser.join(', ')}.`);
     }
 
-    if (!VALID_SENSITIVITY_TIERS.includes(context.userContext.generalizedSensitivity)) {
+    if (!isOneOf(context.userContext.generalizedSensitivity, VALID_SENSITIVITY_TIERS)) {
       errors.push(
         `Invalid sensitivity tier "${context.userContext.generalizedSensitivity}". Expected one of: ${VALID_SENSITIVITY_TIERS.join(', ')}.`
       );
@@ -495,7 +500,7 @@ export function validateDecisionContext(context: unknown): ValidationResult {
     if (
       context.userContext.commuteMode !== undefined &&
       context.userContext.commuteMode !== null &&
-      !VALID_COMMUTE_MODES.includes(context.userContext.commuteMode)
+      !isOneOf(context.userContext.commuteMode, VALID_COMMUTE_MODES)
     ) {
       errors.push(`Invalid commuteMode "${context.userContext.commuteMode}".`);
     }
@@ -503,7 +508,7 @@ export function validateDecisionContext(context: unknown): ValidationResult {
     if (
       context.userContext.indoorAirPurification !== undefined &&
       context.userContext.indoorAirPurification !== null &&
-      !VALID_PURIFICATION_MODES.includes(context.userContext.indoorAirPurification)
+      !isOneOf(context.userContext.indoorAirPurification, VALID_PURIFICATION_MODES)
     ) {
       errors.push(`Invalid indoorAirPurification "${context.userContext.indoorAirPurification}".`);
     }
@@ -550,7 +555,7 @@ export function validateDecisionContext(context: unknown): ValidationResult {
       if (
         ventilationIndex !== undefined &&
         ventilationIndex !== null &&
-        !VALID_VENTILATION_INDICES.includes(ventilationIndex)
+        !isOneOf(ventilationIndex, VALID_VENTILATION_INDICES)
       ) {
         errors.push(`Invalid weather ventilationIndex "${ventilationIndex}".`);
       }
@@ -606,19 +611,29 @@ export function validateDecisionContext(context: unknown): ValidationResult {
         }
 
         let validTimes = true;
-        try {
-          parseTimeStringToMinutes(act.startTime);
-        } catch {
-          errors.push(`Schedule activity ${i} has invalid startTime "${act.startTime}".`);
+        if (typeof act.startTime !== 'string') {
+          errors.push(`Schedule activity ${i} has invalid startTime "${String(act.startTime)}".`);
           validTimes = false;
+        } else {
+          try {
+            parseTimeStringToMinutes(act.startTime);
+          } catch {
+            errors.push(`Schedule activity ${i} has invalid startTime "${act.startTime}".`);
+            validTimes = false;
+          }
         }
-        try {
-          parseTimeStringToMinutes(act.endTime);
-        } catch {
-          errors.push(`Schedule activity ${i} has invalid endTime "${act.endTime}".`);
+        if (typeof act.endTime !== 'string') {
+          errors.push(`Schedule activity ${i} has invalid endTime "${String(act.endTime)}".`);
           validTimes = false;
+        } else {
+          try {
+            parseTimeStringToMinutes(act.endTime);
+          } catch {
+            errors.push(`Schedule activity ${i} has invalid endTime "${act.endTime}".`);
+            validTimes = false;
+          }
         }
-        if (validTimes) {
+        if (validTimes && typeof act.startTime === 'string' && typeof act.endTime === 'string') {
           const duration = calculateActivityDurationMinutes(act.startTime, act.endTime);
           if (duration <= 0 || duration > 1440) {
             errors.push(`Schedule activity ${i} must have a positive duration under 24 hours.`);
@@ -630,13 +645,13 @@ export function validateDecisionContext(context: unknown): ValidationResult {
         if (!hasLocType && !hasEnv) {
           errors.push(`Schedule activity ${i} must specify locationType or environment.`);
         }
-        if (hasLocType && !VALID_LOCATION_TYPES.includes(act.locationType)) {
+        if (hasLocType && !isOneOf(act.locationType, VALID_LOCATION_TYPES)) {
           errors.push(`Schedule activity ${i} has invalid locationType "${act.locationType}".`);
         }
-        if (hasEnv && !VALID_ENVIRONMENTS.includes(act.environment)) {
+        if (hasEnv && !isOneOf(act.environment, VALID_ENVIRONMENTS)) {
           errors.push(`Schedule activity ${i} has invalid environment "${act.environment}".`);
         }
-        if (act.intensity !== undefined && act.intensity !== null && !VALID_INTENSITIES.includes(act.intensity)) {
+        if (act.intensity !== undefined && act.intensity !== null && !isOneOf(act.intensity, VALID_INTENSITIES)) {
           errors.push(`Schedule activity ${i} has invalid intensity "${act.intensity}".`);
         }
       }
@@ -719,7 +734,7 @@ export function validateDecisionContext(context: unknown): ValidationResult {
           errors.push(`Forecast entry at index ${i} has invalid boundaryLayerHeight value.`);
           break;
         }
-        if (pt.units !== undefined && pt.units !== null && !VALID_PM_UNITS.includes(pt.units)) {
+        if (pt.units !== undefined && pt.units !== null && !isOneOf(pt.units, VALID_PM_UNITS)) {
           errors.push(`Forecast entry at index ${i} has unsupported units "${pt.units}".`);
           break;
         }

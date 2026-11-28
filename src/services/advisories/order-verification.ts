@@ -52,8 +52,11 @@ export function validateOrderSourceUrl(urlStr: string): { isValid: boolean; erro
     }
 
     return { isValid: true };
-  } catch (err: any) {
-    return { isValid: false, error: err?.message || 'Invalid URL' };
+  } catch (err: unknown) {
+    return {
+      isValid: false,
+      error: err instanceof Error && err.message ? err.message : 'Invalid URL',
+    };
   }
 }
 
@@ -178,7 +181,7 @@ export function validateRegulatoryOrder(raw: unknown): OrderValidationResult {
   }
 
   // Jurisdiction
-  let sanitizedJurisdiction: any = null;
+  let sanitizedJurisdiction: RegulatoryOrder['jurisdiction'] | null = null;
   if (Array.isArray(o.jurisdiction)) {
     if (o.jurisdiction.length === 0) {
       errors.push('Jurisdiction must be a non-empty array of covered territories');
@@ -201,7 +204,7 @@ export function validateRegulatoryOrder(raw: unknown): OrderValidationResult {
     errors.push('Jurisdiction must be specified');
   }
 
-  if (errors.length > 0) {
+  if (errors.length > 0 || !sanitizedJurisdiction) {
     return { isValid: false, errors };
   }
 
@@ -226,8 +229,13 @@ export function validateRegulatoryOrder(raw: unknown): OrderValidationResult {
     supersedesOrderIds: Array.isArray(o.supersedesOrderIds) ? o.supersedesOrderIds.map(String) : [],
     notes: Array.isArray(o.notes) ? o.notes.map(String) : [],
     specificDirectives: Array.isArray(o.specificDirectives) ? o.specificDirectives.map(String) : undefined,
-    restrictions: (o.restrictions as any) ?? undefined,
-    revokesStage: (o.revokesStage as any) ?? undefined,
+    restrictions:
+      o.restrictions && typeof o.restrictions === 'object' && !Array.isArray(o.restrictions)
+        ? (o.restrictions as RegulatoryOrder['restrictions'])
+        : undefined,
+    revokesStage: [1, 2, 3, 4].includes(o.revokesStage as number)
+      ? (o.revokesStage as RegulatoryOrder['revokesStage'])
+      : undefined,
   };
 
   return { isValid: true, errors: [], sanitizedOrder };

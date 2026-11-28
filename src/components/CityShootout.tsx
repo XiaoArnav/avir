@@ -14,7 +14,6 @@ import {
   Bookmark, 
   BookmarkCheck, 
   Trash2, 
-  Clock, 
   Info 
 } from 'lucide-react';
 
@@ -104,7 +103,7 @@ export const CityShootout: React.FC<CityShootoutProps> = ({
     return null;
   });
   const [isLoadingTarget, setIsLoadingTarget] = useState(false);
-  const [targetError, setTargetError] = useState(false);
+  const [, setTargetError] = useState(false);
   const [savedComparisons, setSavedComparisons] = useState<SavedCityComparisonRecord[]>(() => 
     typeof window !== 'undefined' ? savedComparisonsService.getSavedComparisons() : []
   );
@@ -162,8 +161,8 @@ export const CityShootout: React.FC<CityShootoutProps> = ({
           setTargetMetrics(null);
           setTargetError(true);
         }
-      } catch (err: any) {
-        if (err?.name !== 'AbortError' && isMounted) {
+      } catch (err: unknown) {
+        if (!(err instanceof Error && err.name === 'AbortError') && isMounted) {
           setTargetError(true);
           setTargetMetrics(null);
         }

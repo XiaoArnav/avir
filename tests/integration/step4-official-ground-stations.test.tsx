@@ -13,17 +13,12 @@ import { GET as cpcbRouteHandler } from '@/app/api/telemetry/cpcb/route';
 import { MultiSourceInspectorModal } from '@/components/MultiSourceInspectorModal';
 import {
   EnvironmentalSourceRecord,
-  SourceComparison,
   AtmosphericMetrics,
 } from '@/domain/types';
 import {
   deduplicateEnvironmentalSources,
   compareEnvironmentalSources,
 } from '@/domain/source-comparison';
-import {
-  getActivePhysicalSources,
-  evaluateMeasurementEligibility,
-} from '@/config/environmental-sources';
 
 describe('AVIR Step 4: Official Ground Station Integration & Inspector UI', () => {
   const originalEnv = process.env;

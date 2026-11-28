@@ -42,7 +42,7 @@ describe('Step 16 — Secure AI Planning: Validation & Data Minimization', () =>
         city: '   ',
         coordinates: { lat: 12.97, lng: 77.59 },
       };
-      const result = validatePlanRequestPayload(invalid as any);
+      const result = validatePlanRequestPayload(invalid);
       expect(result.isValid).toBe(false);
       expect(result.errors.some(e => e.includes('City name is required'))).toBe(true);
     });
@@ -53,7 +53,7 @@ describe('Step 16 — Secure AI Planning: Validation & Data Minimization', () =>
         coordinates: { lat: 120.5, lng: 77.2 }, // Lat > 90
         schedule: { id: 's', name: 's', activities: [] },
       };
-      const result = validatePlanRequestPayload(invalid as any);
+      const result = validatePlanRequestPayload(invalid);
       expect(result.isValid).toBe(false);
       expect(result.errors.some(e => e.includes('Latitude'))).toBe(true);
     });
@@ -83,7 +83,7 @@ describe('Step 16 — Secure AI Planning: Validation & Data Minimization', () =>
         },
       };
 
-      const result = validatePlanRequestPayload(payload as any);
+      const result = validatePlanRequestPayload(payload);
       expect(result.isValid).toBe(false);
       expect(result.errors.some(e => e.includes('exceeds limit'))).toBe(true);
     });

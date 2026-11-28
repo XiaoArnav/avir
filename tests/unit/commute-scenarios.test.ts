@@ -3,7 +3,6 @@ import {
   evaluateCommuteScenarios,
   calculateCommuteModeExposure,
 } from '@/services/commute/commute-service';
-import { COMMUTE_MODE_PROFILES } from '@/domain/exposure-types';
 
 describe('Step 14 — Commute Intelligence & Scenario Modeling', () => {
   describe('Elimination of B-003: Fixed Commute Reductions', () => {
@@ -82,8 +81,8 @@ describe('Step 14 — Commute Intelligence & Scenario Modeling', () => {
 
     it('does not calculate or expose cigarette equivalence claims', () => {
       const single = calculateCommuteModeExposure('metro', 150, 40);
-      expect((single as any).cigarettes).toBeUndefined();
-      expect((single as any).berkeleyCigarettes).toBeUndefined();
+      expect((single as unknown as Record<string, unknown>).cigarettes).toBeUndefined();
+      expect((single as unknown as Record<string, unknown>).berkeleyCigarettes).toBeUndefined();
       expect(single.inhaledMassUg).toBeGreaterThan(0);
     });
   });

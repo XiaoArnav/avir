@@ -23,8 +23,30 @@ export type TerrainFailureReason =
   | 'tile_error'
   | 'unknown_error';
 
+export interface CesiumTerrainProviderLike {
+  errorEvent?: {
+    addEventListener?: (listener: (error: unknown) => void) => (() => void) | void;
+    removeEventListener?: (listener: (error: unknown) => void) => void;
+  };
+}
+
+export interface CesiumTerrainModuleLike<TResource = unknown> {
+  EllipsoidTerrainProvider?: new () => CesiumTerrainProviderLike;
+  CesiumTerrainProvider?: {
+    fromUrl?: (
+      url: string | TResource,
+      options?: { requestVertexNormals?: boolean; requestWaterMask?: boolean }
+    ) => Promise<CesiumTerrainProviderLike | null | undefined>;
+  };
+  Resource?: new (options: {
+    url: string;
+    retryCallback?: (resource: unknown, error: unknown) => Promise<boolean>;
+    retryAttempts?: number;
+  }) => TResource;
+}
+
 export interface TerrainProviderResult {
-  provider: any;
+  provider: CesiumTerrainProviderLike | null;
   isRealTerrain: boolean;
   attribution: string | null;
   status: TerrainStatus;
@@ -39,20 +61,22 @@ export interface TerrainErrorSubscription {
 
 export interface TerrainTargetViewer {
   isDestroyed(): boolean;
-  terrainProvider: any;
+  terrainProvider: CesiumTerrainProviderLike | null;
 }
 
-export interface SyncTerrainOptions {
+export interface SyncTerrainOptions<TResource = unknown> {
   viewer: TerrainTargetViewer;
-  Cesium: any;
+  Cesium: CesiumTerrainModuleLike<TResource>;
   enabled: boolean;
   onAttributionChange: (attribution: string | null) => void;
-  loadProvider?: (Cesium: any) => Promise<TerrainProviderResult>;
+  loadProvider?: (
+    Cesium: CesiumTerrainModuleLike<TResource>
+  ) => Promise<TerrainProviderResult>;
   maxTransientErrors?: number;
 }
 
 export interface CesiumTerrainController {
-  sync: (options: SyncTerrainOptions) => Promise<void>;
+  sync: <TResource = unknown>(options: SyncTerrainOptions<TResource>) => Promise<void>;
   cancelPending: () => void;
   dispose: () => void;
   getActiveGeneration: () => number;
@@ -224,7 +248,9 @@ export function classifyTerrainError(error: unknown): TerrainFailureReason {
 /**
  * Safely instantiates Cesium.EllipsoidTerrainProvider without throwing if Cesium APIs are absent.
  */
-export function createEllipsoidTerrainProvider(Cesium: any): any {
+export function createEllipsoidTerrainProvider<TResource = unknown>(
+  Cesium: CesiumTerrainModuleLike<TResource> | null | undefined
+): CesiumTerrainProviderLike | null {
   if (!Cesium || typeof Cesium.EllipsoidTerrainProvider !== 'function') {
     return null;
   }
@@ -238,7 +264,9 @@ export function createEllipsoidTerrainProvider(Cesium: any): any {
 /**
  * Creates keyless quantized-mesh terrain provider with automatic fallback to standard Ellipsoid.
  */
-export async function createKeylessTerrainProvider(Cesium: any): Promise<TerrainProviderResult> {
+export async function createKeylessTerrainProvider<TResource = unknown>(
+  Cesium: CesiumTerrainModuleLike<TResource> | null | undefined
+): Promise<TerrainProviderResult> {
   if (!Cesium || typeof Cesium.CesiumTerrainProvider?.fromUrl !== 'function') {
     const fallback = createEllipsoidTerrainProvider(Cesium);
     return {
@@ -251,7 +279,7 @@ export async function createKeylessTerrainProvider(Cesium: any): Promise<Terrain
   }
 
   try {
-    const terrainSource =
+    const terrainSource: string | TResource =
       typeof Cesium.Resource === 'function'
         ? (() => {
             const policy = createTerrainRetryPolicy();
@@ -308,11 +336,14 @@ export async function createKeylessTerrainProvider(Cesium: any): Promise<Terrain
  * switching cleanly back to `EllipsoidTerrainProvider` on persistent/unrecoverable errors
  * without infinite retry loops or post-disposal mutations.
  */
-export function subscribeTerrainErrorRecovery(params: {
-  provider: any;
-  Cesium: any;
+export function subscribeTerrainErrorRecovery<TResource = unknown>(params: {
+  provider: CesiumTerrainProviderLike | null | undefined;
+  Cesium: CesiumTerrainModuleLike<TResource>;
   isDisposedOrStale: () => boolean;
-  onRecoverToEllipsoid: (fallbackProvider: any, reason: TerrainFailureReason) => void;
+  onRecoverToEllipsoid: (
+    fallbackProvider: CesiumTerrainProviderLike | null,
+    reason: TerrainFailureReason
+  ) => void;
   maxTransientErrors?: number;
 }): TerrainErrorSubscription {
   const {
@@ -359,10 +390,8 @@ export function subscribeTerrainErrorRecovery(params: {
 
     errorCount += 1;
     const classified = classifyTerrainError(error);
-    const timesRetried =
-      error && typeof error === 'object' && typeof (error as any).timesRetried === 'number'
-        ? (error as any).timesRetried
-        : 0;
+    const errorObj = error && typeof error === 'object' ? (error as { timesRetried?: unknown; retry?: unknown }) : null;
+    const timesRetried = typeof errorObj?.timesRetried === 'number' ? errorObj.timesRetried : 0;
 
     const isUnrecoverable =
       classified === 'unauthorized' ||
@@ -378,10 +407,10 @@ export function subscribeTerrainErrorRecovery(params: {
     settled = true;
 
     // Suppress Cesium TileProviderError internal retries when falling back
-    if (error && typeof error === 'object' && !Object.isFrozen(error)) {
+    if (errorObj && !Object.isFrozen(errorObj)) {
       try {
-        if ('retry' in error) {
-          (error as any).retry = false;
+        if ('retry' in errorObj) {
+          errorObj.retry = false;
         }
       } catch {
         // Ignore read-only error fields
@@ -437,13 +466,13 @@ export function createCesiumTerrainController(): CesiumTerrainController {
   };
 
   return {
-    async sync(options: SyncTerrainOptions): Promise<void> {
+    async sync<TResource = unknown>(options: SyncTerrainOptions<TResource>): Promise<void> {
       const {
         viewer,
         Cesium,
         enabled,
         onAttributionChange,
-        loadProvider = createKeylessTerrainProvider,
+        loadProvider = createKeylessTerrainProvider<TResource>,
         maxTransientErrors,
       } = options;
 

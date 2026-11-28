@@ -116,7 +116,7 @@ describe('Step 16 — Secure AI Planning API Route Integration', () => {
           },
         ],
       }),
-    } as any);
+    } as unknown as Response);
 
     const req = new NextRequest('http://localhost:3000/api/ai/plan', {
       method: 'POST',

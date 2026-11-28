@@ -227,7 +227,7 @@ test.describe('Avir Flagship Earth Command Center & Planetary Telemetry E2E', ()
     await expect(cesiumContainer).toHaveCount(0);
     await expect(threeCanvas).toHaveCount(1);
     await expect(threeCanvas).toBeVisible({ timeout: 15000 });
-    await page.waitForFunction(() => Boolean((window as any).__avirThreeCamera));
+    await page.waitForFunction(() => Boolean(window.__avirThreeCamera));
 
     // TEST E, I: Switch back THREE -> CESIUM and verify attribution remains intact
     await engineButton.click();
@@ -515,7 +515,7 @@ test.describe('Avir Flagship Earth Command Center & Planetary Telemetry E2E', ()
 
     // 4. Switch to Three.js -> re-open Layers, verify Wind stays LIVE with ECMWF IFS model preserved!
     await page.getByRole('button', { name: /toggle 3d engine/i }).click();
-    await page.waitForFunction(() => Boolean((window as any).__avirThreeCamera));
+    await page.waitForFunction(() => Boolean(window.__avirThreeCamera));
     await layersButton.click();
     await expect(layersButton).toHaveAttribute('aria-expanded', 'true');
 
@@ -555,11 +555,11 @@ test.describe('Avir Flagship Earth Command Center & Planetary Telemetry E2E', ()
     if (box) {
       const targetX = box.x + box.width * 0.62;
       const targetY = box.y + box.height * 0.42;
-      const distBefore = await page.evaluate(() => (window as any).__avirThreeCamera.getTargetDistance());
+      const distBefore = await page.evaluate(() => window.__avirThreeCamera!.getTargetDistance());
       await page.mouse.move(targetX, targetY);
       await page.mouse.wheel(0, -180);
       await page.waitForTimeout(150);
-      const distAfter = await page.evaluate(() => (window as any).__avirThreeCamera.getTargetDistance());
+      const distAfter = await page.evaluate(() => window.__avirThreeCamera!.getTargetDistance());
       const scrollY = await page.evaluate(() => window.scrollY);
       expect(distAfter).toBeLessThan(distBefore);
       expect(scrollY).toBe(0);

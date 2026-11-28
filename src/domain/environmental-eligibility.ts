@@ -50,7 +50,6 @@ export function checkEnvironmentalEligibility(
   params: EligibilityCheckParams,
   now: Date = new Date()
 ): EnvironmentalEligibility {
-  const reasons: string[] = [];
   const targetClaim = params.targetClaim || 'display_measurement';
   const effectiveVal = params.value ?? params.pm25 ?? params.pm10 ?? params.aqi;
 

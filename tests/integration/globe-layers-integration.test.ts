@@ -132,7 +132,7 @@ describe('Phase 7 Integration: Environmental Layers Runtime Behavior & Cleanup',
         status: 200,
         text: async () =>
           `<DimensionDomain><ows:Identifier>time</ows:Identifier><Domain>2026-01-01/${dateB}/P1D</Domain></DimensionDomain>`,
-      }) as any,
+      }) as unknown as typeof fetch,
     });
 
     // Global GIBS date listed NEVER promotes verifiedObservationDate or regionalCoverageVerified

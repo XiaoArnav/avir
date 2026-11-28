@@ -4,7 +4,6 @@ import ReactDOMServer from 'react-dom/server';
 import {
   getNearestGroundStation,
   calculateGroundModelDelta,
-  OFFICIAL_CPCB_STATIONS,
 } from '@/services/ground-station-service';
 import {
   applyEpaBarkjohnCalibration,
@@ -21,12 +20,11 @@ import {
   WORLD_METROS,
   WorldCityItem,
 } from '@/services/world-telemetry-service';
-import { getGrapStage, getAQICategory } from '@/domain/air-math';
+import { getGrapStage } from '@/domain/air-math';
 import { calculateComprehensiveCpcbNaqi } from '@/domain/cpcb-naqi';
 import { GroundStationBadge } from '@/components/GroundStationBadge';
 import { MultiSourceInspectorModal } from '@/components/MultiSourceInspectorModal';
 import { TopNav } from '@/components/TopNav';
-import { AtmosphericMetrics } from '@/domain/types';
 
 describe('AVIR CRITICAL PRODUCTION DATA INTEGRITY HOTFIX — Regression Verification', () => {
   describe('Group A: Ground-Station Truth & Zero-Multiplication Rules (1-8)', () => {

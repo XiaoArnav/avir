@@ -13,8 +13,6 @@ import {
   calculateCpcbNaqi,
   calculateDetailedEpaPm25Aqi,
   calculateCorsiRosenthalBox,
-  calculateRoutineShiftSavings,
-  calculateBerkeleyCigarettes,
 } from '@/domain/air-math';
 import { inspectPromptInjection } from '@/lib/security/sanitizer';
 import { sanitizeUserHealthContext } from '@/services/ai/plan-validator';

@@ -15,33 +15,42 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   HardwareDeviceService,
   hardwareDeviceService,
-  DeviceTelemetryPacket,
+  type DeviceConnectionState,
+  type DeviceTelemetryPacket,
 } from '@/services/device-telemetry-service';
-import {
-  detectDeviceProfile,
-  VERIFIED_DEVICE_PROFILES,
-} from '@/services/devices/device-profiles';
-import {
-  normalizeDevicePacket,
-  VerifiedDevicePacket,
-} from '@/services/devices/normalize-device-packet';
-import {
-  validateDeviceAddress,
-  isPrivateIpv4,
-} from '@/services/devices/wifi-address-validator';
-import {
-  applyEpaBarkjohnCalibration,
-  evaluateSensorCalibrationEligibility,
-  isSensorModelBarkjohnEligible,
-} from '@/domain/calibration-math';
+import { normalizeDevicePacket } from '@/services/devices/normalize-device-packet';
+import { validateDeviceAddress } from '@/services/devices/wifi-address-validator';
+import { evaluateSensorCalibrationEligibility } from '@/domain/calibration-math';
+
+type MutableHardwareDeviceService = {
+  activePort: unknown;
+  reader: { cancel: () => Promise<void>; releaseLock: () => void } | null;
+  isReading: boolean;
+  activeSource: 'webserial' | 'local_wifi' | null;
+  lastPacket: Partial<DeviceTelemetryPacket> | null;
+  connectionState: DeviceConnectionState;
+  setConnectionState: (state: DeviceConnectionState, error?: string) => void;
+  attachSerialDisconnectListener: () => void;
+  notifyPacketListeners: (packet: Partial<DeviceTelemetryPacket>) => void;
+  resetStaleWatchdog: () => void;
+};
+
+const asMutableService = (svc: HardwareDeviceService): MutableHardwareDeviceService =>
+  svc as unknown as MutableHardwareDeviceService;
+
+type TestGlobalEnv = Omit<typeof globalThis, 'navigator' | 'window'> & {
+  navigator?: Navigator & { serial?: unknown };
+  window?: Record<string, unknown>;
+};
 
 describe('AVIR — Step 5 Personal Air-Monitor Integration (90 Scenarios)', () => {
-  let originalSerial: any;
-  let originalWindow: any;
+  const testGlobal = global as unknown as TestGlobalEnv;
+  let originalSerial: unknown;
+  let originalWindow: Record<string, unknown> | undefined;
 
-  function mockNavigatorSerial(serialValue: any) {
-    if (typeof (global as any).navigator === 'undefined' || !(global as any).navigator) {
-      (global as any).navigator = {};
+  function mockNavigatorSerial(serialValue: unknown) {
+    if (typeof testGlobal.navigator === 'undefined' || !testGlobal.navigator) {
+      testGlobal.navigator = {} as Navigator & { serial?: unknown };
     }
     try {
       Object.defineProperty(global.navigator, 'serial', {
@@ -50,7 +59,7 @@ describe('AVIR — Step 5 Personal Air-Monitor Integration (90 Scenarios)', () =
         writable: true,
       });
     } catch {
-      (global.navigator as any).serial = serialValue;
+      testGlobal.navigator.serial = serialValue;
     }
   }
 
@@ -58,19 +67,20 @@ describe('AVIR — Step 5 Personal Air-Monitor Integration (90 Scenarios)', () =
     vi.clearAllMocks();
     hardwareDeviceService.disconnect();
 
-    if (typeof (global as any).navigator === 'undefined' || !(global as any).navigator) {
-      (global as any).navigator = {};
+    if (typeof testGlobal.navigator === 'undefined' || !testGlobal.navigator) {
+      testGlobal.navigator = {} as Navigator & { serial?: unknown };
     }
 
-    originalSerial = (global.navigator as any)?.serial;
-    originalWindow = (global as any).window;
+    originalSerial = testGlobal.navigator?.serial;
+    originalWindow = testGlobal.window;
 
-    (global as any).window = {
+    testGlobal.window = {
       isSecureContext: true,
       location: { protocol: 'https:' },
       addEventListener: vi.fn(),
       removeEventListener: vi.fn(),
-      requestAnimationFrame: (cb: Function) => setTimeout(cb, 0),
+      requestAnimationFrame: (cb: FrameRequestCallback) =>
+        Number(setTimeout(() => cb(performance.now()), 0)),
       cancelAnimationFrame: vi.fn(),
     };
   });
@@ -78,12 +88,12 @@ describe('AVIR — Step 5 Personal Air-Monitor Integration (90 Scenarios)', () =
   afterEach(() => {
     if (originalSerial !== undefined) {
       mockNavigatorSerial(originalSerial);
-    } else if ((global as any).navigator) {
+    } else if (testGlobal.navigator) {
       try {
-        delete (global.navigator as any).serial;
+        delete testGlobal.navigator.serial;
       } catch {}
     }
-    (global as any).window = originalWindow;
+    testGlobal.window = originalWindow;
     vi.restoreAllMocks();
   });
 
@@ -105,7 +115,9 @@ describe('AVIR — Step 5 Personal Air-Monitor Integration (90 Scenarios)', () =
 
     it('3. Insecure HTTP context disables Web Serial support', () => {
       mockNavigatorSerial({ requestPort: vi.fn() });
-      (global as any).window.isSecureContext = false;
+      if (testGlobal.window) {
+        testGlobal.window.isSecureContext = false;
+      }
       const service = new HardwareDeviceService();
       expect(service.isWebSerialSupported()).toBe(false);
     });
@@ -287,7 +299,7 @@ describe('AVIR — Step 5 Personal Air-Monitor Integration (90 Scenarios)', () =
     });
 
     it('15. Oversized frames (>2048 chars) or unbounded payload handled safely', () => {
-      const hugeObject: Record<string, any> = { pm25: 50 };
+      const hugeObject: Record<string, unknown> = { pm25: 50 };
       for (let i = 0; i < 500; i++) {
         hugeObject[`junk_${i}`] = 'x'.repeat(50);
       }
@@ -311,14 +323,14 @@ describe('AVIR — Step 5 Personal Air-Monitor Integration (90 Scenarios)', () =
 
     it('18. Stream ends unexpectedly handled cleanly', async () => {
       const service = new HardwareDeviceService();
-      (service as any).isReading = true;
-      (service as any).activeSource = 'webserial';
+      asMutableService(service).isReading = true;
+      asMutableService(service).activeSource = 'webserial';
       await service.disconnectUsbDevice();
       expect(service.getConnectionState()).toBe('disconnected');
     });
 
     it('19. USB cable disconnect via native serial event triggers disconnection', () => {
-      let registeredHandler: ((e: any) => void) | null = null;
+      let registeredHandler: ((e: { port?: unknown }) => void) | null = null;
       const mockPort = { close: vi.fn(), open: vi.fn().mockResolvedValue(undefined) };
 
       mockNavigatorSerial({
@@ -330,10 +342,10 @@ describe('AVIR — Step 5 Personal Air-Monitor Integration (90 Scenarios)', () =
       });
 
       const service = new HardwareDeviceService();
-      (service as any).activePort = mockPort;
-      (service as any).activeSource = 'webserial';
-      (service as any).setConnectionState('receiving_data');
-      (service as any).attachSerialDisconnectListener();
+      asMutableService(service).activePort = mockPort;
+      asMutableService(service).activeSource = 'webserial';
+      asMutableService(service).setConnectionState('receiving_data');
+      asMutableService(service).attachSerialDisconnectListener();
 
       expect(registeredHandler).not.toBeNull();
       registeredHandler!({ port: mockPort });
@@ -348,10 +360,10 @@ describe('AVIR — Step 5 Personal Air-Monitor Integration (90 Scenarios)', () =
       const releaseLockMock = vi.fn();
       const closeMock = vi.fn().mockResolvedValue(undefined);
 
-      (service as any).reader = { cancel: cancelMock, releaseLock: releaseLockMock };
-      (service as any).activePort = { close: closeMock };
-      (service as any).isReading = true;
-      (service as any).activeSource = 'webserial';
+      asMutableService(service).reader = { cancel: cancelMock, releaseLock: releaseLockMock };
+      asMutableService(service).activePort = { close: closeMock };
+      asMutableService(service).isReading = true;
+      asMutableService(service).activeSource = 'webserial';
 
       await service.disconnect();
 
@@ -402,11 +414,11 @@ describe('AVIR — Step 5 Personal Air-Monitor Integration (90 Scenarios)', () =
       const listener = vi.fn();
       const unsub = service.subscribe(listener);
 
-      (service as any).notifyPacketListeners({ pm25: 50, source: 'webserial' } as any);
+      asMutableService(service).notifyPacketListeners({ pm25: 50, source: 'webserial' });
       expect(listener).toHaveBeenCalledTimes(1);
 
       unsub();
-      (service as any).notifyPacketListeners({ pm25: 60, source: 'webserial' } as any);
+      asMutableService(service).notifyPacketListeners({ pm25: 60, source: 'webserial' });
       expect(listener).toHaveBeenCalledTimes(1);
     });
 
@@ -614,9 +626,9 @@ describe('AVIR — Step 5 Personal Air-Monitor Integration (90 Scenarios)', () =
     it('41. Stale data detection after timeout transition to stale', () => {
       vi.useFakeTimers();
       const service = new HardwareDeviceService();
-      (service as any).activeSource = 'local_wifi';
-      (service as any).setConnectionState('receiving_data');
-      (service as any).resetStaleWatchdog();
+      asMutableService(service).activeSource = 'local_wifi';
+      asMutableService(service).setConnectionState('receiving_data');
+      asMutableService(service).resetStaleWatchdog();
 
       vi.advanceTimersByTime(35000);
       expect(service.getConnectionState()).toBe('stale');
@@ -635,8 +647,8 @@ describe('AVIR — Step 5 Personal Air-Monitor Integration (90 Scenarios)', () =
     it('43. Old device session delayed request cannot overwrite new device session', async () => {
       const service = new HardwareDeviceService();
 
-      let resolveDeviceA: any;
-      const deviceAPromise = new Promise((resolve) => {
+      let resolveDeviceA!: (value: Response) => void;
+      const deviceAPromise = new Promise<Response>((resolve) => {
         resolveDeviceA = resolve;
       });
 
@@ -662,7 +674,7 @@ describe('AVIR — Step 5 Personal Air-Monitor Integration (90 Scenarios)', () =
       resolveDeviceA({
         ok: true,
         json: async () => ({ pm02: 200, rco2: 999 }),
-      });
+      } as unknown as Response);
       await connectAPromise;
 
       // Assert that Avir strictly retained Device B's value of 45 and was not contaminated!
@@ -801,14 +813,14 @@ describe('AVIR — Step 5 Personal Air-Monitor Integration (90 Scenarios)', () =
 
     it('64. Unknown location remains null in GroundStationMetadata (no Gulf of Guinea 0,0)', () => {
       const service = new HardwareDeviceService();
-      (service as any).lastPacket = {
+      asMutableService(service).lastPacket = {
         pm25: 45,
         pm10: 60,
         source: 'webserial',
         receivedAt: new Date().toISOString(),
         observedAt: null,
       };
-      (service as any).connectionState = 'receiving_data';
+      asMutableService(service).connectionState = 'receiving_data';
 
       const meta = service.getAsGroundStationMetadata();
       expect(meta?.latitude).toBeNull();
@@ -952,13 +964,13 @@ describe('AVIR — Step 5 Personal Air-Monitor Integration (90 Scenarios)', () =
   describe('Group G: UI and Integration Safeguards (75–90)', () => {
     it('78. Permission pending state displayed during browser prompt', () => {
       const service = new HardwareDeviceService();
-      (service as any).setConnectionState('requesting_permission');
+      asMutableService(service).setConnectionState('requesting_permission');
       expect(service.getConnectionState()).toBe('requesting_permission');
     });
 
     it('79. Connected-awaiting-data state displayed without synthetic readings', () => {
       const service = new HardwareDeviceService();
-      (service as any).setConnectionState('connected_awaiting_data');
+      asMutableService(service).setConnectionState('connected_awaiting_data');
       expect(service.getConnectionState()).toBe('connected_awaiting_data');
       expect(service.getLastPacket()).toBeNull();
     });
@@ -972,7 +984,7 @@ describe('AVIR — Step 5 Personal Air-Monitor Integration (90 Scenarios)', () =
 
     it('81. Stale packet not marked live (stale state is distinct)', () => {
       const service = new HardwareDeviceService();
-      (service as any).setConnectionState('stale');
+      asMutableService(service).setConnectionState('stale');
       expect(service.getConnectionState()).toBe('stale');
     });
 
@@ -996,14 +1008,14 @@ describe('AVIR — Step 5 Personal Air-Monitor Integration (90 Scenarios)', () =
 
     it('84. Connected monitor badge shows real values only', () => {
       const service = new HardwareDeviceService();
-      (service as any).lastPacket = {
+      asMutableService(service).lastPacket = {
         pm25: 45.2,
         pm10: null,
         source: 'webserial',
         receivedAt: new Date().toISOString(),
         observedAt: null,
       };
-      (service as any).connectionState = 'receiving_data';
+      asMutableService(service).connectionState = 'receiving_data';
 
       const meta = service.getAsGroundStationMetadata();
       expect(meta?.pm25).toBe(45.2);
@@ -1017,14 +1029,14 @@ describe('AVIR — Step 5 Personal Air-Monitor Integration (90 Scenarios)', () =
 
     it('86. Device does not become an official reference station', () => {
       const service = new HardwareDeviceService();
-      (service as any).lastPacket = {
+      asMutableService(service).lastPacket = {
         pm25: 35,
         pm10: 50,
         source: 'webserial',
         receivedAt: new Date().toISOString(),
         observedAt: null,
       };
-      (service as any).connectionState = 'receiving_data';
+      asMutableService(service).connectionState = 'receiving_data';
 
       const meta = service.getAsGroundStationMetadata();
       expect(meta?.stationType).toBe('user_device');
@@ -1033,13 +1045,13 @@ describe('AVIR — Step 5 Personal Air-Monitor Integration (90 Scenarios)', () =
 
     it('87. Device packet does not overwrite regional model data', () => {
       const service = new HardwareDeviceService();
-      (service as any).lastPacket = {
+      asMutableService(service).lastPacket = {
         pm25: 120,
         source: 'webserial',
         receivedAt: new Date().toISOString(),
         observedAt: null,
       };
-      (service as any).connectionState = 'receiving_data';
+      asMutableService(service).connectionState = 'receiving_data';
 
       const envSource = service.getAsEnvironmentalSource();
       expect(envSource?.sourceKind).toBe('user_hardware');
@@ -1048,9 +1060,9 @@ describe('AVIR — Step 5 Personal Air-Monitor Integration (90 Scenarios)', () =
 
     it('88. Disconnect removes active source', async () => {
       const service = new HardwareDeviceService();
-      (service as any).lastPacket = { pm25: 50, source: 'webserial' };
-      (service as any).activeSource = 'webserial';
-      (service as any).connectionState = 'receiving_data';
+      asMutableService(service).lastPacket = { pm25: 50, source: 'webserial' };
+      asMutableService(service).activeSource = 'webserial';
+      asMutableService(service).connectionState = 'receiving_data';
 
       await service.disconnect();
       expect(service.getAsEnvironmentalSource()).toBeNull();
@@ -1059,8 +1071,8 @@ describe('AVIR — Step 5 Personal Air-Monitor Integration (90 Scenarios)', () =
 
     it('89. Source switching (USB to Wi-Fi) resets prior session and does not mix readings', async () => {
       const service = new HardwareDeviceService();
-      (service as any).activeSource = 'webserial';
-      (service as any).lastPacket = { pm25: 50, source: 'webserial' };
+      asMutableService(service).activeSource = 'webserial';
+      asMutableService(service).lastPacket = { pm25: 50, source: 'webserial' };
 
       vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
         ok: true,

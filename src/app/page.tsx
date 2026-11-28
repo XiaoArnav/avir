@@ -2,8 +2,6 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { TopNav } from '@/components/TopNav';
-import { MetroRail } from '@/components/MetroRail';
-import { AtmosphereHero } from '@/components/AtmosphereHero';
 import { SegmentedTabs, ActiveTabId } from '@/components/SegmentedTabs';
 import { CityPicker } from '@/components/CityPicker';
 import { FamilyProfileForm } from '@/components/FamilyProfileForm';
@@ -49,7 +47,6 @@ import {
 import { sanitizeUserHealthContext } from '@/services/ai/plan-validator';
 import { loadScheduleFromStorage } from '@/services/routines/routine-storage';
 import { DeterministicPlanResult, AiPlanExplanation } from '@/domain/planning-types';
-import { DailySchedule } from '@/domain/routine-types';
 import { FloatingDock } from '@/components/ui/futuristic';
 import { FirstVisitLocationModal } from '@/components/location/FirstVisitLocationModal';
 import { SourcePreference } from '@/services/source-control/source-control-types';
@@ -171,7 +168,7 @@ export default function Home() {
       }
       try {
         localStorage.setItem('avir_theme_mode_v1', isDarkMode ? 'dark' : 'light');
-      } catch (e) {}
+      } catch {}
     }
   }, [isDarkMode]);
 
@@ -255,12 +252,16 @@ export default function Home() {
     }
   };
 
+  const generateCoordinatedPlanRef = useRef(generateCoordinatedPlan);
+  generateCoordinatedPlanRef.current = generateCoordinatedPlan;
+
   // Load telemetry when city changes (after preference hydration) with RequestCoordinator protection (Fix B)
   useEffect(() => {
     if (!isPreferencesHydrated) return;
 
     let isMounted = true;
-    const ctx = coordinatorRef.current.beginTelemetryRequest(
+    const coordinator = coordinatorRef.current;
+    const ctx = coordinator.beginTelemetryRequest(
       selectedCity.latitude,
       selectedCity.longitude,
       selectedCity.name
@@ -282,15 +283,15 @@ export default function Home() {
         latestMetricsRef.current = data;
         setMetrics(data);
 
-        await generateCoordinatedPlan(data, sourcePreferenceRef.current, {
+        await generateCoordinatedPlanRef.current(data, sourcePreferenceRef.current, {
           isMountedCheck: () => isMounted,
         });
-      } catch (err: any) {
-        if (err?.name !== 'AbortError') {
+      } catch (err: unknown) {
+        if (!(err instanceof Error && err.name === 'AbortError')) {
           console.error('Failed to load telemetry:', err);
         }
       } finally {
-        if (isMounted && coordinatorRef.current.isTelemetryResponseValid(ctx)) {
+        if (isMounted && coordinator.isTelemetryResponseValid(ctx)) {
           setIsTelemetryLoading(false);
         }
       }
@@ -299,7 +300,7 @@ export default function Home() {
     loadTelemetry();
     return () => {
       isMounted = false;
-      coordinatorRef.current.abortAll();
+      coordinator.abortAll();
     };
   }, [selectedCity, isPreferencesHydrated]);
 
@@ -370,8 +371,8 @@ export default function Home() {
       latestMetricsRef.current = data;
       setMetrics(data);
       await generateCoordinatedPlan(data, sourcePreferenceRef.current);
-    } catch (err: any) {
-      if (err?.name !== 'AbortError') {
+    } catch (err: unknown) {
+      if (!(err instanceof Error && err.name === 'AbortError')) {
         console.error('Failed to reload telemetry:', err);
       }
     } finally {
@@ -611,7 +612,7 @@ export default function Home() {
               currentPm25={currentSourceMeasurement.pm25}
               proposedShifts={deterministicPlan?.activityShifts}
               aiExplanation={aiExplanation || undefined}
-              onScheduleChange={(newSched) => {
+              onScheduleChange={() => {
                 planGenIdRef.current += 1;
                 setIsPlanGenerating(false);
                 setPlannerMessage('');

@@ -424,8 +424,8 @@ export function analyzeDiurnalRelativeWindows(
         const t2 = new Date(p2.validAtUtc).getTime();
         deltaMs = t2 - t1;
       } else {
-        const h1 = (p1 as any).localHour ?? (p1 as any).hour;
-        const h2 = (p2 as any).localHour ?? (p2 as any).hour;
+        const h1 = 'localHour' in p1 ? p1.localHour : p1.hour;
+        const h2 = 'localHour' in p2 ? p2.localHour : p2.hour;
         if (typeof h1 === 'number' && typeof h2 === 'number') {
           const hourDiff = (h2 - h1 + 24) % 24;
           if (hourDiff === 1) deltaMs = 3600000;
@@ -504,10 +504,14 @@ export function analyzeDiurnalRelativeWindows(
   const formatWindowTimes = (slice: typeof validPoints) => {
     const first = slice[0];
     const last = slice[slice.length - 1];
-    const firstHour = (first as any).localHour ?? (first as any).hour ?? 0;
-    const lastHour = (last as any).localHour ?? (last as any).hour ?? 0;
-    const startStr = (first as any).localDisplayTime || `${String(firstHour).padStart(2, '0')}:00`;
-    const endStr = (last as any).localDisplayTime || `${String(lastHour).padStart(2, '0')}:00`;
+    const firstHour = ('localHour' in first ? first.localHour : first.hour) ?? 0;
+    const lastHour = ('localHour' in last ? last.localHour : last.hour) ?? 0;
+    const startStr =
+      ('localDisplayTime' in first && first.localDisplayTime) ||
+      `${String(firstHour).padStart(2, '0')}:00`;
+    const endStr =
+      ('localDisplayTime' in last && last.localDisplayTime) ||
+      `${String(lastHour).padStart(2, '0')}:00`;
     return { startStr, endStr };
   };
 

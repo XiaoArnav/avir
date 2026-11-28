@@ -216,7 +216,7 @@ describe('Phase A — Group A: Regulatory Orders & Security Allowlist (1-25)', (
   it('20. AQI-only activation is rejected by validation engine (statutory order required)', () => {
     const aqiNumber = 460;
     // Ambient AQI number 460 cannot construct a legal order without authentic order metadata
-    const fakeOrder: any = { aqi: aqiNumber };
+    const fakeOrder = { aqi: aqiNumber } as unknown as Parameters<typeof validateRegulatoryOrder>[0];
     expect(validateRegulatoryOrder(fakeOrder).isValid).toBe(false);
   });
 
@@ -226,14 +226,14 @@ describe('Phase A — Group A: Regulatory Orders & Security Allowlist (1-25)', (
   });
 
   it('22. Missing publication date is rejected by schema validator', () => {
-    const invalid: any = { ...validOrderTemplate, publishedAt: '' };
+    const invalid = { ...validOrderTemplate, publishedAt: '' } as unknown as Parameters<typeof validateRegulatoryOrder>[0];
     const res = validateRegulatoryOrder(invalid);
     expect(res.isValid).toBe(false);
     expect(res.errors.some(e => e.includes('publishedAt'))).toBe(true);
   });
 
   it('23. Malformed effective date is rejected by schema validator', () => {
-    const invalid: any = { ...validOrderTemplate, effectiveFrom: 'not-a-date' };
+    const invalid = { ...validOrderTemplate, effectiveFrom: 'not-a-date' } as unknown as Parameters<typeof validateRegulatoryOrder>[0];
     const res = validateRegulatoryOrder(invalid);
     expect(res.isValid).toBe(false);
     expect(res.errors.some(e => e.includes('effectiveFrom'))).toBe(true);

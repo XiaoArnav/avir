@@ -1,7 +1,7 @@
 import { AQICategory } from '@/domain/types';
 import { getAQICategory, calculateAQIFromPM25 } from '@/domain/air-math';
 import { telemetryCache } from '@/lib/cache';
-import { GeocodedLocation, searchCities } from './telemetry-service';
+import { searchCities } from './telemetry-service';
 import { classifyWorldRegion, getStableCityId, WorldRegion } from './world-geography';
 
 export { classifyWorldRegion, getStableCityId };
@@ -142,21 +142,57 @@ export function buildBatchCoordinatesUrl(
   return `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lats}&longitude=${lons}&current=us_aqi,pm2_5,pm10${domainParam}`;
 }
 
+interface OpenMeteoBatchUnits {
+  pm2_5?: unknown;
+  pm10?: unknown;
+}
+
+interface OpenMeteoBatchCurrent {
+  us_aqi?: unknown;
+  pm2_5?: unknown;
+  pm10?: unknown;
+  time?: unknown;
+}
+
+interface OpenMeteoBatchItem {
+  latitude?: unknown;
+  longitude?: unknown;
+  error?: unknown;
+  current?: OpenMeteoBatchCurrent;
+  current_units?: OpenMeteoBatchUnits;
+  units?: OpenMeteoBatchUnits;
+}
+
+function getWorldErrorInfo(err: unknown): { name?: string; message?: string } {
+  if (typeof err !== 'object' || err === null) {
+    return { message: typeof err === 'string' ? err : undefined };
+  }
+  const e = err as { name?: unknown; message?: unknown };
+  return {
+    name: typeof e.name === 'string' ? e.name : undefined,
+    message: typeof e.message === 'string' ? e.message : undefined,
+  };
+}
+
 /**
  * Checks whether a response coordinate is mismatched or swapped with another city.
  */
 export function checkCoordinateMismatch(
   city: WorldMetroDef | { name: string; latitude: number; longitude: number },
-  raw: any,
+  raw: unknown,
   allCities?: (WorldMetroDef | { name: string; latitude: number; longitude: number })[]
 ): { isMismatch: boolean; reason?: string } {
+  const rawItem = raw && typeof raw === 'object' ? (raw as OpenMeteoBatchItem) : null;
   // Coordinate metadata validation
-  if (!raw || typeof raw.latitude !== 'number' || typeof raw.longitude !== 'number') {
+  if (!rawItem || typeof rawItem.latitude !== 'number' || typeof rawItem.longitude !== 'number') {
     return { isMismatch: true, reason: 'Missing coordinate metadata in provider response' };
   }
 
+  const rawLat = rawItem.latitude;
+  const rawLon = rawItem.longitude;
+
   const distToCity = Math.sqrt(
-    Math.pow(raw.latitude - city.latitude, 2) + Math.pow(raw.longitude - city.longitude, 2)
+    Math.pow(rawLat - city.latitude, 2) + Math.pow(rawLon - city.longitude, 2)
   );
 
   // In multi-city batches, check for order swaps and model grid snapping
@@ -167,12 +203,12 @@ export function checkCoordinateMismatch(
       for (const other of batchList) {
         if (other !== city) {
           const distToOther = Math.sqrt(
-            Math.pow(raw.latitude - other.latitude, 2) + Math.pow(raw.longitude - other.longitude, 2)
+            Math.pow(rawLat - other.latitude, 2) + Math.pow(rawLon - other.longitude, 2)
           );
           if (distToOther <= 0.8) {
             return {
               isMismatch: true,
-              reason: `Coordinate association mismatch: received coordinates (${raw.latitude}, ${raw.longitude}) match ${other.name} instead of ${city.name} (swapped or misaligned batch items)`,
+              reason: `Coordinate association mismatch: received coordinates (${rawLat}, ${rawLon}) match ${other.name} instead of ${city.name} (swapped or misaligned batch items)`,
             };
           }
         }
@@ -193,7 +229,7 @@ export function checkCoordinateMismatch(
  */
 export function parseBatchTelemetryResponse(
   cities: WorldMetroDef[],
-  responseData: any[],
+  responseData: unknown[],
   options?: { retrievedAt?: string; domain?: string }
 ): WorldCityItem[] {
   if (!Array.isArray(responseData)) return [];
@@ -203,7 +239,11 @@ export function parseBatchTelemetryResponse(
 
   return cities.map((city, idx) => {
     const cityId = city.cityId || getStableCityId(city);
-    const raw = responseData[idx];
+    const rawCandidate = responseData[idx];
+    const raw =
+      rawCandidate && typeof rawCandidate === 'object'
+        ? (rawCandidate as OpenMeteoBatchItem)
+        : null;
 
     // If city has invalid requested coordinates or response item is missing
     if (!isValidCoord(city.latitude, city.longitude)) {
@@ -231,7 +271,7 @@ export function parseBatchTelemetryResponse(
       };
     }
 
-    if (!raw || typeof raw !== 'object' || raw.error) {
+    if (!raw || raw.error) {
       return {
         ...city,
         cityId,
@@ -283,13 +323,13 @@ export function parseBatchTelemetryResponse(
       };
     }
 
-    const current = raw.current || {};
+    const current: OpenMeteoBatchCurrent = raw.current || {};
     const incompatibilities: string[] = [];
 
     // Unit metadata verification
     let isUnsupportedPm25 = false;
     let isUnsupportedPm10 = false;
-    const currentUnits = raw.current_units || raw.units || {};
+    const currentUnits: OpenMeteoBatchUnits = raw.current_units || raw.units || {};
     if (currentUnits.pm2_5 && typeof currentUnits.pm2_5 === 'string') {
       const u = currentUnits.pm2_5.trim().toLowerCase();
       const validUnits = ['µg/m³', 'μg/m³', 'ug/m3', 'ug/m^3', 'mg/m³'];
@@ -308,19 +348,22 @@ export function parseBatchTelemetryResponse(
     }
 
     // Numerical validation for pollutants: reject negative, non-finite, or absurd values
-    const hasRawUsAqi = typeof current.us_aqi === 'number' && Number.isFinite(current.us_aqi) && current.us_aqi >= 0 && current.us_aqi <= 1000;
-    const hasRawPm25 = !isUnsupportedPm25 && typeof current.pm2_5 === 'number' && Number.isFinite(current.pm2_5) && current.pm2_5 >= 0 && current.pm2_5 <= 2000;
-    const hasRawPm10 = !isUnsupportedPm10 && typeof current.pm10 === 'number' && Number.isFinite(current.pm10) && current.pm10 >= 0 && current.pm10 <= 3000;
+    const rawUsAqi = typeof current.us_aqi === 'number' ? current.us_aqi : null;
+    const rawPm25 = typeof current.pm2_5 === 'number' ? current.pm2_5 : null;
+    const rawPm10 = typeof current.pm10 === 'number' ? current.pm10 : null;
+    const hasRawUsAqi = rawUsAqi !== null && Number.isFinite(rawUsAqi) && rawUsAqi >= 0 && rawUsAqi <= 1000;
+    const hasRawPm25 = !isUnsupportedPm25 && rawPm25 !== null && Number.isFinite(rawPm25) && rawPm25 >= 0 && rawPm25 <= 2000;
+    const hasRawPm10 = !isUnsupportedPm10 && rawPm10 !== null && Number.isFinite(rawPm10) && rawPm10 >= 0 && rawPm10 <= 3000;
 
-    const pm25 = hasRawPm25 ? Math.round(current.pm2_5 * 10) / 10 : null;
-    const pm10 = hasRawPm10 ? Math.round(current.pm10 * 10) / 10 : null;
+    const pm25 = hasRawPm25 ? Math.round(rawPm25 * 10) / 10 : null;
+    const pm10 = hasRawPm10 ? Math.round(rawPm10 * 10) / 10 : null;
 
     // Distinguish between provider reported US AQI vs derived fallback
     let usAqi: number | null = null;
     let isDerivedAqi = false;
 
     if (hasRawUsAqi) {
-      usAqi = Math.round(current.us_aqi);
+      usAqi = Math.round(rawUsAqi);
     } else if (pm25 !== null) {
       usAqi = calculateAQIFromPM25(pm25);
       isDerivedAqi = true;
@@ -658,9 +701,10 @@ export async function fetchAllWorldCities(
 
     telemetryCache.set(cacheKey, result, 1000 * 60 * 10); // 10 minutes TTL
     return result;
-  } catch (err: any) {
-    if (err?.name === 'AbortError' && signal?.aborted) throw err;
-    console.warn('World telemetry batch fetch failed, checking stale cache fallback:', err?.message || err);
+  } catch (err: unknown) {
+    const errInfo = getWorldErrorInfo(err);
+    if (errInfo.name === 'AbortError' && signal?.aborted) throw err;
+    console.warn('World telemetry batch fetch failed, checking stale cache fallback:', errInfo.message || err);
 
     // Return stale cache if available, marking status stale and unranked
     const stale = telemetryCache.getStale(cacheKey) as { value: WorldCityItem[]; isExpired: boolean; storedAt: number } | null;
@@ -792,8 +836,9 @@ export async function searchAndFetchGlobalCity(
     const dataList = Array.isArray(raw) ? raw : [raw];
     const parsed = parseBatchTelemetryResponse(targets, dataList);
     return computeComparableCohortRanks(parsed);
-  } catch (err: any) {
-    if (err?.name === 'AbortError') throw err;
+  } catch (err: unknown) {
+    const errInfo = getWorldErrorInfo(err);
+    if (errInfo.name === 'AbortError') throw err;
     console.warn('Could not fetch telemetry for search result:', err);
     // Zero fabrication: Return authentic geographic location with unavailable atmospheric measurements
     return targets.map((t) => ({

@@ -44,7 +44,7 @@ export class RequestCoordinator {
   private activePlanFingerprint = '';
 
   // In-flight promise map for deduplication
-  private inFlightTelemetry = new Map<string, Promise<any>>();
+  private inFlightTelemetry = new Map<string, Promise<unknown>>();
 
   /**
    * Generates a stable key for a city based on coordinates and name.
@@ -136,7 +136,7 @@ export class RequestCoordinator {
     key: string,
     fetchFn: () => Promise<T>
   ): Promise<T> {
-    const existing = this.inFlightTelemetry.get(key);
+    const existing = this.inFlightTelemetry.get(key) as Promise<T> | undefined;
     if (existing) {
       return existing;
     }

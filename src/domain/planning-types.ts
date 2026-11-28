@@ -38,6 +38,8 @@ export interface DeterministicPlanResult {
     forecastStart: string;
     forecastHoursEvaluated: number;
     isSynthetic: false;
+    sourceClassification?: 'official_atmospheric_model' | 'atmospheric_model' | 'user_supplied_scenario' | 'unavailable';
+    isVerifiedAtmosphericModel?: boolean;
   };
   limitations: string[];
 }

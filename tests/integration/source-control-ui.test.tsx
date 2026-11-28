@@ -4,7 +4,7 @@ import { describe, it, expect } from 'vitest';
 import { CompactCityCard } from '@/components/home/CompactCityCard';
 import { MultiSourceInspectorModal } from '@/components/MultiSourceInspectorModal';
 import { ResolvedSourceData, SourcePreference } from '@/services/source-control/source-control-types';
-import { EnvironmentalSourceRecord, AtmosphericMetrics } from '@/domain/types';
+import { EnvironmentalSourceRecord } from '@/domain/types';
 
 describe('Avir Source Control — UI Component Integration (Integration)', () => {
   const mockResolvedSource: ResolvedSourceData = {

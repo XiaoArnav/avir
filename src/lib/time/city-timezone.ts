@@ -243,7 +243,7 @@ export function parseLocalIsoInTimezone(localIsoStr: string, timezone: string): 
     throw new Error(`Unparseable date string: "${localIsoStr}"`);
   }
 
-  const [_, y, m, d, h, min, s] = match;
+  const [, y, m, d, h, min, s] = match;
   const year = parseInt(y, 10);
   const month = parseInt(m, 10) - 1;
   const day = parseInt(d, 10);

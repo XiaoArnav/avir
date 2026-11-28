@@ -12,7 +12,6 @@ import { PREDEFINED_INDIAN_CITIES, GeocodedLocation } from '@/services/telemetry
 import { WORLD_METROS, WorldCityItem } from '@/services/world-telemetry-service';
 import { calculateComprehensiveCpcbNaqi } from '@/domain/cpcb-naqi';
 import { AtmosphericMetrics, DataProvenance } from '@/domain/types';
-import { resolveTruthfulSourceLabel } from '@/domain/presentation-contract';
 
 export type AqiStandard = 'epa' | 'cpcb';
 

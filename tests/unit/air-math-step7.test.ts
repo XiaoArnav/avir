@@ -4,15 +4,10 @@ import {
   calculateDetailedEpaPm25Aqi,
   getAQICategory,
   calculateCpcbNaqi,
-  EPA_PM25_2024_BREAKPOINTS,
   EPA_PM25_HISTORICAL_BREAKPOINTS,
   calculateEpaPm25Aqi,
 } from '@/domain/air-math';
-import {
-  calculateComprehensiveCpcbNaqi,
-  calculateSubIndex,
-  getCpcbCategory,
-} from '@/domain/cpcb-naqi';
+import { calculateComprehensiveCpcbNaqi } from '@/domain/cpcb-naqi';
 import { buildMultiSourceFeeds } from '@/domain/advanced-air-math';
 import { GroundStationMetadata } from '@/domain/types';
 

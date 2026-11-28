@@ -26,7 +26,6 @@ import {
   X,
   Bookmark,
   Trash2,
-  Info,
   Clock,
   Layers
 } from 'lucide-react';
@@ -68,7 +67,7 @@ export const WorldDataExplorer: React.FC<WorldDataExplorerProps> = ({
           setCities(data);
           setIsLoading(false);
         }
-      } catch (err) {
+      } catch {
         if (isMounted) {
           setIsLoading(false);
         }
@@ -117,8 +116,8 @@ export const WorldDataExplorer: React.FC<WorldDataExplorerProps> = ({
           if (searchGenRef.current === currentGen) {
             setOnlineResults(external);
           }
-        } catch (err: any) {
-          if (err?.name !== 'AbortError') {
+        } catch (err: unknown) {
+          if (!(err instanceof Error && err.name === 'AbortError')) {
             console.warn('Dynamic geocoded world search error:', err);
           }
         } finally {
@@ -589,7 +588,7 @@ export const WorldDataExplorer: React.FC<WorldDataExplorerProps> = ({
           <AvirGlobe
             points={buildGeographicObservations({ standard: 'epa', worldCities: cities })}
             activeCityName={activeCityName}
-            onSelectPoint={(pt) => {}}
+            onSelectPoint={() => {}}
             onSetActiveCity={(pt) => {
               onSelectCity({
                 id: Math.floor(Math.random() * 100000),

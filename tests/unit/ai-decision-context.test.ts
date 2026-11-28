@@ -72,7 +72,7 @@ describe('Environmental Decision Context & Structured AI Assistant (Phase 2)', (
   it('rejects invalid AQI standard values', () => {
     const badStandard = {
       ...validContext,
-      currentPollutants: { ...validContext.currentPollutants, aqiStandard: 'who' as any },
+      currentPollutants: { ...validContext.currentPollutants, aqiStandard: 'who' as unknown as never },
     };
     const res = validateDecisionContext(badStandard);
     expect(res.isValid).toBe(false);
@@ -254,7 +254,7 @@ describe('Environmental Decision Context & Structured AI Assistant (Phase 2)', (
     expect(
       validateDecisionContext({
         ...validContext,
-        currentPollutants: { ...validContext.currentPollutants, pm25Unit: 'ppm' as any },
+        currentPollutants: { ...validContext.currentPollutants, pm25Unit: 'ppm' as unknown as never },
       }).isValid
     ).toBe(false);
 
@@ -306,11 +306,11 @@ describe('Environmental Decision Context & Structured AI Assistant (Phase 2)', (
     expect(
       validateDecisionContext({
         ...validContext,
-        userContext: { ...validContext.userContext, hasAsthmaOrRespiratory: true } as any,
+        userContext: { ...validContext.userContext, hasAsthmaOrRespiratory: true } as unknown as never,
       }).isValid
     ).toBe(false);
 
-    expect(validateDecisionContext([] as any).isValid).toBe(false);
-    expect(validateDecisionContext({ ...validContext, weather: 'sunny' as any }).isValid).toBe(false);
+    expect(validateDecisionContext([] as unknown as never).isValid).toBe(false);
+    expect(validateDecisionContext({ ...validContext, weather: 'sunny' as unknown as never }).isValid).toBe(false);
   });
 });

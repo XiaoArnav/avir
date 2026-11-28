@@ -10,7 +10,6 @@ import {
   ActivityEnvironment,
   ActivityIntensity,
   DailySchedule,
-  RoutineActivity,
   calculateActivityDurationMinutes,
 } from '@/domain/routine-types';
 import {
@@ -70,7 +69,7 @@ export function calculateActivityInhaledMass(params: ActivityInhaledMassParams):
  */
 export function calculateDailyScheduleExposure(
   schedule: DailySchedule,
-  ambientPM25: number,
+  ambientPM25: number | null | undefined,
   customRatios?: Partial<Record<ActivityEnvironment, number>>
 ): InhaledMassCalculation {
   const isInvalidAmbient =

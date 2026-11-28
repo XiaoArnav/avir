@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef } from 'react';
-import { Wind, Compass, ShieldAlert, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { Wind, Compass, ShieldAlert, CheckCircle2 } from 'lucide-react';
 
 interface WindDispersionVisualizerProps {
   windSpeed: number | null; // km/h

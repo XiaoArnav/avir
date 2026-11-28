@@ -18,7 +18,6 @@
 import { GroundStationMetadata, EnvironmentalSourceRecord, SourceMeasurement } from '@/domain/types';
 import {
   DeviceProfile,
-  DeviceTransportType,
   DeviceIdentityStatus,
   VERIFIED_DEVICE_PROFILES,
 } from './devices/device-profiles';
@@ -28,7 +27,6 @@ import {
 } from './devices/normalize-device-packet';
 import {
   validateDeviceAddress,
-  ValidatedDeviceAddress,
 } from './devices/wifi-address-validator';
 import { DeviceCalibrationStatus } from '@/domain/calibration-math';
 
@@ -49,7 +47,7 @@ export interface DeviceTelemetryPacket {
   co2?: number | null;
   temperature?: number | null;
   humidity?: number | null;
-  rawJson?: any;
+  rawJson?: unknown;
   observedAt: string | null;  // Authentic device-reported observation timestamp
   receivedAt: string;         // Local system reception timestamp
   timestamp: string;          // Backward-compatible alias (observedAt || receivedAt)
@@ -71,9 +69,44 @@ export interface DeviceTelemetryPacket {
 export type DevicePacketListener = (packet: DeviceTelemetryPacket) => void;
 export type DeviceStatusListener = (state: DeviceConnectionState, error?: string | null) => void;
 
+interface WebSerialPort {
+  open(options: { baudRate: number }): Promise<void>;
+  close(): Promise<void>;
+  readable?: ReadableStream<Uint8Array> | null;
+}
+
+interface WebSerialDisconnectEvent extends Event {
+  port?: unknown;
+}
+
+interface WebSerialApi {
+  requestPort?: () => Promise<WebSerialPort>;
+  addEventListener?: (type: 'disconnect', listener: (event: WebSerialDisconnectEvent) => void) => void;
+  removeEventListener?: (type: 'disconnect', listener: (event: WebSerialDisconnectEvent) => void) => void;
+}
+
+function getNavigatorSerial(): WebSerialApi | undefined {
+  if (typeof navigator === 'undefined') return undefined;
+  return (navigator as Navigator & { serial?: WebSerialApi }).serial;
+}
+
+function getErrorInfo(err: unknown): { name: string; message: string } {
+  const name =
+    typeof err === 'object' && err !== null && 'name' in err && typeof (err as { name?: unknown }).name === 'string'
+      ? (err as { name: string }).name
+      : '';
+  const message =
+    err instanceof Error
+      ? err.message
+      : typeof err === 'object' && err !== null && 'message' in err && typeof (err as { message?: unknown }).message === 'string'
+      ? (err as { message: string }).message
+      : String(err);
+  return { name, message };
+}
+
 export class HardwareDeviceService {
-  private activePort: any = null;
-  private reader: any = null;
+  private activePort: WebSerialPort | null = null;
+  private reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
   private isReading = false;
   private connectionState: DeviceConnectionState = 'idle';
   private lastErrorMessage: string | null = null;
@@ -86,17 +119,17 @@ export class HardwareDeviceService {
   private sessionGeneration = 0; // Monotonic counter for session isolation
 
   // USB physical disconnection listener handle
-  private serialDisconnectHandler: ((event: any) => void) | null = null;
+  private serialDisconnectHandler: ((event: WebSerialDisconnectEvent) => void) | null = null;
 
   // Wi-Fi polling state
   private wifiAbortController: AbortController | null = null;
-  private wifiPollTimer: any = null;
+  private wifiPollTimer: ReturnType<typeof setTimeout> | null = null;
   private isWifiPolling = false;
   private activeWifiHost = '';
   private consecutiveWifiFailures = 0;
 
   // Stale detection watchdog
-  private staleWatchdogTimer: any = null;
+  private staleWatchdogTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly STALE_THRESHOLD_MS = 30000; // 30 seconds without new packet = stale
 
   /**
@@ -105,7 +138,7 @@ export class HardwareDeviceService {
    */
   isWebSerialSupported(): boolean {
     if (typeof navigator === 'undefined' || typeof window === 'undefined') return false;
-    const hasSerial = 'serial' in navigator && typeof (navigator as any).serial?.requestPort === 'function';
+    const hasSerial = 'serial' in navigator && typeof getNavigatorSerial()?.requestPort === 'function';
     const isSecure = window.isSecureContext !== false;
     return hasSerial && isSecure;
   }
@@ -193,14 +226,13 @@ export class HardwareDeviceService {
     this.lastErrorMessage = null;
     this.setConnectionState('requesting_permission');
 
-    let port: any;
+    let port: WebSerialPort;
     try {
-      const nav = navigator as any;
+      const serial = getNavigatorSerial() as { requestPort: () => Promise<WebSerialPort> };
       // Request port immediately to retain browser user activation
-      port = await nav.serial.requestPort();
-    } catch (err: any) {
-      const errorName = err?.name || '';
-      const errorMsg = err?.message || String(err);
+      port = await serial.requestPort();
+    } catch (err: unknown) {
+      const { name: errorName, message: errorMsg } = getErrorInfo(err);
 
       if (
         errorName === 'NotFoundError' ||
@@ -237,8 +269,8 @@ export class HardwareDeviceService {
       // Start serial read loop with current generation
       this.startSerialReadLoop(currentGen);
       return { success: true };
-    } catch (err: any) {
-      const errorMsg = err?.message || String(err);
+    } catch (err: unknown) {
+      const { message: errorMsg } = getErrorInfo(err);
       this.setConnectionState('error', errorMsg);
       console.warn('WebSerial port open error:', errorMsg);
       return { success: false, error: errorMsg };
@@ -414,7 +446,7 @@ export class HardwareDeviceService {
    * Normalizes heterogeneous JSON telemetry payloads into canonical packet contract.
    * Enforces zero-fabrication validation, identity status, and scientific calibration gating.
    */
-  parseTelemetryPayload(data: any, source: 'webserial' | 'local_wifi'): DeviceTelemetryPacket | null {
+  parseTelemetryPayload(data: unknown, source: 'webserial' | 'local_wifi'): DeviceTelemetryPacket | null {
     const verified = normalizeDevicePacket(data, {
       sessionId: this.sessionId || `session-${Date.now()}`,
       transport: source,
@@ -581,7 +613,7 @@ export class HardwareDeviceService {
 
   private toDeviceTelemetryPacket(
     verified: VerifiedDevicePacket,
-    rawJson: any,
+    rawJson: unknown,
     source: 'webserial' | 'local_wifi'
   ): DeviceTelemetryPacket {
     return {
@@ -625,13 +657,10 @@ export class HardwareDeviceService {
   }
 
   private attachSerialDisconnectListener(): void {
-    if (
-      typeof navigator !== 'undefined' &&
-      (navigator as any).serial &&
-      typeof (navigator as any).serial.addEventListener === 'function'
-    ) {
+    const serial = getNavigatorSerial();
+    if (serial && typeof serial.addEventListener === 'function') {
       this.detachSerialDisconnectListener();
-      this.serialDisconnectHandler = (event: any) => {
+      this.serialDisconnectHandler = (event: WebSerialDisconnectEvent) => {
         if (this.activePort && (event?.port === this.activePort || !event?.port)) {
           console.warn('Physical serial device disconnected by OS / cable removal.');
           this.setConnectionState('disconnected');
@@ -639,7 +668,7 @@ export class HardwareDeviceService {
         }
       };
       try {
-        (navigator as any).serial.addEventListener('disconnect', this.serialDisconnectHandler);
+        serial.addEventListener('disconnect', this.serialDisconnectHandler);
       } catch {
         // Safe attach
       }
@@ -647,14 +676,10 @@ export class HardwareDeviceService {
   }
 
   private detachSerialDisconnectListener(): void {
-    if (
-      this.serialDisconnectHandler &&
-      typeof navigator !== 'undefined' &&
-      (navigator as any).serial &&
-      typeof (navigator as any).serial.removeEventListener === 'function'
-    ) {
+    const serial = getNavigatorSerial();
+    if (this.serialDisconnectHandler && serial && typeof serial.removeEventListener === 'function') {
       try {
-        (navigator as any).serial.removeEventListener('disconnect', this.serialDisconnectHandler);
+        serial.removeEventListener('disconnect', this.serialDisconnectHandler);
       } catch {
         // Safe detach
       }
@@ -680,10 +705,10 @@ export class HardwareDeviceService {
 
       let res: Response;
       try {
-        const fetchOptions: RequestInit = { signal: fetchController.signal };
+        const fetchOptions: RequestInit & { targetAddressSpace?: string } = { signal: fetchController.signal };
         // Support Chromium Local Network Access targetAddressSpace hint when available
         try {
-          (fetchOptions as any).targetAddressSpace = 'local';
+          fetchOptions.targetAddressSpace = 'local';
         } catch {}
 
         res = await fetch(url, fetchOptions);
@@ -723,18 +748,19 @@ export class HardwareDeviceService {
       this.resetStaleWatchdog();
       this.notifyPacketListeners(packet);
       return { packet };
-    } catch (err: any) {
+    } catch (err: unknown) {
       if (sessionGeneration !== this.sessionGeneration || signal?.aborted) {
         return { packet: null, error: 'Session superseded or aborted' };
       }
 
+      const { name: errName, message: errMsg } = getErrorInfo(err);
       const isHttps = typeof window !== 'undefined' && window.location.protocol === 'https:';
-      const isFailedFetch = err?.name === 'TypeError' || err?.message?.includes('Failed to fetch');
-      let friendlyError = err?.message || 'Connection failed.';
+      const isFailedFetch = errName === 'TypeError' || errMsg.includes('Failed to fetch');
+      let friendlyError = errMsg || 'Connection failed.';
 
       if (isHttps && isFailedFetch) {
         friendlyError = `Direct browser request to ${this.activeWifiHost} was blocked. Because Avir is served over HTTPS, modern browsers restrict mixed HTTP requests to local networks (CORS / Mixed Content). Connect via USB WebSerial for instant zero-friction connectivity.`;
-      } else if (err?.name === 'AbortError') {
+      } else if (errName === 'AbortError') {
         friendlyError = 'Request timed out or was cancelled.';
       }
 
@@ -848,13 +874,14 @@ export class HardwareDeviceService {
         this.detachSerialDisconnectListener();
         this.setConnectionState('disconnected');
       }
-    } catch (err: any) {
-      console.warn('WebSerial stream closed or encountered error:', err?.message || err);
+    } catch (err: unknown) {
+      const { message: errMsg } = getErrorInfo(err);
+      console.warn('WebSerial stream closed or encountered error:', errMsg || err);
       if (this.isReading && sessionGeneration === this.sessionGeneration) {
         this.isReading = false;
         this.stopStaleWatchdog();
         this.detachSerialDisconnectListener();
-        this.setConnectionState('error', err?.message || 'Device stream interrupted');
+        this.setConnectionState('error', errMsg || 'Device stream interrupted');
       }
     } finally {
       if (sessionGeneration === this.sessionGeneration) {

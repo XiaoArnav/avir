@@ -105,8 +105,8 @@ export function validateRoutineActivity(activity: Partial<RoutineActivity>): { i
   } else {
     try {
       parseTimeStringToMinutes(activity.startTime);
-    } catch (e: any) {
-      errors.push(`Invalid start time: ${e.message}`);
+    } catch (e: unknown) {
+      errors.push(`Invalid start time: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 
@@ -115,8 +115,8 @@ export function validateRoutineActivity(activity: Partial<RoutineActivity>): { i
   } else {
     try {
       parseTimeStringToMinutes(activity.endTime);
-    } catch (e: any) {
-      errors.push(`Invalid end time: ${e.message}`);
+    } catch (e: unknown) {
+      errors.push(`Invalid end time: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 
@@ -158,8 +158,8 @@ export function validateRoutineActivity(activity: Partial<RoutineActivity>): { i
       if (earliest === latest) {
         errors.push('Allowable start range earliest and latest cannot be identical for flexible activities.');
       }
-    } catch (e: any) {
-      errors.push(`Invalid allowable start range: ${e.message}`);
+    } catch (e: unknown) {
+      errors.push(`Invalid allowable start range: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 

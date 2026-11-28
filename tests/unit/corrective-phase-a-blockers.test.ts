@@ -1,12 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import {
-  officialOrderService,
-  VERIFIED_OFFICIAL_REGULATORY_ORDERS,
-} from '@/services/advisories/official-order-service';
-import {
-  generateHealthAdvisory,
-  validateAdvisoryEligibility,
-} from '@/services/advisories/health-advisory-service';
+import { VERIFIED_OFFICIAL_REGULATORY_ORDERS } from '@/services/advisories/official-order-service';
+import { generateHealthAdvisory } from '@/services/advisories/health-advisory-service';
 import {
   lookupBoundaryLayerHeight,
   analyzeDiurnalRelativeWindows,
@@ -196,7 +190,7 @@ describe('Phase A Corrective Regression Tests (RED-GREEN)', () => {
         '2026-11-23T12:00:00Z',
         {
           boundary_layer_height: [450, 520, 600],
-        } as any,
+        } as unknown as never,
         'UTC'
       );
       expect(result.blh).toBeNull();
@@ -349,7 +343,7 @@ describe('Phase A Corrective Regression Tests (RED-GREEN)', () => {
         usAqi: 200,
         pm25: 120,
         hasCardiovascularCondition: false,
-      } as any);
+      } as unknown as never);
 
       expect(coordinator.isPlanResponseValid(planContext)).toBe(true);
 
@@ -400,8 +394,8 @@ describe('Phase A Corrective Regression Tests (RED-GREEN)', () => {
 
       expect(check.eligible).toBe(true);
       // Normalized value must be 100 µg/m³, not 0.1!
-      expect((check as any).normalizedValue).toBe(100);
-      expect((check as any).normalizedUnit).toBe('µg/m³');
+      expect((check as unknown as Record<string, unknown>).normalizedValue).toBe(100);
+      expect((check as unknown as Record<string, unknown>).normalizedUnit).toBe('µg/m³');
     });
   });
 });

@@ -20,14 +20,9 @@ import {
 import {
   calculateSubIndex,
   calculateComprehensiveCpcbNaqi,
-  CPCB_BREAKPOINTS,
   getCpcbCategory,
 } from '@/domain/cpcb-naqi';
-import {
-  OFFICIAL_CPCB_STATIONS,
-  findNearestCpcbStation,
-  calculateGroundModelDelta,
-} from '@/services/ground-station-service';
+import { OFFICIAL_CPCB_STATIONS } from '@/services/ground-station-service';
 import {
   getPhysicalStationDeduplicationKey,
   getActivePhysicalSources,
@@ -378,7 +373,7 @@ describe('AVIR Step 4: Official CPCB/CAAQMS Provider & NAQI Engine', () => {
 
       const eligibility = evaluateMeasurementEligibility(registryOnlyStation, 'pm25');
       expect(eligibility.eligible).toBe(false);
-      expect((eligibility as any).reason).toBe('registry_only');
+      expect((eligibility as unknown as Record<string, unknown>).reason).toBe('registry_only');
     });
   });
 

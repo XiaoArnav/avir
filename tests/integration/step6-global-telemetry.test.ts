@@ -173,7 +173,7 @@ describe('AVIR — Step 6 Global Telemetry & World Comparisons (85 Scenarios)', 
     });
 
     it('11. Malformed JSON or non-array response returns empty array', () => {
-      const parsed = parseBatchTelemetryResponse(WORLD_METROS.slice(0, 2), null as any);
+      const parsed = parseBatchTelemetryResponse(WORLD_METROS.slice(0, 2), null as unknown as unknown[]);
       expect(parsed).toEqual([]);
     });
 
@@ -685,11 +685,14 @@ describe('AVIR — Step 6 Global Telemetry & World Comparisons (85 Scenarios)', 
   // GROUP F: Local Persistence, Cache & Isolation (61–70)
   // =========================================================================
   describe('Group F: Local Persistence, Cache & Isolation (61–70)', () => {
-    let originalWindow: any;
+    const testGlobal = globalThis as unknown as Omit<typeof globalThis, 'window'> & {
+      window?: unknown;
+    };
+    let originalWindow: unknown;
     let store: Record<string, string> = {};
 
     beforeEach(() => {
-      originalWindow = (globalThis as any).window;
+      originalWindow = testGlobal.window;
       store = {};
       const mockLocalStorage = {
         getItem: vi.fn((key: string) => store[key] ?? null),
@@ -708,13 +711,13 @@ describe('AVIR — Step 6 Global Telemetry & World Comparisons (85 Scenarios)', 
         key: vi.fn((index: number) => Object.keys(store)[index] ?? null),
       };
 
-      (globalThis as any).window = {
+      testGlobal.window = {
         localStorage: mockLocalStorage,
       };
     });
 
     afterEach(() => {
-      (globalThis as any).window = originalWindow;
+      testGlobal.window = originalWindow;
     });
 
     it('61. Saved city pair persists to localStorage and returns valid record', () => {
@@ -1031,7 +1034,7 @@ describe('AVIR — Step 6 Global Telemetry & World Comparisons (85 Scenarios)', 
     });
 
     it('84. Stale previous search results cannot overwrite active city data', () => {
-      let activeQuery = 'Paris';
+      const activeQuery = 'Paris';
       const arrivals = [
         { query: 'London', data: [{ name: 'London' }] },
         { query: 'Paris', data: [{ name: 'Paris' }] },

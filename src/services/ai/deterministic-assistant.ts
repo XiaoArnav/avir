@@ -278,9 +278,31 @@ function resolveSourceKindLabel(source: EnvironmentalDecisionContext['source']):
   return 'Unverified Source Classification';
 }
 
+export interface StructuredPlanSummaryInput {
+  status?: string;
+  statusMessage?: string;
+  planFingerprint?: string;
+  baselineExposureUg?: number | null;
+  optimizedExposureUg?: number | null;
+  absoluteSavingsUg?: number | null;
+  percentageSavings?: number | null;
+  unalteredActivities?: unknown[];
+  calculationTimestamp?: string;
+  forecastProvenance?: unknown;
+  limitations?: string[];
+  activityShifts?: Array<{
+    activityName: string;
+    originalStart: string;
+    originalEnd: string;
+    proposedStart: string;
+    proposedEnd: string;
+    reason?: string;
+  }>;
+}
+
 export function generateDeterministicStructuredExplanation(
   context: EnvironmentalDecisionContext,
-  deterministicPlan?: any
+  deterministicPlan?: StructuredPlanSummaryInput | null
 ): StructuredPlanExplanation {
   const cityName = context.city.name;
   const pm25 = context.currentPollutants.pm25;
@@ -500,7 +522,7 @@ export function generateDeterministicStructuredExplanation(
   }> = [];
 
   if (deterministicPlan && Array.isArray(deterministicPlan.activityShifts)) {
-    deterministicPlan.activityShifts.forEach((shift: any) => {
+    deterministicPlan.activityShifts.forEach((shift) => {
       scheduleAdjustments.push({
         activityName: shift.activityName,
         originalTime: `${shift.originalStart} - ${shift.originalEnd}`,

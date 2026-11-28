@@ -83,8 +83,8 @@ describe('CityPanoramicBackdrop Worldwide Architecture & Landmarks', () => {
     const el1 = CityPanoramicBackdrop({ cityId: 'Zurich' }) as React.ReactElement;
     const el2 = CityPanoramicBackdrop({ cityId: 'Honolulu' }) as React.ReactElement;
 
-    const label1 = (el1.props as any)['aria-label'];
-    const label2 = (el2.props as any)['aria-label'];
+    const label1 = (el1.props as Record<string, unknown>)['aria-label'];
+    const label2 = (el2.props as Record<string, unknown>)['aria-label'];
     expect(label1).not.toBe(label2);
   });
 });

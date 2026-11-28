@@ -10,7 +10,7 @@ import { NextRequest } from 'next/server';
 
 export const DEFAULT_MAX_BODY_BYTES = 100 * 1024; // 100 KB
 
-export interface BoundedReadResult<T = any> {
+export interface BoundedReadResult<T = Record<string, unknown>> {
   success: boolean;
   data?: T;
   errorCode?: 'PAYLOAD_TOO_LARGE' | 'INVALID_JSON' | 'EMPTY_BODY';
@@ -21,7 +21,7 @@ export interface BoundedReadResult<T = any> {
 /**
  * Safely reads and parses JSON from a NextRequest within strict size limits.
  */
-export async function readBoundedJson<T = any>(
+export async function readBoundedJson<T = Record<string, unknown>>(
   req: NextRequest,
   maxBytes: number = DEFAULT_MAX_BODY_BYTES
 ): Promise<BoundedReadResult<T>> {
@@ -121,8 +121,8 @@ export async function readBoundedJson<T = any>(
         bytesRead: bytes,
       };
     }
-  } catch (err: any) {
-    if (err.name === 'SyntaxError') {
+  } catch (err: unknown) {
+    if (err instanceof Error && err.name === 'SyntaxError') {
       return {
         success: false,
         errorCode: 'INVALID_JSON',
@@ -133,7 +133,7 @@ export async function readBoundedJson<T = any>(
     return {
       success: false,
       errorCode: 'INVALID_JSON',
-      errorMessage: err.message || 'Failed to read request body.',
+      errorMessage: err instanceof Error && err.message ? err.message : 'Failed to read request body.',
       bytesRead: 0,
     };
   }

@@ -1,11 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import {
   evaluateMeasurementEligibility,
   getActivePhysicalSources,
   getStalePhysicalSources,
   validateObservationTiming,
   getPhysicalStationDeduplicationKey,
-  VERIFIED_CROSS_PROVIDER_STATION_MAP,
   registerVerifiedStationMapping,
 } from '@/config/environmental-sources';
 import {

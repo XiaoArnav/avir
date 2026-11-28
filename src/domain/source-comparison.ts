@@ -19,8 +19,6 @@
 import {
   EnvironmentalSourceRecord,
   SourceComparison,
-  SourceComparisonMode,
-  SourceComparisonStatus,
   ComparedSourceItem,
   SourceMeasurement,
 } from '@/domain/types';
@@ -123,7 +121,6 @@ export function createOpenMeteoModelRecord(params: {
     timestamp,
     latitude,
     longitude,
-    cityName,
     retrievedAt = new Date().toISOString(),
     modelRunAt = null,
   } = params;

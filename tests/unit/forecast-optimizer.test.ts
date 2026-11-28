@@ -4,7 +4,7 @@ import {
   HourlyForecastPoint,
   validateForecastEligibility,
 } from '@/services/optimization/forecast-optimizer';
-import { DailySchedule, RoutineActivity } from '@/domain/routine-types';
+import { DailySchedule } from '@/domain/routine-types';
 
 describe('Step 12 — Forecast-Based Routine Optimizer', () => {
   // Realistic 24-hour diurnal cycle (winter Delhi/Bengaluru pattern: high overnight/morning, dip in afternoon)
@@ -62,7 +62,7 @@ describe('Step 12 — Forecast-Based Routine Optimizer', () => {
 
     it('rejects empty, null, or short forecast arrays (< 12 hours)', () => {
       expect(validateForecastEligibility([]).isEligible).toBe(false);
-      expect(validateForecastEligibility(null as any).isEligible).toBe(false);
+      expect(validateForecastEligibility(null as unknown as never).isEligible).toBe(false);
       expect(validateForecastEligibility(mockHourlyForecast.slice(0, 8)).isEligible).toBe(false);
     });
 

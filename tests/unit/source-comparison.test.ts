@@ -2,8 +2,6 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   compareEnvironmentalSources,
   createOpenMeteoModelRecord,
-  MAX_COMPARISON_DISTANCE_KM,
-  MAX_COMPARISON_TIME_DIFF_MINUTES,
 } from '@/domain/source-comparison';
 import { EnvironmentalSourceRecord } from '@/domain/types';
 
@@ -445,8 +443,8 @@ describe('AVIR STEP 3 CORRECTIVE — Group D: Comparison Integrity & Parity (30-
     };
 
     const result = compareEnvironmentalSources([model, ground], 'pm25');
-    expect((result as any).confidenceScorePercent).toBeUndefined();
-    expect((result as any).agreementPercentage).toBeUndefined();
+    expect((result as unknown as Record<string, unknown>).confidenceScorePercent).toBeUndefined();
+    expect((result as unknown as Record<string, unknown>).agreementPercentage).toBeUndefined();
   });
 });
 

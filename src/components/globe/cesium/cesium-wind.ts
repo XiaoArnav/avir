@@ -80,10 +80,207 @@ export interface CesiumWindDiagnostics {
   ready: boolean;
 }
 
+export interface CesiumWindColor {
+  withAlpha?(alpha: number): CesiumWindColor;
+}
+
+export interface CesiumWindMaterial {
+  uniforms: Record<string, unknown>;
+  isDestroyed?(): boolean;
+  destroy?(): void;
+}
+
+export interface CesiumWindPrimitive {
+  show: boolean;
+  ready?: boolean;
+  isDestroyed?(): boolean;
+  destroy?(): void;
+}
+
+export interface CesiumWindPolylineCollection {
+  show: boolean;
+  add?(polyline: unknown): unknown;
+}
+
+export interface CesiumWindImageryLayer {
+  alpha: number;
+  show: boolean;
+}
+
+export interface CesiumWindOccluder {
+  cameraPosition: unknown;
+  isBoundingSphereVisible?(sphere: unknown): boolean;
+}
+
+export interface CesiumWindCullingVolume {
+  computeVisibility?(sphere: unknown): number;
+}
+
+export interface CesiumWindViewer<TCartesian = unknown> {
+  isDestroyed?(): boolean;
+  camera?: {
+    positionWC?: TCartesian;
+    positionCartographic?: { height?: number };
+  };
+  scene?: {
+    canvas?: { clientWidth?: number };
+    camera?: {
+      positionWC?: TCartesian;
+      directionWC?: TCartesian;
+      upWC?: TCartesian;
+      positionCartographic?: { height?: number };
+      frustum?: {
+        computeCullingVolume?(pos: unknown, dir: unknown, up: unknown): CesiumWindCullingVolume;
+      };
+    };
+    primitives?: {
+      isDestroyed?(): boolean;
+      add?(primitive: unknown): unknown;
+      remove?(primitive: unknown): unknown;
+    };
+    preRender?: {
+      addEventListener?(listener: () => void): (() => void) | void;
+    };
+  };
+  imageryLayers?: {
+    addImageryProvider?(provider: unknown): CesiumWindImageryLayer;
+    remove?(layer: CesiumWindImageryLayer, destroy?: boolean): unknown;
+  };
+}
+
+export interface CesiumWindOverlayModule<TRectangle = unknown> {
+  Rectangle?: {
+    fromDegrees?(west?: number, south?: number, east?: number, north?: number): TRectangle;
+  };
+  SingleTileImageryProvider?:
+    | ({
+        fromUrl?(
+          url: string,
+          options: { tileWidth?: number; tileHeight?: number; rectangle?: TRectangle }
+        ): Promise<unknown>;
+      } & (new (options: {
+        url: string;
+        tileWidth?: number;
+        tileHeight?: number;
+        rectangle?: TRectangle;
+      }) => unknown))
+    | {
+        fromUrl?(
+          url: string,
+          options: { tileWidth?: number; tileHeight?: number; rectangle?: TRectangle }
+        ): Promise<unknown>;
+      };
+}
+
+export interface CesiumWindModule<
+  TRectangle = unknown,
+  TCartesian = unknown,
+  TBoundingSphere = unknown,
+  TMaterial extends CesiumWindMaterial = CesiumWindMaterial,
+  TArcType = unknown,
+  TVertexFormat = unknown,
+  TGeometry = unknown,
+  TCompType = unknown,
+  TAttr = unknown,
+  TGeometryInstance = unknown,
+  TAppearance extends { vertexShaderSource?: string } = { vertexShaderSource?: string }
+> extends CesiumWindOverlayModule<TRectangle> {
+  Cartesian3: {
+    ZERO: TCartesian;
+    fromDegrees(lon: number, lat: number, height?: number): TCartesian;
+  };
+  Ellipsoid: {
+    WGS84: { minimumRadius: number };
+  };
+  Color?:
+    | ({
+        fromCssColorString?(color: string): CesiumWindColor | undefined;
+      } & (new (red?: number, green?: number, blue?: number, alpha?: number) => CesiumWindColor))
+    | {
+        fromCssColorString?(color: string): CesiumWindColor | undefined;
+      };
+  ArcType?: { NONE?: TArcType };
+  Intersect: { OUTSIDE: number };
+  ComponentDatatype: { FLOAT: TCompType };
+  BoundingSphere: {
+    new (center?: TCartesian, radius?: number): TBoundingSphere;
+    fromPoints(positions: TCartesian[]): TBoundingSphere;
+  };
+  Occluder: new (boundingSphere: TBoundingSphere, cameraPosition: TCartesian) => CesiumWindOccluder;
+  Material: {
+    new (options: {
+      fabric: {
+        type: string;
+        uniforms: Record<string, unknown>;
+        source: string;
+      };
+      translucent?: () => boolean;
+    }): TMaterial;
+    fromType?(type: string, uniforms?: Record<string, unknown>): unknown;
+  };
+  PolylineMaterialAppearance: (new (options: {
+    material?: TMaterial;
+    vertexShaderSource?: string;
+    translucent?: boolean;
+    renderState?: Record<string, unknown>;
+  }) => TAppearance) & {
+    VERTEX_FORMAT: TVertexFormat;
+  };
+  PolylineGeometry: new (options: {
+    positions: TCartesian[];
+    width?: number;
+    arcType?: TArcType;
+    vertexFormat?: TVertexFormat;
+  }) => TGeometry;
+  GeometryInstance: new (options: {
+    geometry: TGeometry;
+    attributes?: Record<string, TAttr>;
+  }) => TGeometryInstance;
+  GeometryInstanceAttribute: new (options: {
+    componentDatatype: TCompType;
+    componentsPerAttribute: number;
+    value: number[];
+  }) => TAttr;
+  Primitive: new (options: {
+    show?: boolean;
+    geometryInstances?: TGeometryInstance[];
+    appearance?: TAppearance;
+    asynchronous?: boolean;
+    allowPicking?: boolean;
+    releaseGeometryInstances?: boolean;
+    compressVertices?: boolean;
+  }) => CesiumWindPrimitive;
+  PolylineCollection?: new () => CesiumWindPolylineCollection;
+}
+
 export interface CesiumWindController {
-  sync(params: {
-    viewer: any;
-    Cesium: any;
+  sync<
+    TRectangle = unknown,
+    TCartesian = unknown,
+    TBoundingSphere = unknown,
+    TMaterial extends CesiumWindMaterial = CesiumWindMaterial,
+    TArcType = unknown,
+    TVertexFormat = unknown,
+    TGeometry = unknown,
+    TCompType = unknown,
+    TAttr = unknown,
+    TGeometryInstance = unknown,
+    TAppearance extends { vertexShaderSource?: string } = { vertexShaderSource?: string }
+  >(params: {
+    viewer: CesiumWindViewer;
+    Cesium: CesiumWindModule<
+      TRectangle,
+      TCartesian,
+      TBoundingSphere,
+      TMaterial,
+      TArcType,
+      TVertexFormat,
+      TGeometry,
+      TCompType,
+      TAttr,
+      TGeometryInstance,
+      TAppearance
+    >;
     enabled: boolean;
     snapshot: GlobalWindSnapshot | null;
     overlay: GlobalWindOverlayKind;
@@ -94,8 +291,8 @@ export interface CesiumWindController {
 }
 
 interface CellPrimitiveEntry {
-  primitive: any;
-  sphere: any;
+  primitive: CesiumWindPrimitive;
+  sphere: unknown;
 }
 
 function sameSnapshotField(a: GlobalWindSnapshot | null, b: GlobalWindSnapshot | null): boolean {
@@ -113,8 +310,10 @@ function sameSnapshotField(a: GlobalWindSnapshot | null, b: GlobalWindSnapshot |
 }
 
 export function createCesiumWindController(): CesiumWindController {
-  let activeViewer: any = null;
-  let activeCesium: any = null;
+  let activeViewer: CesiumWindViewer | null = null;
+  let activeOverlayInstall: (() => Promise<void>) | null = null;
+  let intersectOutsideValue = -1;
+  let hasActiveCesium = false;
   let currentSnapshot: GlobalWindSnapshot | null = null;
   let currentOverlay: GlobalWindOverlayKind = 'none';
   let currentPaused = false;
@@ -122,10 +321,10 @@ export function createCesiumWindController(): CesiumWindController {
   let disposed = false;
 
   const cells: CellPrimitiveEntry[] = [];
-  let material: any = null;
-  let occluder: any = null;
-  let fallbackCollection: any = null;
-  let overlayImageryLayer: any = null;
+  let material: CesiumWindMaterial | null = null;
+  let occluder: CesiumWindOccluder | null = null;
+  let fallbackCollection: CesiumWindPolylineCollection | null = null;
+  let overlayImageryLayer: CesiumWindImageryLayer | null = null;
   let overlayRequestSeq = 0;
 
   let phaseTime = 0;
@@ -142,14 +341,15 @@ export function createCesiumWindController(): CesiumWindController {
   let motionMedia: MediaQueryList | null = null;
   let motionListener: (() => void) | null = null;
 
-  const viewerLive = () => Boolean(activeViewer && !activeViewer.isDestroyed?.());
+  const liveViewer = (): CesiumWindViewer | null =>
+    activeViewer && !activeViewer.isDestroyed?.() ? activeViewer : null;
 
   function clearStreamlines(): void {
-    const scene = viewerLive() ? activeViewer.scene : null;
+    const scene = liveViewer()?.scene ?? null;
     for (const cell of cells) {
       if (scene?.primitives && !scene.primitives.isDestroyed?.()) {
         try {
-          scene.primitives.remove(cell.primitive);
+          scene.primitives.remove?.(cell.primitive);
         } catch {
           // Ignore already removed
         }
@@ -166,7 +366,7 @@ export function createCesiumWindController(): CesiumWindController {
 
     if (fallbackCollection && scene?.primitives && !scene.primitives.isDestroyed?.()) {
       try {
-        scene.primitives.remove(fallbackCollection);
+        scene.primitives.remove?.(fallbackCollection);
       } catch {
         // Ignore
       }
@@ -189,9 +389,10 @@ export function createCesiumWindController(): CesiumWindController {
 
   function clearOverlayImagery(): void {
     overlayRequestSeq += 1;
-    if (overlayImageryLayer && viewerLive()) {
+    const viewer = liveViewer();
+    if (overlayImageryLayer && viewer) {
       try {
-        activeViewer.imageryLayers.remove(overlayImageryLayer, true);
+        viewer.imageryLayers?.remove?.(overlayImageryLayer, true);
       } catch {
         // Ignore
       }
@@ -200,8 +401,9 @@ export function createCesiumWindController(): CesiumWindController {
   }
 
   function readCameraHeight(): number {
-    if (!viewerLive()) return 1_000_000;
-    const camera = activeViewer.camera ?? activeViewer.scene?.camera;
+    const viewer = liveViewer();
+    if (!viewer) return 1_000_000;
+    const camera = viewer.camera ?? viewer.scene?.camera;
     const h = camera?.positionCartographic?.height;
     return typeof h === 'number' && Number.isFinite(h) ? h : 1_000_000;
   }
@@ -222,15 +424,17 @@ export function createCesiumWindController(): CesiumWindController {
     overlayImageryLayer.show = overlayImageryLayer.alpha > 0.01;
   }
 
-  async function installOverlayImagery(): Promise<void> {
+  async function installOverlayImageryWith<TRectangle>(
+    C: CesiumWindOverlayModule<TRectangle>
+  ): Promise<void> {
     clearOverlayImagery();
+    const initialViewer = liveViewer();
     if (
       disposed ||
       !enabledState ||
       !currentSnapshot ||
       currentOverlay === 'none' ||
-      !viewerLive() ||
-      !activeCesium
+      !initialViewer
     ) {
       return;
     }
@@ -250,17 +454,17 @@ export function createCesiumWindController(): CesiumWindController {
     const dataUrl = canvas.toDataURL('image/png');
 
     try {
-      const C = activeCesium;
       const rectangle = C.Rectangle?.fromDegrees?.(-180, -90, 180, 90);
-      let provider: any;
-      if (typeof C.SingleTileImageryProvider?.fromUrl === 'function') {
-        provider = await C.SingleTileImageryProvider.fromUrl(dataUrl, {
+      let provider: unknown;
+      const SingleTile = C.SingleTileImageryProvider;
+      if (SingleTile && 'fromUrl' in SingleTile && typeof SingleTile.fromUrl === 'function') {
+        provider = await SingleTile.fromUrl(dataUrl, {
           tileWidth: raster.width,
           tileHeight: raster.height,
           rectangle,
         });
-      } else if (typeof C.SingleTileImageryProvider === 'function') {
-        provider = new C.SingleTileImageryProvider({
+      } else if (typeof SingleTile === 'function') {
+        provider = new SingleTile({
           url: dataUrl,
           tileWidth: raster.width,
           tileHeight: raster.height,
@@ -268,12 +472,13 @@ export function createCesiumWindController(): CesiumWindController {
         });
       }
 
-      if (disposed || reqSeq !== overlayRequestSeq || !enabledState || !viewerLive()) {
+      const currentViewer = liveViewer();
+      if (disposed || reqSeq !== overlayRequestSeq || !enabledState || !currentViewer) {
         return;
       }
 
-      if (provider && activeViewer.imageryLayers?.addImageryProvider) {
-        overlayImageryLayer = activeViewer.imageryLayers.addImageryProvider(provider);
+      if (provider && currentViewer.imageryLayers?.addImageryProvider) {
+        overlayImageryLayer = currentViewer.imageryLayers.addImageryProvider(provider);
         applyOverlayAlpha();
       }
     } catch {
@@ -286,7 +491,9 @@ export function createCesiumWindController(): CesiumWindController {
     const hardwareConcurrency =
       typeof navigator !== 'undefined' ? navigator.hardwareConcurrency : 8;
     const deviceMemory =
-      typeof navigator !== 'undefined' ? (navigator as any).deviceMemory ?? 8 : 8;
+      typeof navigator !== 'undefined'
+        ? (navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? 8
+        : 8;
     return resolveAdaptivePathBudget({
       viewportWidth: clientWidth,
       hardwareConcurrency,
@@ -294,15 +501,42 @@ export function createCesiumWindController(): CesiumWindController {
     });
   }
 
-  function buildStreamlines(snapshot: GlobalWindSnapshot): void {
+  function buildStreamlines<
+    TRectangle,
+    TCartesian,
+    TBoundingSphere,
+    TMaterial extends CesiumWindMaterial,
+    TArcType,
+    TVertexFormat,
+    TGeometry,
+    TCompType,
+    TAttr,
+    TGeometryInstance,
+    TAppearance extends { vertexShaderSource?: string }
+  >(
+    C: CesiumWindModule<
+      TRectangle,
+      TCartesian,
+      TBoundingSphere,
+      TMaterial,
+      TArcType,
+      TVertexFormat,
+      TGeometry,
+      TCompType,
+      TAttr,
+      TGeometryInstance,
+      TAppearance
+    >,
+    snapshot: GlobalWindSnapshot
+  ): void {
     clearStreamlines();
-    if (!viewerLive() || !activeCesium) return;
+    const viewer = liveViewer();
+    if (!viewer) return;
 
     const grid = toWindGridView(snapshot);
     const valid = validateWindGrid(grid, { requireAllFinite: false });
     if (!grid || !valid.ok) return;
 
-    const C = activeCesium;
     const budget = resolveBudget();
     bakedBudget = budget;
     const paths = bakeWindStreamlines(grid, {
@@ -313,7 +547,7 @@ export function createCesiumWindController(): CesiumWindController {
 
     const color =
       C.Color?.fromCssColorString?.(DEFAULT_STREAMLINE_COLOR) ??
-      new C.Color(0.4, 0.85, 0.97, 1);
+      (typeof C.Color === 'function' ? new C.Color(0.4, 0.85, 0.97, 1) : {});
 
     try {
       if (
@@ -324,7 +558,7 @@ export function createCesiumWindController(): CesiumWindController {
         throw new Error('Cesium Polyline primitive API unavailable');
       }
 
-      material = new C.Material({
+      const builtMaterial = new C.Material({
         fabric: {
           type: 'AvirWindStreamline',
           uniforms: {
@@ -338,8 +572,9 @@ export function createCesiumWindController(): CesiumWindController {
         },
         translucent: () => true,
       });
+      material = builtMaterial;
 
-      const probeAppearance = new C.PolylineMaterialAppearance({ material });
+      const probeAppearance = new C.PolylineMaterialAppearance({ material: builtMaterial });
       const rawVs: string = probeAppearance.vertexShaderSource ?? '';
       if (!/void\s+main\s*\(\s*\)/.test(rawVs) || !/v_st\.s\s*=\s*st\.s\s*;/.test(rawVs)) {
         throw new Error('PolylineMaterialAppearance shader patch point unavailable');
@@ -356,11 +591,11 @@ export function createCesiumWindController(): CesiumWindController {
 
       occluder = new C.Occluder(
         new C.BoundingSphere(C.Cartesian3.ZERO, C.Ellipsoid.WGS84.minimumRadius),
-        (activeViewer.scene?.camera ?? activeViewer.camera).positionWC
+        ((viewer.scene?.camera ?? viewer.camera)?.positionWC ?? C.Cartesian3.ZERO) as TCartesian
       );
 
       for (const group of groupWindPaths(paths, WIND_CELL_DEGREES)) {
-        const cellPositions: any[] = [];
+        const cellPositions: TCartesian[] = [];
         const instances = group.paths.map((path) => {
           const positions = path.coordinates.map(([lon, lat]) =>
             C.Cartesian3.fromDegrees(lon, lat, WIND_DISPLAY_HEIGHT_METERS)
@@ -385,7 +620,7 @@ export function createCesiumWindController(): CesiumWindController {
         });
 
         const appearance = new C.PolylineMaterialAppearance({
-          material,
+          material: builtMaterial,
           vertexShaderSource,
           translucent: true,
           renderState: { depthTest: { enabled: true }, depthMask: false },
@@ -405,7 +640,7 @@ export function createCesiumWindController(): CesiumWindController {
           primitive,
           sphere: C.BoundingSphere.fromPoints(cellPositions),
         });
-        activeViewer.scene.primitives.add(primitive);
+        viewer.scene?.primitives?.add?.(primitive);
       }
 
       pathCount = paths.length;
@@ -421,7 +656,7 @@ export function createCesiumWindController(): CesiumWindController {
           color: color.withAlpha ? color.withAlpha(0.45) : color,
         });
         for (const path of subset) {
-          collection.add({
+          collection.add?.({
             positions: path.coordinates.map(([lon, lat]) =>
               C.Cartesian3.fromDegrees(lon, lat, WIND_DISPLAY_HEIGHT_METERS)
             ),
@@ -429,7 +664,7 @@ export function createCesiumWindController(): CesiumWindController {
             material: lineMat,
           });
         }
-        activeViewer.scene.primitives.add(collection);
+        viewer.scene?.primitives?.add?.(collection);
         fallbackCollection = collection;
         pathCount = subset.length;
         renderMode = 'polyline-fallback';
@@ -438,10 +673,11 @@ export function createCesiumWindController(): CesiumWindController {
   }
 
   function handlePreRender(): void {
-    if (disposed || !viewerLive() || !enabledState || !activeCesium) return;
+    const viewer = liveViewer();
+    if (disposed || !viewer || !enabledState || !hasActiveCesium) return;
 
-    const scene = activeViewer.scene;
-    const camera = scene.camera;
+    const scene = viewer.scene;
+    const camera = scene?.camera;
     const camHeight = readCameraHeight();
     heightFade = windHeightFade(camHeight);
     updateUniforms();
@@ -460,10 +696,10 @@ export function createCesiumWindController(): CesiumWindController {
     // Horizon + camera frustum culling per 30° cell
     visibleCells = 0;
     const draws = heightFade > 0.01;
-    let cullingVolume: any = null;
+    let cullingVolume: CesiumWindCullingVolume | undefined;
     if (draws && occluder) {
       occluder.cameraPosition = camera.positionWC;
-      cullingVolume = camera.frustum.computeCullingVolume(
+      cullingVolume = camera.frustum?.computeCullingVolume?.(
         camera.positionWC,
         camera.directionWC,
         camera.upWC
@@ -473,8 +709,8 @@ export function createCesiumWindController(): CesiumWindController {
     for (const cell of cells) {
       const vis = Boolean(
         draws &&
-          occluder?.isBoundingSphereVisible(cell.sphere) &&
-          cullingVolume?.computeVisibility(cell.sphere) !== activeCesium.Intersect.OUTSIDE
+          occluder?.isBoundingSphereVisible?.(cell.sphere) &&
+          cullingVolume?.computeVisibility?.(cell.sphere) !== intersectOutsideValue
       );
       cell.primitive.show = vis;
       if (vis) visibleCells += 1;
@@ -504,9 +740,10 @@ export function createCesiumWindController(): CesiumWindController {
   }
 
   function attachGlobalListeners(): void {
-    if (!viewerLive()) return;
-    if (!offPreRender && activeViewer.scene?.preRender?.addEventListener) {
-      offPreRender = activeViewer.scene.preRender.addEventListener(handlePreRender);
+    const viewer = liveViewer();
+    if (!viewer) return;
+    if (!offPreRender && viewer.scene?.preRender?.addEventListener) {
+      offPreRender = viewer.scene.preRender.addEventListener(handlePreRender) ?? null;
     }
     if (!visibilityListener && typeof document !== 'undefined') {
       visibilityListener = () => {
@@ -558,7 +795,9 @@ export function createCesiumWindController(): CesiumWindController {
       }
 
       activeViewer = viewer;
-      activeCesium = Cesium;
+      activeOverlayInstall = () => installOverlayImageryWith(Cesium);
+      intersectOutsideValue = Cesium.Intersect.OUTSIDE;
+      hasActiveCesium = true;
       enabledState = enabled;
       currentPaused = paused;
 
@@ -581,13 +820,13 @@ export function createCesiumWindController(): CesiumWindController {
       currentOverlay = overlay;
 
       if (fieldChanged) {
-        buildStreamlines(snapshot);
+        buildStreamlines(Cesium, snapshot);
       } else {
         updateUniforms();
       }
 
       if (overlayChanged) {
-        void installOverlayImagery();
+        void activeOverlayInstall();
       } else {
         applyOverlayAlpha();
       }
@@ -613,7 +852,8 @@ export function createCesiumWindController(): CesiumWindController {
       clearOverlayImagery();
       clearStreamlines();
       activeViewer = null;
-      activeCesium = null;
+      activeOverlayInstall = null;
+      hasActiveCesium = false;
       currentSnapshot = null;
     },
   };
